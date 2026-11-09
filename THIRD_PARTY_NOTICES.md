@@ -1,7 +1,7 @@
 # Third-party notices
 
 LiteView for Twitch bundles the following programs and shaders. Each keeps its own licence; the
-LiteView source code itself is MIT (see `LICENSE`).
+LiteView source code itself (src/, build.ps1, config/*.ini, config/mpv/*.conf) is MIT (see `LICENSE`).
 
 | Component | Version | Licence | Source |
 |---|---|---|---|

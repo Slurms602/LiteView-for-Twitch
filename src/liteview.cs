@@ -1,7 +1,7 @@
 ﻿// LiteView for Twitch (MIT licence): one window, like Twitch.
 //   Browse: your Twitch "Following > Live" page (Edge WebView2, you log in once).
-//   Watch:  click a streamer -> video (Streamlink + mpv) and chat (Chatterino) docked
-//           side by side in this window; the video area stays 16:9 (no black bars).
+//   Watch:  click a streamer -> followed channels | video (Streamlink + mpv) | native chat
+//           (Twitch IRC + 7TV/BTTV/FFZ emotes) in this window; the video area stays 16:9.
 // Everything runs off the game's CPU die and below the game in priority.
 using System;
 using System.Collections.Generic;
@@ -39,12 +39,15 @@ class LiteView : Form
     const string Home = "https://www.twitch.tv/directory/following/live";
     static readonly string[] Qualities = { "Best", "1080p60", "720p60", "480p" };
 
-    readonly string root, tw, iniPath, streamlink, mpv, chatterino, slLog;
+    readonly string root, tw, iniPath, streamlink, mpv, slLog, pipeName = "liteview-mpv-" + Process.GetCurrentProcess().Id;
     readonly ulong mask = Native.NonCacheDieMask();
 
     readonly Panel bar = new Panel(), body = new Panel(), video = new Panel(), chatBox = new Panel();
-    readonly WebView2 web = new WebView2(), chatWeb = new WebView2();
-    CoreWebView2Environment env; bool chatReady, chatStarting; string chatUrl;
+    WebView2 web, chatWeb = new WebView2();
+    CoreWebView2Environment env; bool chatReady, chatStarting, webChat, loggingIn; string chatUrl;
+    readonly ChatPanel nchat = new ChatPanel();
+    readonly FollowBar side = new FollowBar();
+    readonly System.Windows.Forms.Timer hourly = new System.Windows.Forms.Timer { Interval = 3600000 };
     readonly Button back = new Button(), fsBtn = new Button();
     readonly Label title = new Label(), liveDot = new Label(), status = new Label();
     readonly TextBox search = new TextBox();
@@ -69,11 +72,12 @@ class LiteView : Form
     {
         root = Path.GetDirectoryName(typeof(LiteView).Assembly.Location);
         tw = Path.Combine(root, "twitch");
-        iniPath = Path.Combine(root, "liteview.ini");
+        string exe = Path.GetFileNameWithoutExtension(typeof(LiteView).Assembly.Location);   // LiteView.exe -> liteview.ini (a test copy gets its own)
+        iniPath = Path.Combine(root, exe.ToLowerInvariant() + ".ini");
+        Tw.Init(Path.Combine(root, "liteview.token"));
         streamlink = Directory.GetFiles(Path.Combine(tw, "streamlink"), "streamlinkw.exe", SearchOption.AllDirectories).FirstOrDefault();
         mpv = Path.Combine(tw, "mpv", "mpv.exe");
-        chatterino = Path.Combine(tw, "chatterino", "Chatterino2", "chatterino.exe");
-        slLog = Path.Combine(root, "streamlink.log");
+        slLog = Path.Combine(root, exe.ToLowerInvariant() == "liteview" ? "streamlink.log" : exe + "-streamlink.log");
 
         Text = "LiteView for Twitch"; BackColor = Bg; ForeColor = Fg; Font = new Font("Segoe UI", 9.5f);
         KeyPreview = true; StartPosition = FormStartPosition.Manual; MinimumSize = new Size(640, 400);
@@ -93,7 +97,7 @@ class LiteView : Form
         quality.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
             TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused) Watch(channel); };
-        chatOn.Text = "Chat"; chatOn.ForeColor = Dim; chatOn.AutoSize = true; chatOn.CheckedChanged += (s, e) => { if (watching) { if (chatOn.Checked) StartChat(); else StopChat(); Relayout(); FitWindow(); } };
+        chatOn.Text = "Chat"; chatOn.ForeColor = Dim; chatOn.AutoSize = true; chatOn.ContextMenuStrip = nchat.Menu; chatOn.CheckedChanged += (s, e) => { if (watching) { if (chatOn.Checked) StartChat(); else StopChat(); Relayout(); FitWindow(); } };
         Flat(fsBtn, "⛶"); fsBtn.Width = 34; fsBtn.Click += (s, e) => ToggleFullscreen();
         Flat(muteBtn, "\uE767"); muteBtn.Font = new Font("Segoe MDL2 Assets", 11f); muteBtn.Width = 34;
         muteBtn.Click += (s, e) => { muted = !muted; SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}"); UpdateMute(); SaveSettings(); };
@@ -106,28 +110,41 @@ class LiteView : Form
         new ToolTip().SetToolTip(picture, "Enhance: AMD FSR 1 upscaling + sharpening, any graphics card (light).\nHigh: FSRCNNX neural upscaling, any graphics card (more GPU).\nHigh: + Adaptive Sharpen on the final picture.\nUltra: best possible - NLMeans clean-up, bigger FSRCNNX, KrigBilateral colour, SSimDownscaler, strong sharpening, motion smoothing (most GPU).\nBoth add AMD CAS sharpening at 1:1 and debanding.");
         rtx.Text = "RTX"; rtx.ForeColor = Dim; rtx.AutoSize = true; rtx.CheckedChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); };
         new ToolTip().SetToolTip(rtx, "NVIDIA RTX Video AI clean-up. With High/Ultra it cleans the stream first and FSRCNNX upscales after it;\nwith Off/Enhance RTX does the upscaling. Uses a lot more GPU (Ultra + RTX: about 25% of an RTX 5080).\nNeeds RTX Video Enhancement > Super Resolution on in the NVIDIA app.");
+        new ToolTip().SetToolTip(chatOn, "Show the chat. Right-click: native chat or Twitch web chat, log in or out.");
         new ToolTip().SetToolTip(fsBtn, "Fullscreen (or double-click the video). Esc to leave.");
         bar.Controls.AddRange(new Control[] { back, liveDot, title, search, status, quality, chatOn, picture, rtx, muteBtn, volBar, fsBtn });
         bar.Resize += (s, e) => LayoutBar();
 
-        // body: the Following page, or video + chat
+        // body: the Following page, or followed channels + video + chat
         body.Dock = DockStyle.Fill; body.BackColor = Bg;
         video.BackColor = Color.Black; chatBox.BackColor = Bg;
         video.Resize += (s, e) => lastResize = DateTime.Now;
-        web.Dock = DockStyle.Fill; web.DefaultBackgroundColor = Bg;
         chatWeb.Dock = DockStyle.Fill; chatWeb.DefaultBackgroundColor = Bg; chatBox.Controls.Add(chatWeb);
-        body.Controls.AddRange(new Control[] { web, video, chatBox });
+        nchat.Dock = DockStyle.Fill; chatBox.Controls.Add(nchat);
+        nchat.LoginRequested += Login; side.LoginRequested += Login;
+        side.Pick += n => Watch(n);
+        side.Toggled += () => { Relayout(); FitWindow(); SaveSettings(); };
+        var webItem = new ToolStripMenuItem("Twitch web chat (with 7TV)") { CheckOnClick = false };
+        var logItem = new ToolStripMenuItem();
+        webItem.Click += (s, e) => SetWebChat(!webChat);
+        logItem.Click += (s, e) => { if (Tw.Token == null) Login(); else { Tw.LogOut(); OnLogin(); } };
+        nchat.Menu.Items.AddRange(new ToolStripItem[] { webItem, logItem });
+        nchat.Menu.Opening += (s, e) => { webItem.Checked = webChat; logItem.Text = Tw.Token == null ? "Log in with Twitch" : "Log out (" + (Tw.Login ?? "Twitch") + ")"; };
+        body.Controls.AddRange(new Control[] { side, video, chatBox });
         body.Resize += (s, e) => Relayout();
         Controls.Add(body); Controls.Add(bar);
 
         tick.Interval = 500; tick.Tick += (s, e) => OnTick();
+        hourly.Tick += (s, e) => CheckLogin(); hourly.Start();   // Twitch asks apps to re-check tokens hourly
         KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape && fullscreen) ToggleFullscreen(); else if (e.KeyCode == Keys.F11 && watching) ToggleFullscreen(); };
-        FormClosing += (s, e) => { SaveSettings(); StopStream(); };
+        FormClosing += (s, e) => { SaveSettings(); StopStream(); nchat.Part(); };
         Resize += (s, e) => OnMinimizeChange();
 
         LoadSettings();
         SetMode(false);
         InitWeb();
+        CheckLogin();
+        Shown += (s, e) => { if (startChannel != null) Watch(startChannel); };
         new Thread(PipeLoop) { IsBackground = true, Priority = ThreadPriority.BelowNormal }.Start();
     }
 
@@ -158,19 +175,24 @@ class LiteView : Form
         back.Visible = liveDot.Visible = title.Visible = fsBtn.Visible = muteBtn.Visible = volBar.Visible = picture.Visible = watch; rtx.Visible = watch && HasNvidia;
         search.Visible = !watch;
         status.Location = new Point(watch ? title.Right + 14 : search.Right + 14, 12);
-        web.Visible = !watch; video.Visible = watch; chatBox.Visible = watch && chatOn.Checked;
+        if (web != null) web.Visible = !watch;
+        video.Visible = watch; chatBox.Visible = watch && chatOn.Checked; side.Visible = watch;
+        side.Run(watch);
         Relayout(); LayoutBar();
     }
 
     void Relayout()
     {
         if (!watching) return;
-        int cw = chatOn.Checked && !fullscreen ? ChatW : 0;
-        if (cw > 0 && WindowState == FormWindowState.Maximized) cw = Math.Max(300, Math.Min(640, body.Width - body.Height * 16 / 9));
-        video.SetBounds(0, 0, Math.Max(1, body.Width - cw), body.Height);
+        int cw = chatOn.Checked && !fullscreen ? ChatW : 0, sw = SideW;
+        if (cw > 0 && WindowState == FormWindowState.Maximized) cw = Math.Max(300, Math.Min(640, body.Width - sw - body.Height * 16 / 9));
+        side.Visible = sw > 0; side.SetBounds(0, 0, sw, body.Height);
+        video.SetBounds(sw, 0, Math.Max(1, body.Width - cw - sw), body.Height);
         chatBox.SetBounds(body.Width - cw, 0, cw, body.Height);
         chatBox.Visible = cw > 0;
     }
+
+    int SideW { get { return watching && !fullscreen ? side.Width : 0; } }
 
     // Keep the video area 16:9 while the window is resized (no black bars).
     protected override void WndProc(ref Message m)
@@ -179,7 +201,7 @@ class LiteView : Form
         {
             var r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
             int edge = m.WParam.ToInt32();
-            int ncW = Width - ClientSize.Width, ncH = Height - ClientSize.Height, cw = chatOn.Checked ? ChatW : 0;
+            int ncW = Width - ClientSize.Width, ncH = Height - ClientSize.Height, cw = (chatOn.Checked ? ChatW : 0) + SideW;
             if (edge == 3 || edge == 6) { int vw = (r.B - r.T - ncH - BarH) * 16 / 9; r.R = r.L + vw + cw + ncW; }
             else
             {
@@ -195,7 +217,7 @@ class LiteView : Form
     {
         if (!watching || fullscreen || WindowState != FormWindowState.Normal) return;
         var wa = Screen.FromControl(this).WorkingArea;
-        int ncW = Width - ClientSize.Width, ncH = Height - ClientSize.Height, cw = chatOn.Checked ? ChatW : 0;
+        int ncW = Width - ClientSize.Width, ncH = Height - ClientSize.Height, cw = (chatOn.Checked ? ChatW : 0) + SideW;
         int vh = ClientSize.Height - BarH, vw = vh * 16 / 9;
         if (vw + cw + ncW > wa.Width) { vw = wa.Width - cw - ncW; vh = vw * 9 / 16; }
         var b = new Rectangle(Left, Top, vw + cw + ncW, vh + BarH + ncH);
@@ -204,18 +226,40 @@ class LiteView : Form
         Bounds = b;
     }
 
-    async void InitWeb()
+    // One WebView2 environment (browser) for the Following page, the web chat and the login page.
+    // While you watch with the native chat no browser runs at all: it closes and starts again on Browse.
+    async System.Threading.Tasks.Task<CoreWebView2Environment> Env()
     {
-        try
+        if (env == null)
         {
             var opts = new CoreWebView2EnvironmentOptions(); opts.AreBrowserExtensionsEnabled = true;
             env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(root, "webview"), opts);
-            await web.EnsureCoreWebView2Async(env);
-            var core = web.CoreWebView2;
+        }
+        return env;
+    }
+
+    void DropWeb()
+    {
+        if (web == null) return;
+        var w = web; web = null; webReady = false;
+        body.Controls.Remove(w); w.Dispose();
+        if (!chatReady && !loggingIn) env = null;
+    }
+
+    async void InitWeb()
+    {
+        if (web != null) return;
+        var w = new WebView2(); w.Dock = DockStyle.Fill; w.DefaultBackgroundColor = Bg; w.Visible = !watching;
+        web = w; body.Controls.Add(w); w.BringToFront();
+        try
+        {
+            await w.EnsureCoreWebView2Async(await Env());
+            if (web != w) return;
+            var core = w.CoreWebView2;
             core.IsMuted = true;
             core.Settings.IsStatusBarEnabled = false;
             core.NewWindowRequested += (s, e) => { e.Handled = true; core.Navigate(e.Uri); };
-            core.WebMessageReceived += (s, e) => { string n = e.TryGetWebMessageAsString(); if (!string.IsNullOrEmpty(n)) Watch(n); };
+            core.WebMessageReceived += (s, e) => { string n = e.TryGetWebMessageAsString(); if (!string.IsNullOrEmpty(n)) BeginInvoke((Action)(() => Watch(n))); };
             // A plain click on a channel (card, sidebar, search result) watches it here instead of opening the heavy page.
             await core.AddScriptToExecuteOnDocumentCreatedAsync(@"(function(){
 var R={directory:1,videos:1,settings:1,subscriptions:1,inventory:1,wallet:1,drops:1,search:1,downloads:1,jobs:1,p:1,store:1,turbo:1,prime:1,friends:1,messages:1,popout:1,moderator:1,u:1,login:1,signup:1,logout:1,team:1,bits:1,embed:1,following:1};
@@ -226,10 +270,11 @@ document.addEventListener('click',function(e){if(e.button!==0||e.ctrlKey||e.shif
 var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;var n=ch(a);if(!n)return;
 e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessage(n);},true);})();");
             await SyncExtensions(core.Profile);
+            if (web != w) return;
             webReady = true;
             core.Navigate(Home);
         }
-        catch (Exception ex) { status.Text = "Following page unavailable: " + ex.Message; }
+        catch (Exception ex) { if (web == w) status.Text = "Following page unavailable: " + ex.Message; }
     }
 
     // 7TV alone also shows BetterTTV and FFZ emotes; a second emote extension doubles the chat work.
@@ -308,7 +353,8 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         StopStream(); StopChat();
         if (fullscreen) ToggleFullscreen();
         SetMode(false);
-        if (webReady)
+        if (web == null) InitWeb();
+        else if (webReady)
         {
             try { web.CoreWebView2.Resume(); } catch { }
             web.CoreWebView2.Navigate(Home);   // fresh "who's live"
@@ -324,14 +370,15 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         channel = name; title.Text = name; search.Text = "";
         SetMode(true);
         if (!wasWatching) FitWindow();
-        if (webReady) { hiddenAt = DateTime.Now; web.CoreWebView2.Navigate("about:blank"); }   // nothing runs behind the video
+        side.Current = name; side.Invalidate();
+        if (!webChat) DropWeb();   // native chat: no browser at all while watching
+        else if (webReady) { hiddenAt = DateTime.Now; web.CoreWebView2.Navigate("about:blank"); }   // nothing runs behind the video
 
         StopStream();
-        File.WriteAllText(Path.Combine(tw, "mpv", "portable_config", "screen.conf"), "input-ipc-server=\\\\.\\pipe\\liteview-mpv\r\n");
         string q = (string)quality.SelectedItem;
         string qs = q == "Best" ? "best" : q == "1080p60" ? "1080p60,1080p,best" : q == "720p60" ? "720p60,720p,best" : "480p,best";
-        string args = string.Format("--player \"{0}\" --player-args \"--wid={1}\" --twitch-low-latency --twitch-supported-codecs h264,h265,av1 --loglevel info --logfile \"{2}\" twitch.tv/{3} {4}",
-            mpv, video.Handle.ToInt64(), slLog, name, qs);
+        string args = string.Format("--player \"{0}\" --player-args \"--wid={1} --input-ipc-server={5}\" --twitch-low-latency --twitch-supported-codecs h264,h265,av1 --loglevel info --logfile \"{2}\" twitch.tv/{3} {4}",
+            mpv, video.Handle.ToInt64(), slLog, name, qs, pipeName);
         try { File.Delete(slLog); } catch { }
         job = CreateJobObject(IntPtr.Zero, null);
         var lim = new JOBLIMITS { flags = 0x2000 };   // closing LiteView also ends its stream
@@ -354,12 +401,15 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         SaveSettings();
     }
 
-    async void SuspendWeb() { try { await web.CoreWebView2.TrySuspendAsync(); } catch { } }
+    async void SuspendWeb() { try { if (web != null) await web.CoreWebView2.TrySuspendAsync(); } catch { } }
 
-    // Chat: Twitch's own chat (popout) in the right column; same login as the Following page.
+    // Chat: the native chat, or (fallback) Twitch's own popout chat with 7TV in a WebView2.
     async void StartChat()
     {
-        if (channel == null || env == null) return;
+        if (channel == null) return;
+        nchat.Visible = !webChat; chatWeb.Visible = webChat;
+        if (!webChat) { nchat.Join(channel); return; }
+        await Env();
         chatUrl = "https://www.twitch.tv/popout/" + channel + "/chat?popout=&darkpopout";
         if (!chatReady)
         {
@@ -367,7 +417,7 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
             chatStarting = true;
             try
             {
-                await chatWeb.EnsureCoreWebView2Async(env);
+                await chatWeb.EnsureCoreWebView2Async(await Env());
                 chatWeb.CoreWebView2.IsMuted = true;
                 chatWeb.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 chatWeb.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; Process.Start(e.Uri); };
@@ -381,7 +431,80 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
 
     void StopChat()
     {
+        nchat.Part();
         if (chatReady) { chatWeb.CoreWebView2.Navigate("about:blank"); chatUrl = null; }
+    }
+
+    // gear menu / right-click on "Chat": native chat or Twitch's web chat
+    void SetWebChat(bool on)
+    {
+        if (on == webChat) return;
+        StopChat();
+        webChat = on;
+        if (!on && chatReady)
+        {   // free the web chat's browser completely
+            chatBox.Controls.Remove(chatWeb); chatWeb.Dispose(); chatReady = false;
+            chatWeb = new WebView2(); chatWeb.Dock = DockStyle.Fill; chatWeb.DefaultBackgroundColor = Bg; chatBox.Controls.Add(chatWeb);
+            if (web == null && !loggingIn) env = null;
+        }
+        if (watching && chatOn.Checked) StartChat();
+        SaveSettings();
+    }
+
+    async void CheckLogin()
+    {
+        await Tw.Validate();
+        nchat.UpdateLogin();
+        if (watching) side.Reload();
+    }
+
+    void OnLogin()
+    {
+        nchat.UpdateLogin();
+        if (watching && !webChat && chatOn.Checked) nchat.Reconnect();
+        side.Reload();
+        status.ForeColor = Dim; status.Text = Tw.Login != null ? "Logged in as " + Tw.Login : "";
+    }
+
+    // Twitch login (Device Code Grant Flow): Twitch's own "activate" page in a small window - you are
+    // already logged in there, so it is one click on "Activate" and one on "Authorize".
+    async void Login()
+    {
+        if (loggingIn) return;
+        loggingIn = true;
+        Form f = null;
+        try
+        {
+            var d = await Tw.StartDevice();
+            if (d == null) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Could not reach Twitch."; return; }
+            string code = Tw.S(d, "device_code"), uri = Tw.S(d, "verification_uri");
+            int every = Math.Max(1, (int)Tw.N(d, "interval")); long life = Tw.N(d, "expires_in");
+            f = new Form { Text = "Log in with Twitch", ClientSize = new Size(520, 760), BackColor = Bg, ShowInTaskbar = false, Icon = Icon, StartPosition = FormStartPosition.Manual };
+            f.Location = new Point(Left + Math.Max(0, (Width - f.Width) / 2), Top + Math.Max(0, (Height - f.Height) / 2));
+            f.HandleCreated += (s, e) => { int on = 1; DwmSetWindowAttribute(f.Handle, 20, ref on, 4); };
+            var wv = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Bg };
+            f.Controls.Add(wv); f.Show(this);
+            await wv.EnsureCoreWebView2Async(await Env());
+            wv.CoreWebView2.IsMuted = true;
+            wv.CoreWebView2.Navigate(uri);
+            var end = DateTime.Now.AddSeconds(life > 0 ? life : 1800);
+            while (!f.IsDisposed && DateTime.Now < end)
+            {
+                await System.Threading.Tasks.Task.Delay(every * 1000);
+                if (f.IsDisposed) break;
+                string r = await Tw.PollDevice(code);
+                if (r == "ok") { f.Close(); OnLogin(); break; }
+                if (r == "slow_down") every++;
+                else if (r != "authorization_pending") { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Twitch login: " + r; break; }
+            }
+        }
+        catch (Exception ex) { status.Text = "Twitch login: " + ex.Message; }
+        finally
+        {
+            loggingIn = false;
+            if (f != null && !f.IsDisposed) f.Close();
+            if (web == null && !chatReady) env = null;
+        }
     }
     void StopStream()
     {
@@ -497,7 +620,7 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         {
             try
             {
-                using (var pipe = new NamedPipeClientStream(".", "liteview-mpv", PipeDirection.InOut, PipeOptions.Asynchronous))
+                using (var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
                 {
                     pipe.Connect(1000);
                     lock (pipeLock) mpvPipe = pipe;
@@ -560,6 +683,8 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         muted = Native.Get(ini, "muted", "0") == "1"; UpdateMute();
         int pi = Array.IndexOf(Pictures, "Picture: " + Native.Get(ini, "picture", "Enhance")); picture.SelectedIndex = pi < 0 ? 1 : pi;
         rtx.Checked = Native.Get(ini, "rtx", "1") == "1";
+        webChat = Native.Get(ini, "chatmode", "native") == "web";
+        side.Collapsed = Native.Get(ini, "sidebar", "open") == "closed";
         int x, y, w, h;
         if (int.TryParse(Native.Get(ini, "x", ""), out x) && int.TryParse(Native.Get(ini, "y", ""), out y) &&
             int.TryParse(Native.Get(ini, "w", ""), out w) && int.TryParse(Native.Get(ini, "h", ""), out h) &&
@@ -581,7 +706,7 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         var b = fullscreen ? normalBounds : WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         try
         {
-            File.WriteAllLines(iniPath, new[] { "# LiteView for Twitch (saved automatically)", "quality=" + quality.SelectedItem, "chat=" + (chatOn.Checked ? "1" : "0"), "volume=" + volume, "muted=" + (muted ? "1" : "0"), "picture=" + ((string)picture.SelectedItem ?? "Picture: Enhance").Replace("Picture: ", ""), "rtx=" + (rtx.Checked ? "1" : "0"),
+            File.WriteAllLines(iniPath, new[] { "# LiteView for Twitch (saved automatically)", "quality=" + quality.SelectedItem, "chat=" + (chatOn.Checked ? "1" : "0"), "volume=" + volume, "muted=" + (muted ? "1" : "0"), "picture=" + ((string)picture.SelectedItem ?? "Picture: Enhance").Replace("Picture: ", ""), "rtx=" + (rtx.Checked ? "1" : "0"), "chatmode=" + (webChat ? "web" : "native"), "sidebar=" + (side.Collapsed ? "closed" : "open"),
                 "x=" + b.X, "y=" + b.Y, "w=" + b.Width, "h=" + b.Height, "max=" + (WindowState == FormWindowState.Maximized ? "1" : "0") });
         }
         catch { }
@@ -597,9 +722,12 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         DwmSetWindowAttribute(Handle, 34, ref col, 4);   // border
     }
 
+    static string startChannel;   // "LiteView.exe xqc" opens that stream directly
+
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
+        if (args.Length > 0) startChannel = args[0];
         ulong m = Native.NonCacheDieMask();
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this
         {

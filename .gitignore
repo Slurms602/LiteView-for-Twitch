@@ -7,3 +7,5 @@ liteview.ini
 webview/
 extensions/
 twitch/
+liteview.token
+*.token

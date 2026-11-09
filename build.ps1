@@ -2,8 +2,8 @@
 #   1. downloads the pinned third-party programs and checks them (SHA-256 / Microsoft signature)
 #   2. compiles LiteView.exe and GameFirst.exe with the C# compiler that ships with Windows
 #   3. assembles dist\LiteView-for-Twitch-<version>\ and the release zip
-# Usage:  powershell -ExecutionPolicy Bypass -File build.ps1 [-Version 1.0.0]
-param([string]$Version = '1.0.0')
+# Usage:  powershell -ExecutionPolicy Bypass -File build.ps1 [-Version 1.1.0]
+param([string]$Version = '1.1.0')
 $ErrorActionPreference = 'Stop'
 $root  = $PSScriptRoot
 $cache = Join-Path $root 'build\cache'
@@ -45,7 +45,9 @@ Copy-Item $wvFiles $out
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $common = '/nologo', '/codepage:65001', '/target:winexe', '/optimize+', '/platform:x64', '/nowarn:649'
 & $csc @common /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll `
-    "/r:$out\Microsoft.Web.WebView2.Core.dll" "/r:$out\Microsoft.Web.WebView2.WinForms.dll" "/out:$out\LiteView.exe" "$root\src\liteview.cs" "$root\src\common.cs"
+    /r:System.Net.Http.dll /r:System.Web.Extensions.dll /r:System.Security.dll `
+    "/r:$out\Microsoft.Web.WebView2.Core.dll" "/r:$out\Microsoft.Web.WebView2.WinForms.dll" "/out:$out\LiteView.exe" `
+    "$root\src\liteview.cs" "$root\src\common.cs" "$root\src\helix.cs" "$root\src\chat.cs" "$root\src\sidebar.cs"
 if ($LASTEXITCODE -ne 0) { throw 'LiteView.exe did not compile' }
 & $csc @common "/out:$out\GameFirst.exe" "$root\src\guard.cs" "$root\src\common.cs"
 if ($LASTEXITCODE -ne 0) { throw 'GameFirst.exe did not compile' }

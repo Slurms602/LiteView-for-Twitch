@@ -17,7 +17,11 @@ LiteView source code itself (src/, build.ps1, config/*.ini, config/mpv/*.conf) i
 | Adaptive Sharpen (`adaptive-sharpen.glsl`, `adaptive-sharpen_strong.glsl`) by bacondither, mpv port by igv | - | BSD-2-Clause | https://gist.github.com/igv/8a77e4eb8276753b54bb94c1c50c317e (`_strong` only raises `curve_height` from 1.0 to 1.5) |
 
 Not bundled, loaded at run time from the user's own Chrome install or the Chrome Web Store:
-**7TV** browser extension (https://7tv.app).
+**7TV** browser extension (https://7tv.app). (web chat only)
+
+Not bundled, fetched at run time by the native chat: emote and badge images and emote lists from Twitch,
+7TV (https://7tv.app), BetterTTV (https://betterttv.com) and FrankerFaceZ (https://www.frankerfacez.com) through their
+public APIs and CDNs. The images belong to their creators; LiteView only shows them, like the services' own extensions.
 
 LiteView for Twitch is an independent project. It is not affiliated with, endorsed by or sponsored
 by Twitch Interactive, Inc. "Twitch" is a trademark of Twitch Interactive, Inc.

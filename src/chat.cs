@@ -1,0 +1,907 @@
+// Native Twitch chat for LiteView: Twitch IRC over WebSocket, Twitch + 7TV + BetterTTV + FFZ
+// emotes, badges, name colours, replies and sending - drawn by one light control (no browser).
+// Messages are drawn once into small bitmaps; only animated emotes on screen keep moving.
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Linq;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+// One emote or badge image: all frames decoded once (animated GIFs), drawn at 1x size.
+class Emote
+{
+    public string Name, Url; public int W = 28, H = 28, FixedH; public bool Zero, SizeKnown;
+    public Bitmap[] Frames; public int[] Ends; public int Total;
+    public volatile int State;   // 0 new, 1 loading, 2 ready, 3 failed
+    public bool Animated { get { return Frames != null && Frames.Length > 1; } }
+    public int Index(long ms)
+    {
+        if (Frames == null || Frames.Length < 2) return 0;
+        long t = ms % Total;
+        for (int i = 0; i < Ends.Length; i++) if (t < Ends[i]) return i;
+        return 0;
+    }
+}
+
+static class Images
+{
+    static readonly Dictionary<string, Emote> byUrl = new Dictionary<string, Emote>();
+    static readonly SemaphoreSlim gate = new SemaphoreSlim(4);
+    public static event Action<Emote> Loaded;   // raised on a worker thread
+
+    public static Emote Get(string url, string name, int w, int h, int fixedH)
+    {
+        lock (byUrl)
+        {
+            Emote e;
+            if (byUrl.TryGetValue(url, out e)) return e;
+            e = new Emote { Url = url, Name = name, FixedH = fixedH };
+            if (fixedH > 0) { e.W = e.H = fixedH; e.SizeKnown = true; }
+            else if (w > 0 && h > 0) { Fit(e, w, h); e.SizeKnown = true; }
+            byUrl[url] = e;
+            return e;
+        }
+    }
+
+    static void Fit(Emote e, int w, int h)
+    {
+        int cap = e.FixedH > 0 ? e.FixedH : 32;
+        if (h > cap || e.FixedH > 0) { w = Math.Max(1, w * cap / h); h = cap; }
+        e.W = w; e.H = h;
+    }
+
+    public static void Need(Emote e)
+    {
+        if (e.State != 0) return;
+        e.State = 1;
+        Task.Run(async () =>
+        {
+            await gate.WaitAsync();
+            try { Decode(e, await Tw.Http.GetByteArrayAsync(e.Url)); e.State = 2; }
+            catch { e.State = 3; }
+            finally { gate.Release(); }
+            var h = Loaded; if (h != null) h(e);
+        });
+    }
+
+    static void Decode(Emote e, byte[] b)
+    {
+        using (var ms = new MemoryStream(b))
+        using (var img = Image.FromStream(ms))
+        {
+            Fit(e, img.Width, img.Height);
+            int n = 1; FrameDimension dim = null;
+            try { dim = new FrameDimension(img.FrameDimensionsList[0]); n = Math.Min(400, img.GetFrameCount(dim)); } catch { }
+            var delays = new int[n];
+            if (n > 1) try { var p = img.GetPropertyItem(0x5100); for (int i = 0; i < n && i * 4 + 3 < p.Value.Length; i++) delays[i] = BitConverter.ToInt32(p.Value, i * 4) * 10; } catch { }
+            var frames = new Bitmap[n]; var ends = new int[n]; int t = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (n > 1) img.SelectActiveFrame(dim, i);
+                var f = new Bitmap(e.W, e.H, PixelFormat.Format32bppPArgb);
+                using (var g = Graphics.FromImage(f))
+                {
+                    g.InterpolationMode = img.Height == e.H ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = PixelOffsetMode.Half;
+                    g.DrawImage(img, new Rectangle(0, 0, e.W, e.H));
+                }
+                frames[i] = f; t += delays[i] < 20 ? 100 : delays[i]; ends[i] = t;
+            }
+            e.Ends = ends; e.Total = Math.Max(1, t); e.Frames = frames;
+        }
+    }
+}
+
+// Twitch IRC over a WebSocket; reconnects by itself. Anonymous (read-only) without a token.
+class Irc
+{
+    public event Action<string> Line;
+    public event Action<string> Status;
+    ClientWebSocket ws; CancellationTokenSource cts;
+    readonly SemaphoreSlim sendGate = new SemaphoreSlim(1);
+
+    public void Start(string channel, string login, string token)
+    {
+        Stop();
+        cts = new CancellationTokenSource();
+        var c = cts.Token;
+        Task.Run(() => Loop(channel, login, token, c));
+    }
+
+    public void Stop()
+    {
+        if (cts != null) { cts.Cancel(); cts = null; }
+        var s = ws; ws = null;
+        if (s != null) try { s.Abort(); } catch { }
+    }
+
+    public bool Send(string raw)
+    {
+        var s = ws;
+        if (s == null || s.State != WebSocketState.Open) return false;
+        Task.Run(() => SendRaw(s, raw));
+        return true;
+    }
+
+    async Task SendRaw(ClientWebSocket s, string raw)
+    {
+        await sendGate.WaitAsync();
+        try { var b = Encoding.UTF8.GetBytes(raw + "\r\n"); await s.SendAsync(new ArraySegment<byte>(b), WebSocketMessageType.Text, true, CancellationToken.None); }
+        catch { }
+        finally { sendGate.Release(); }
+    }
+
+    void Say(string s) { var h = Status; if (h != null) h(s); }
+
+    async Task Loop(string chan, string login, string token, CancellationToken c)
+    {
+        int wait = 1000; var rnd = new Random();
+        while (!c.IsCancellationRequested)
+        {
+            var s = new ClientWebSocket();
+            try
+            {
+                await s.ConnectAsync(new Uri("wss://irc-ws.chat.twitch.tv:443"), c);
+                ws = s;
+                await SendRaw(s, "CAP REQ :twitch.tv/tags twitch.tv/commands");
+                await SendRaw(s, token != null ? "PASS oauth:" + token : "PASS SCHMOOPIIE");
+                await SendRaw(s, "NICK " + (token != null ? login : "justinfan" + rnd.Next(10000, 99999)));
+                await SendRaw(s, "JOIN #" + chan);
+                wait = 1000;
+                var buf = new byte[32768]; var acc = new MemoryStream();
+                bool again = false;
+                while (s.State == WebSocketState.Open && !again)
+                {
+                    var r = await s.ReceiveAsync(new ArraySegment<byte>(buf), c);
+                    if (r.MessageType == WebSocketMessageType.Close) break;
+                    acc.Write(buf, 0, r.Count);
+                    if (!r.EndOfMessage) continue;
+                    string text = Encoding.UTF8.GetString(acc.GetBuffer(), 0, (int)acc.Length); acc.SetLength(0);
+                    foreach (var line in text.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (line.StartsWith("PING")) { await SendRaw(s, "PONG" + line.Substring(4)); continue; }
+                        if (line.EndsWith(" RECONNECT")) { again = true; break; }
+                        var h = Line; if (h != null) h(line);
+                    }
+                }
+            }
+            catch { }
+            finally { if (ws == s) ws = null; try { s.Dispose(); } catch { } }
+            if (c.IsCancellationRequested) break;
+            Say("Reconnecting to chat...");
+            try { await Task.Delay(wait, c); } catch { break; }
+            wait = Math.Min(wait * 2, 30000);
+        }
+    }
+}
+
+class IrcMsg
+{
+    public Dictionary<string, string> Tags = new Dictionary<string, string>();
+    public string Prefix, Cmd, Chan, Text;
+    public string Tag(string k) { string v; return Tags.TryGetValue(k, out v) ? v : null; }
+    public string Nick { get { if (Prefix == null) return null; int i = Prefix.IndexOf('!'); return i < 0 ? Prefix : Prefix.Substring(0, i); } }
+
+    public static IrcMsg Parse(string line)
+    {
+        var m = new IrcMsg(); int i = 0;
+        if (line.StartsWith("@"))
+        {
+            int sp = line.IndexOf(' '); if (sp < 0) return null;
+            foreach (var kv in line.Substring(1, sp - 1).Split(';'))
+            {
+                int eq = kv.IndexOf('=');
+                if (eq > 0) m.Tags[kv.Substring(0, eq)] = Unescape(kv.Substring(eq + 1));
+            }
+            i = sp + 1;
+        }
+        if (i < line.Length && line[i] == ':')
+        {
+            int sp = line.IndexOf(' ', i); if (sp < 0) return null;
+            m.Prefix = line.Substring(i + 1, sp - i - 1); i = sp + 1;
+        }
+        int t = line.IndexOf(" :", i);
+        string mid = t < 0 ? line.Substring(i) : line.Substring(i, t - i);
+        m.Text = t < 0 ? null : line.Substring(t + 2);
+        var parts = mid.Split(' ');
+        m.Cmd = parts[0]; m.Chan = parts.Length > 1 ? parts[1].TrimStart('#') : null;
+        return m;
+    }
+
+    static string Unescape(string v)
+    {
+        if (v.IndexOf('\\') < 0) return v;
+        var sb = new StringBuilder();
+        for (int i = 0; i < v.Length; i++)
+        {
+            if (v[i] != '\\' || i + 1 >= v.Length) { if (v[i] != '\\') sb.Append(v[i]); continue; }
+            char n = v[++i];
+            sb.Append(n == 's' ? ' ' : n == ':' ? ';' : n == 'r' ? '\r' : n == 'n' ? '\n' : n);
+        }
+        return sb.ToString();
+    }
+}
+
+// A piece of a chat line: 0 word, 1 emote, 2 badge, 3 name, 4 link, 5 @mention, 6 dim word
+class Piece { public byte Kind; public string Text; public Emote E; public Color C; }
+class Place { public Rectangle R; public Piece P; public int Last = -1; }
+
+class Msg
+{
+    public string Id, Login, Display, Reply; public Color NameColor;
+    public List<Piece> P = new List<Piece>();
+    public byte Style;   // 0 normal, 1 mentions me, 2 sub/raid notice, 3 dim system line
+    public bool Deleted;
+    public List<Piece> Shown;   // what is drawn (P, or "message deleted")
+    public int LW = -1, H, Seen; public List<Place> Places; public Bitmap Cache; public bool Dynamic;
+}
+
+// The message list: lays out and draws chat lines like Twitch (Segoe UI 13 px, 20 px lines).
+class ChatView : Control
+{
+    public static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
+        MentionBg = Color.FromArgb(62, 22, 26), NoticeBg = Color.FromArgb(31, 31, 35), Accent = Color.FromArgb(145, 71, 255), LinkC = Color.FromArgb(191, 148, 255);
+    static readonly Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);
+    const TextFormatFlags TF = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
+    public readonly List<Msg> Msgs = new List<Msg>();
+    public event Action<string> NameClicked;
+    int scroll, gen; readonly List<Place> anims = new List<Place>(); readonly List<KeyValuePair<Place, int>> animY = new List<KeyValuePair<Place, int>>();
+    readonly System.Windows.Forms.Timer animTick = new System.Windows.Forms.Timer { Interval = 33 };
+    readonly Stopwatch clock = Stopwatch.StartNew();
+    readonly Dictionary<string, int> widths = new Dictionary<string, int>();
+    readonly ToolTip tip = new ToolTip(); string tipText;
+    Rectangle pausedBox;
+    int spaceW, textH;
+
+    public ChatView()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        BackColor = Bg;
+        animTick.Tick += (s, e) => Animate();
+        spaceW = TextRenderer.MeasureText("x x", F, Size.Empty, TF).Width - TextRenderer.MeasureText("xx", F, Size.Empty, TF).Width;
+        textH = TextRenderer.MeasureText("Ag", F, Size.Empty, TF).Height;
+    }
+
+    public void ToBottom() { if (scroll > 0) { scroll = 0; Invalidate(); } }
+
+    public void Clear() { foreach (var m in Msgs) Drop(m); Msgs.Clear(); scroll = 0; Invalidate(); }
+
+    public void Add(List<Msg> list)
+    {
+        if (list.Count == 0) return;
+        if (scroll > 0) foreach (var m in list) { Lay(m); scroll += m.H; }
+        Msgs.AddRange(list);
+        int max = scroll > 0 ? 2000 : 300;
+        if (Msgs.Count > max) { for (int i = 0; i < Msgs.Count - max; i++) Drop(Msgs[i]); Msgs.RemoveRange(0, Msgs.Count - max); }
+        Invalidate();
+    }
+
+    public void Redo(Func<Msg, bool> which) { foreach (var m in Msgs) if (which(m)) { m.LW = -1; Drop(m); } Invalidate(); }
+
+    // an image arrived: redraw the lines on screen that use it
+    public void OnImage(Emote e)
+    {
+        bool hit = false;
+        foreach (var m in Msgs)
+            if (m.Places != null && m.Shown.Any(p => p.E == e)) { if (!e.SizeKnown || e.State == 2) { m.LW = -1; Drop(m); hit = true; } }
+        e.SizeKnown = true;
+        if (hit) Invalidate();
+    }
+
+    static void Drop(Msg m) { if (m.Cache != null) { m.Cache.Dispose(); m.Cache = null; } }
+
+    int Measure(string w, Font f)
+    {
+        string k = (f == FB ? "\u0001" : f == FS ? "\u0002" : "") + w;
+        int v;
+        if (widths.TryGetValue(k, out v)) return v;
+        if (widths.Count > 20000) widths.Clear();
+        // advance width without GDI's per-call overhang: (word + "x") - "x"
+        v = TextRenderer.MeasureText(w + "x", f, Size.Empty, TF).Width - TextRenderer.MeasureText("x", f, Size.Empty, TF).Width;
+        widths[k] = v; return v;
+    }
+
+    Font FontOf(Piece p) { return p.Kind == 3 || p.Kind == 5 ? FB : F; }
+
+    void Lay(Msg m)
+    {
+        int W = Math.Max(120, ClientSize.Width);
+        if (m.LW == W) return;
+        m.LW = W; m.Places = new List<Place>(); m.Dynamic = false;
+        m.Shown = m.Deleted ? m.P.Where(p => p.Kind == 2 || p.Kind == 3).Concat(new[] { new Piece { Kind = 6, Text = "<message deleted>", C = Dim } }).ToList() : m.P;
+        int x0 = m.Style == 2 ? 14 : 10, right = W - 10, y = 5;
+        if (m.Reply != null) { m.Places.Add(new Place { R = new Rectangle(x0, y, right - x0, 16), P = new Piece { Kind = 7, Text = m.Reply, C = Dim } }); y += 18; }
+        var lines = new List<List<Place>>(); var line = new List<Place>(); int x = x0;
+        Place prevEmote = null;
+        foreach (var p in m.Shown)
+        {
+            int w, h;
+            if (p.Kind == 1 || p.Kind == 2)
+            {
+                Images.Need(p.E); w = p.E.W; h = p.E.H;
+                if (p.E.State == 2 && p.E.Animated) m.Dynamic = true;
+                if (p.Kind == 1 && p.E.Zero && prevEmote != null)
+                {   // 7TV zero-width emote: drawn over the emote before it
+                    var r = prevEmote.R; m.Dynamic = true;
+                    line.Add(new Place { R = new Rectangle(r.X + (r.Width - w) / 2, 0, w, h), P = p }); continue;
+                }
+            }
+            else { w = Measure(p.Text, FontOf(p)); h = textH; }
+            if (x + w > right && x > x0) { lines.Add(line); line = new List<Place>(); x = x0; }
+            if (w > right - x0 && p.Kind != 1 && p.Kind != 2)
+            {   // a very long word: break it over lines
+                string rest = p.Text;
+                while (rest.Length > 0)
+                {
+                    int n = rest.Length;
+                    while (n > 1 && Measure(rest.Substring(0, n), F) > right - x) n = Math.Max(1, n * 3 / 4);
+                    var q = new Piece { Kind = p.Kind, Text = rest.Substring(0, n), C = p.C };
+                    line.Add(new Place { R = new Rectangle(x, 0, Measure(q.Text, F), h), P = q });
+                    rest = rest.Substring(n);
+                    if (rest.Length > 0) { lines.Add(line); line = new List<Place>(); x = x0; }
+                    else x += Measure(q.Text, F) + spaceW;
+                }
+                prevEmote = null; continue;
+            }
+            var pl = new Place { R = new Rectangle(x, 0, w, h), P = p };
+            line.Add(pl);
+            prevEmote = p.Kind == 1 ? pl : null;
+            x += w + (p.Kind == 2 ? 3 : p.Kind == 3 && p.Text.EndsWith(":") ? spaceW : p.Kind == 3 ? spaceW : spaceW);
+        }
+        if (line.Count > 0) lines.Add(line);
+        foreach (var l in lines)
+        {
+            int lh = 20; foreach (var pl in l) lh = Math.Max(lh, pl.R.Height + 2);
+            foreach (var pl in l) { var r = pl.R; r.Y = y + (lh - r.Height) / 2; pl.R = r; m.Places.Add(pl); }
+            y += lh;
+        }
+        m.H = y + 5;
+    }
+
+    Color BgOf(Msg m) { return m.Style == 1 ? MentionBg : m.Style == 2 ? NoticeBg : Bg; }
+
+    void Render(Msg m)
+    {
+        if (m.Cache != null) return;
+        var b = new Bitmap(m.LW, m.H, PixelFormat.Format32bppRgb);
+        var bg = BgOf(m);
+        using (var g = Graphics.FromImage(b))
+        {
+            g.Clear(bg);
+            if (m.Style == 2) using (var br = new SolidBrush(Accent)) g.FillRectangle(br, 0, 0, 4, m.H);
+            if (m.Style == 1) using (var br = new SolidBrush(Color.FromArgb(235, 4, 0))) g.FillRectangle(br, 0, 0, 3, m.H);
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            foreach (var pl in m.Places)
+            {
+                var p = pl.P;
+                if (p.Kind == 1 || p.Kind == 2)
+                {
+                    if (p.E.State != 2 || p.E.Animated || p.E.Zero) continue;   // moving ones are drawn live
+                    g.DrawImage(p.E.Frames[0], pl.R.X, pl.R.Y, pl.R.Width, pl.R.Height);
+                }
+                else if (p.Kind == 7)
+                    TextRenderer.DrawText(g, "↳ " + p.Text, FS, pl.R, Dim, bg, TF | TextFormatFlags.EndEllipsis);
+                else
+                {
+                    TextRenderer.DrawText(g, p.Text, FontOf(p), pl.R.Location, p.Kind == 4 ? LinkC : p.C, bg, TF);
+                    if (p.Kind == 4) using (var pen = new Pen(LinkC)) g.DrawLine(pen, pl.R.Left, pl.R.Bottom, pl.R.Right - 1, pl.R.Bottom);
+                }
+            }
+        }
+        m.Cache = b;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics; g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        gen++; anims.Clear(); animY.Clear();
+        long now = clock.ElapsedMilliseconds;
+        int y = ClientSize.Height + scroll, top = 0;
+        for (int i = Msgs.Count - 1; i >= 0; i--)
+        {
+            var m = Msgs[i]; Lay(m);
+            y -= m.H;
+            if (y >= ClientSize.Height) continue;
+            if (y + m.H <= 0) { top = 1; break; }
+            Render(m); m.Seen = gen;
+            g.DrawImageUnscaled(m.Cache, 0, y);
+            if (!m.Dynamic) continue;
+            foreach (var pl in m.Places)
+            {
+                var p = pl.P;
+                if ((p.Kind != 1 && p.Kind != 2) || p.E.State != 2 || (!p.E.Animated && !p.E.Zero)) continue;
+                int f = p.E.Index(now); pl.Last = f;
+                g.DrawImage(p.E.Frames[f], pl.R.X, pl.R.Y + y, pl.R.Width, pl.R.Height);
+                if (p.E.Animated) { anims.Add(pl); animY.Add(new KeyValuePair<Place, int>(pl, y)); }
+            }
+        }
+        if (top == 0 && scroll > 0 && y > 0) { scroll = Math.Max(0, scroll - y); Invalidate(); }   // scrolled past the oldest line
+        // free the pictures of lines that left the screen
+        foreach (var m in Msgs) if (m.Cache != null && m.Seen != gen) Drop(m);
+        if (scroll > 0)
+        {
+            string t = "⏸  Chat paused due to scroll";
+            var sz = TextRenderer.MeasureText(t, FB);
+            pausedBox = new Rectangle((ClientSize.Width - sz.Width - 28) / 2, ClientSize.Height - 44, sz.Width + 28, 32);
+            using (var br = new SolidBrush(Color.FromArgb(230, 14, 14, 16))) g.FillRectangle(br, pausedBox);
+            TextRenderer.DrawText(g, t, FB, pausedBox, Fg, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+        else pausedBox = Rectangle.Empty;
+        animTick.Enabled = anims.Count > 0;
+    }
+
+    void Animate()
+    {
+        var form = FindForm();
+        if (form == null || form.WindowState == FormWindowState.Minimized || !Visible) return;
+        long now = clock.ElapsedMilliseconds;
+        foreach (var kv in animY)
+        {
+            var pl = kv.Key; int f = pl.P.E.Index(now);
+            if (f == pl.Last) continue;
+            pl.Last = f;
+            var r = pl.R; r.Y += kv.Value;
+            // a zero-width emote on top is redrawn with it
+            r.Inflate(8, 0);
+            Invalidate(r);
+        }
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        int total = 0; foreach (var m in Msgs) { Lay(m); total += m.H; }
+        scroll = Math.Max(0, Math.Min(Math.Max(0, total - ClientSize.Height), scroll + e.Delta / 120 * 60));
+        Invalidate();
+    }
+
+    Place Hit(Point pt, out Msg msg)
+    {
+        msg = null;
+        int y = ClientSize.Height + scroll;
+        for (int i = Msgs.Count - 1; i >= 0; i--)
+        {
+            var m = Msgs[i]; if (m.Places == null) break;
+            y -= m.H;
+            if (pt.Y < y) continue;
+            if (pt.Y >= y + m.H) break;
+            msg = m;
+            foreach (var pl in m.Places) { var r = pl.R; r.Y += y; if (r.Contains(pt)) return pl; }
+            return null;
+        }
+        return null;
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        if (pausedBox.Contains(e.Location)) { scroll = 0; Invalidate(); return; }
+        Msg m; var pl = Hit(e.Location, out m);
+        if (pl == null) return;
+        if (pl.P.Kind == 4) { try { var t = pl.P.Text; Process.Start(t.StartsWith("http") ? t : "https://" + t); } catch { } }
+        else if (pl.P.Kind == 3 && m.Login != null && NameClicked != null) NameClicked(m.Login);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        Msg m; var pl = Hit(e.Location, out m);
+        string t = pl == null ? null : pl.P.Kind == 1 || pl.P.Kind == 2 ? pl.P.E.Name : null;
+        Cursor = pl != null && (pl.P.Kind == 4 || pl.P.Kind == 3) || pausedBox.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+        if (t == tipText) return;
+        tipText = t;
+        if (t == null) tip.Hide(this); else tip.Show(t, this, e.X + 12, e.Y + 18);
+    }
+
+    protected override void OnResize(EventArgs e) { base.OnResize(e); foreach (var m in Msgs) Drop(m); }
+}
+
+// The chat column: header, messages, input. Joins one channel at a time.
+class ChatPanel : Panel
+{
+    public readonly ChatView View = new ChatView();
+    readonly Panel head = new Panel(), foot = new Panel();
+    readonly Label headText = new Label();
+    readonly Button gear = new Button();
+    readonly TextBox input = new TextBox();
+    readonly LinkLabel loginLink = new LinkLabel();
+    public readonly ContextMenuStrip Menu = new ContextMenuStrip();
+    readonly Irc irc = new Irc();
+    readonly ConcurrentQueue<Msg> inbox = new ConcurrentQueue<Msg>();
+    readonly System.Windows.Forms.Timer drain = new System.Windows.Forms.Timer { Interval = 100 };
+    public event Action LoginRequested;
+    string channel, roomId;
+    volatile Dictionary<string, Emote> third = new Dictionary<string, Emote>();
+    static Dictionary<string, Emote> globals;
+    static readonly object globalLock = new object();
+    volatile Dictionary<string, Emote> badges = new Dictionary<string, Emote>();
+    static Dictionary<string, Emote> globalBadges;
+    readonly ConcurrentDictionary<string, string> twitchEmotes = new ConcurrentDictionary<string, string>();   // name -> id, learned from chat
+    readonly ConcurrentDictionary<string, byte> chatters = new ConcurrentDictionary<string, byte>();
+    IrcMsg me;   // our USERSTATE (badges, colour) for echoing our own messages
+    readonly ConcurrentQueue<string> pending = new ConcurrentQueue<string>();
+    readonly List<string> sent = new List<string>(); int sentPos;
+    string tabBase, tabPrefix; List<string> tabList; int tabIdx;
+
+    static readonly string[] DefaultColors = { "#FF0000", "#0000FF", "#008000", "#B22222", "#FF7F50", "#9ACD32", "#FF4500", "#2E8B57", "#DAA520", "#D2691E", "#5F9EA0", "#1E90FF", "#FF69B4", "#8A2BE2", "#00FF7F" };
+    static readonly Regex UrlRx = new Regex(@"^(https?://\S+|(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)*\.(com|tv|gg|net|org|io|be|ly|me|co|app|link)(/\S*)?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public ChatPanel()
+    {
+        BackColor = ChatView.Bg;
+        head.Dock = DockStyle.Top; head.Height = 38; head.BackColor = ChatView.Bg;
+        headText.Text = "STREAM CHAT"; headText.ForeColor = ChatView.Fg; headText.Font = new Font("Segoe UI Semibold", 9f); headText.Dock = DockStyle.Fill; headText.TextAlign = ContentAlignment.MiddleCenter;
+        gear.Text = ""; gear.Font = new Font("Segoe MDL2 Assets", 10f); gear.FlatStyle = FlatStyle.Flat; gear.FlatAppearance.BorderSize = 0;
+        gear.FlatAppearance.MouseOverBackColor = Color.FromArgb(38, 38, 44); gear.ForeColor = ChatView.Fg; gear.Width = 34; gear.Dock = DockStyle.Right; gear.Cursor = Cursors.Hand;
+        gear.Click += (s, e) => Menu.Show(gear, new Point(gear.Width - Menu.Width, gear.Height));
+        Menu.Renderer = new ToolStripProfessionalRenderer(new DarkColors()); Menu.ForeColor = ChatView.Fg; Menu.ShowImageMargin = false;
+        head.Controls.Add(headText); head.Controls.Add(gear);
+        head.Paint += (s, e) => { using (var p = new Pen(Color.FromArgb(53, 53, 59))) e.Graphics.DrawLine(p, 0, head.Height - 1, head.Width, head.Height - 1); };
+
+        foot.Dock = DockStyle.Bottom; foot.Height = 50; foot.BackColor = ChatView.Bg; foot.Padding = new Padding(10, 8, 10, 10);
+        input.BorderStyle = BorderStyle.FixedSingle; input.BackColor = Color.FromArgb(38, 38, 44); input.ForeColor = ChatView.Fg; input.Font = new Font("Segoe UI", 10.5f);
+        input.Dock = DockStyle.Fill; input.MaxLength = 500;
+        input.HandleCreated += (s, e) => SendMessage(input.Handle, 0x1501, (IntPtr)1, "Send a message");
+        input.PreviewKeyDown += (s, e) => { if (e.KeyCode == Keys.Tab) e.IsInputKey = true; };
+        input.KeyDown += OnKey;
+        loginLink.Text = "Log in with Twitch to chat"; loginLink.LinkColor = ChatView.LinkC; loginLink.ActiveLinkColor = ChatView.Fg; loginLink.Dock = DockStyle.Fill;
+        loginLink.TextAlign = ContentAlignment.MiddleCenter; loginLink.LinkBehavior = LinkBehavior.HoverUnderline;
+        loginLink.LinkClicked += (s, e) => { if (LoginRequested != null) LoginRequested(); };
+        foot.Controls.Add(input); foot.Controls.Add(loginLink);
+        View.Dock = DockStyle.Fill;
+        View.NameClicked += n => { input.Text = (input.Text.Length > 0 && !input.Text.EndsWith(" ") ? input.Text + " " : input.Text) + "@" + n + " "; input.Focus(); input.SelectionStart = input.Text.Length; };
+        Controls.Add(View); Controls.Add(foot); Controls.Add(head);
+
+        irc.Line += OnLine;
+        irc.Status += s => inbox.Enqueue(Sys(s));
+        drain.Tick += (s, e) => Drain();
+        Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => View.OnImage(e))); } catch { } };
+        UpdateLogin();
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, string l);
+
+    public void UpdateLogin() { input.Visible = Tw.Token != null; loginLink.Visible = Tw.Token == null; }
+
+    public string Channel { get { return channel; } }
+
+    public void Join(string ch)
+    {
+        if (ch == channel && drain.Enabled) return;
+        channel = ch; roomId = null; badges = new Dictionary<string, Emote>(); third = globals ?? new Dictionary<string, Emote>();
+        View.Clear(); Msg dummy; while (inbox.TryDequeue(out dummy)) { }
+        string dummyS; while (pending.TryDequeue(out dummyS)) { }
+        chatters.Clear(); me = null;
+        UpdateLogin();
+        inbox.Enqueue(Sys("Welcome to the chat room!"));
+        irc.Start(ch, Tw.Login, Tw.Login != null ? Tw.Token : null);
+        drain.Start();
+        LoadGlobals();
+    }
+
+    public void Part() { irc.Stop(); drain.Stop(); channel = null; View.Clear(); }
+
+    public void Reconnect() { if (channel != null) { var c = channel; channel = null; Join(c); } }
+
+    // ---------- emotes and badges ----------
+    void LoadGlobals()
+    {
+        lock (globalLock) { if (globals != null) return; globals = new Dictionary<string, Emote>(); }
+        Task.Run(async () =>
+        {
+            var d = new Dictionary<string, Emote>();
+            await Ffz(d, "https://api.frankerfacez.com/v1/set/global", true);
+            await Bttv(d, "https://api.betterttv.net/3/cached/emotes/global", false);
+            await SevenTv(d, "https://7tv.io/v3/emote-sets/global", false);
+            globals = d;
+            if (roomId == null) third = d; else LoadChannel(roomId);
+            if (Tw.Token != null && globalBadges == null) globalBadges = await Badges("chat/badges/global");
+        });
+    }
+
+    void LoadChannel(string id)
+    {
+        string ch = channel;
+        Task.Run(async () =>
+        {
+            var d = new Dictionary<string, Emote>(globals ?? new Dictionary<string, Emote>());
+            await Ffz(d, "https://api.frankerfacez.com/v1/room/id/" + id, false);
+            await Bttv(d, "https://api.betterttv.net/3/cached/users/twitch/" + id, true);
+            await SevenTv(d, "https://7tv.io/v3/users/twitch/" + id, true);
+            if (ch != channel) return;
+            third = d;
+            if (Tw.Token != null)
+            {
+                if (globalBadges == null) globalBadges = await Badges("chat/badges/global");
+                var b = await Badges("chat/badges?broadcaster_id=" + id);
+                if (ch == channel) badges = b;
+            }
+        });
+    }
+
+    static async Task<Dictionary<string, Emote>> Badges(string q)
+    {
+        var d = new Dictionary<string, Emote>();
+        var j = await Tw.Helix(q);
+        foreach (var set in Tw.A(j, "data"))
+            foreach (var v in Tw.A(set, "versions"))
+            {
+                string url = Tw.S(v, "image_url_1x"); if (url == null) continue;
+                d[Tw.S(set, "set_id") + "/" + Tw.S(v, "id")] = Images.Get(url, Tw.S(v, "title"), 18, 18, 18);
+            }
+        return d;
+    }
+
+    static async Task SevenTv(Dictionary<string, Emote> d, string url, bool user)
+    {
+        var j = Tw.Parse(await Tw.Get(url));
+        if (user) j = Tw.V(j, "emote_set");
+        foreach (var e in Tw.A(j, "emotes"))
+        {
+            var data = Tw.V(e, "data"); var host = Tw.V(data, "host");
+            string name = Tw.S(e, "name"), hu = Tw.S(host, "url"); if (name == null || hu == null) continue;
+            bool anim = Tw.B(data, "animated");
+            int w = 0, h = 0;
+            foreach (var f in Tw.A(host, "files")) if (Tw.S(f, "name") == "1x.webp") { w = (int)Tw.N(f, "width"); h = (int)Tw.N(f, "height"); }
+            var em = Images.Get("https:" + hu + "/1x." + (anim ? "gif" : "png"), name, w, h, 0);
+            em.Zero = (Tw.N(e, "flags") & 1) != 0 || (Tw.N(data, "flags") & 256) != 0;
+            d[name] = em;
+        }
+    }
+
+    static readonly HashSet<string> BttvZero = new HashSet<string> { "SoSnowy", "IceCold", "SantaHat", "TopHat", "ReinDeer", "CandyCane", "cvMask", "cvHazmat" };
+    static async Task Bttv(Dictionary<string, Emote> d, string url, bool user)
+    {
+        var j = Tw.Parse(await Tw.Get(url));
+        var list = user ? Tw.A(j, "channelEmotes").Concat(Tw.A(j, "sharedEmotes")) : (j as object[] ?? new object[0]);
+        foreach (var e in list)
+        {
+            string code = Tw.S(e, "code"), id = Tw.S(e, "id"); if (code == null || id == null) continue;
+            bool anim = Tw.B(e, "animated") || Tw.S(e, "imageType") == "gif";
+            var em = Images.Get("https://cdn.betterttv.net/emote/" + id + "/1x." + (anim ? "gif" : "png"), code, 0, 0, 0);
+            em.Zero = BttvZero.Contains(code);
+            d[code] = em;
+        }
+    }
+
+    static async Task Ffz(Dictionary<string, Emote> d, string url, bool global)
+    {
+        var j = Tw.Parse(await Tw.Get(url));
+        var sets = Tw.V(j, "sets");
+        var only = global ? new HashSet<string>(Tw.A(j, "default_sets").Select(x => Convert.ToString(x))) : null;
+        foreach (var kv in Tw.Props(sets))
+        {
+            if (only != null && !only.Contains(kv.Key)) continue;
+            foreach (var e in Tw.A(kv.Value, "emoticons"))
+            {
+                string name = Tw.S(e, "name"), u = Tw.S(Tw.V(e, "urls"), "1"); if (name == null || u == null) continue;
+                if (u.StartsWith("//")) u = "https:" + u;
+                d[name] = Images.Get(u, name, (int)Tw.N(e, "width"), (int)Tw.N(e, "height"), 0);
+            }
+        }
+    }
+
+    // ---------- incoming ----------
+    static Msg Sys(string text)
+    {
+        var m = new Msg { Style = 3 };
+        foreach (var w in text.Split(' ')) if (w.Length > 0) m.P.Add(new Piece { Kind = 6, Text = w, C = ChatView.Dim });
+        return m;
+    }
+
+    void OnLine(string line)
+    {
+        IrcMsg im;
+        try { im = IrcMsg.Parse(line); } catch { return; }
+        if (im == null) return;
+        switch (im.Cmd)
+        {
+            case "PRIVMSG": inbox.Enqueue(Build(im, im.Text, im.Nick)); break;
+            case "USERNOTICE":
+            {
+                var m = Build(im, im.Text ?? "", im.Tag("login")); m.Style = 2;
+                var sys = new List<Piece>();
+                foreach (var w in (im.Tag("system-msg") ?? "").Split(' ')) if (w.Length > 0) sys.Add(new Piece { Kind = 0, Text = w, C = ChatView.Fg });
+                if (im.Text == null) m.P = sys; else { sys.Add(new Piece { Kind = 0, Text = "•", C = ChatView.Dim }); m.P = sys.Concat(m.P).ToList(); }
+                inbox.Enqueue(m); break;
+            }
+            case "ROOMSTATE":
+                if (im.Tag("room-id") != null && roomId == null) { roomId = im.Tag("room-id"); LoadChannel(roomId); }
+                break;
+            case "USERSTATE": case "GLOBALUSERSTATE":
+            {
+                if (im.Cmd == "USERSTATE") me = im;
+                string text;
+                if (im.Cmd == "USERSTATE" && pending.TryDequeue(out text)) inbox.Enqueue(Build(im, text, Tw.Login));
+                break;
+            }
+            case "NOTICE":
+            {
+                string t; if (im.Tag("msg-id") != null && im.Tag("msg-id").StartsWith("msg_")) pending.TryDequeue(out t);
+                if (im.Text != null) inbox.Enqueue(Sys(im.Text));
+                if (im.Text != null && im.Text.Contains("authentication failed"))
+                    try { BeginInvoke((Action)(async () => { await Tw.Validate(); UpdateLogin(); Reconnect(); })); } catch { }
+                break;
+            }
+            case "CLEARMSG":
+            {
+                string id = im.Tag("target-msg-id");
+                if (id != null) Post(() => View.Redo(m => { if (m.Id != id) return false; m.Deleted = true; return true; }));
+                break;
+            }
+            case "CLEARCHAT":
+            {
+                string who = im.Text;
+                if (who == null) inbox.Enqueue(Sys("Chat was cleared by a moderator"));
+                else Post(() => View.Redo(m => { if (m.Login != who || m.Deleted) return false; m.Deleted = true; return true; }));
+                break;
+            }
+        }
+    }
+
+    void Post(Action a) { try { if (IsHandleCreated) BeginInvoke(a); } catch { } }
+
+    static Color ParseColor(string hex, string login)
+    {
+        Color c;
+        try { c = ColorTranslator.FromHtml(string.IsNullOrEmpty(hex) ? DefaultColors[(int)((uint)(login ?? "").GetHashCode() % DefaultColors.Length)] : hex); }
+        catch { c = ChatView.Fg; }
+        // readable on the dark background, like Twitch's own colour adjustment
+        double l = (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255;
+        if (l < 0.35) { double k = (0.35 - l) / 0.35 * 0.6 + 0.25; c = Color.FromArgb((int)(c.R + (255 - c.R) * k), (int)(c.G + (255 - c.G) * k), (int)(c.B + (255 - c.B) * k)); }
+        return c;
+    }
+
+    Msg Build(IrcMsg im, string text, string login)
+    {
+        var m = new Msg { Id = im.Tag("id"), Login = login };
+        m.Display = im.Tag("display-name"); if (string.IsNullOrEmpty(m.Display)) m.Display = login ?? "";
+        m.NameColor = ParseColor(im.Tag("color"), login);
+        if (login != null) chatters[m.Display] = 0;
+        var bd = badges; var gb = globalBadges;
+        foreach (var b in (im.Tag("badges") ?? "").Split(','))
+        {
+            if (b.Length == 0) continue;
+            Emote e;
+            if (bd.TryGetValue(b, out e) || (gb != null && gb.TryGetValue(b, out e))) m.P.Add(new Piece { Kind = 2, E = e });
+        }
+        bool action = text.StartsWith("\u0001ACTION ") && text.EndsWith("\u0001");
+        if (action) text = text.Substring(8, text.Length - 9);
+        else if (text.StartsWith("/me ")) { action = true; text = text.Substring(4); }
+        if (m.Display.Length > 0)
+        {
+            string shown = m.Display;
+            if (login != null && !m.Display.Equals(login, StringComparison.OrdinalIgnoreCase)) shown += " (" + login + ")";
+            m.P.Add(new Piece { Kind = 3, Text = shown + (action ? "" : ":"), C = m.NameColor });
+        }
+        string rp = im.Tag("reply-parent-display-name");
+        if (rp != null)
+        {
+            m.Reply = "Replying to @" + rp + ": " + (im.Tag("reply-parent-msg-body") ?? "");
+        }
+        Color tc = action ? m.NameColor : ChatView.Fg;
+        // Twitch emotes by position (positions count Unicode code points, not UTF-16 units)
+        var ranges = new List<KeyValuePair<int, int>>(); var ids = new Dictionary<int, string>();
+        string tags = im.Tag("emotes");
+        if (!string.IsNullOrEmpty(tags))
+        {
+            var cp = new List<int>(); for (int i = 0; i < text.Length; i++) { cp.Add(i); if (char.IsHighSurrogate(text[i])) i++; }
+            cp.Add(text.Length);
+            foreach (var part in tags.Split('/'))
+            {
+                int c = part.IndexOf(':'); if (c < 0) continue;
+                string id = part.Substring(0, c);
+                foreach (var r in part.Substring(c + 1).Split(','))
+                {
+                    var se = r.Split('-'); int a, z;
+                    if (se.Length != 2 || !int.TryParse(se[0], out a) || !int.TryParse(se[1], out z) || a < 0 || z + 1 >= cp.Count || a > z) continue;
+                    int s0 = cp[a], s1 = cp[z + 1];
+                    ranges.Add(new KeyValuePair<int, int>(s0, s1)); ids[s0] = id;
+                    twitchEmotes[text.Substring(s0, s1 - s0)] = id;
+                }
+            }
+            ranges.Sort((x, y) => x.Key.CompareTo(y.Key));
+        }
+        int pos = 0;
+        foreach (var r in ranges)
+        {
+            if (r.Key < pos) continue;
+            Words(m, text.Substring(pos, r.Key - pos), tc, false);
+            string name = text.Substring(r.Key, r.Value - r.Key);
+            m.P.Add(new Piece { Kind = 1, E = Images.Get("https://static-cdn.jtvnw.net/emoticons/v2/" + ids[r.Key] + "/default/dark/1.0", name, 28, 28, 0) });
+            pos = r.Value;
+        }
+        Words(m, text.Substring(pos), tc, login == Tw.Login && login != null && im.Tag("emotes") == null);
+        if (Tw.Login != null && login != Tw.Login && Regex.IsMatch(text, @"(^|\W)@?" + Regex.Escape(Tw.Login) + @"(\W|$)", RegexOptions.IgnoreCase)) m.Style = 1;
+        if (m.Reply != null && Tw.Login != null && im.Tag("reply-parent-user-login") == Tw.Login && login != Tw.Login) m.Style = 1;
+        return m;
+    }
+
+    void Words(Msg m, string s, Color tc, bool own)
+    {
+        var d = third;
+        foreach (var w in s.Split(' '))
+        {
+            if (w.Length == 0) continue;
+            Emote e; string id;
+            if (d.TryGetValue(w, out e)) m.P.Add(new Piece { Kind = 1, E = e });
+            else if (own && twitchEmotes.TryGetValue(w, out id))
+                m.P.Add(new Piece { Kind = 1, E = Images.Get("https://static-cdn.jtvnw.net/emoticons/v2/" + id + "/default/dark/1.0", w, 28, 28, 0) });
+            else if (w.Length > 4 && w.IndexOf('.') > 0 && UrlRx.IsMatch(w)) m.P.Add(new Piece { Kind = 4, Text = w });
+            else m.P.Add(new Piece { Kind = (byte)(w[0] == '@' && w.Length > 1 ? 5 : 0), Text = w, C = tc });
+        }
+    }
+
+    void Drain()
+    {
+        var list = new List<Msg>(); Msg m;
+        while (inbox.TryDequeue(out m)) list.Add(m);
+        if (list.Count > 150) list = list.GetRange(list.Count - 150, 150);   // a flood: keep the newest
+        View.Add(list);
+    }
+
+    // ---------- sending ----------
+    void OnKey(object s, KeyEventArgs e)
+    {
+        if (e.KeyCode != Keys.Tab) tabList = null;
+        if (e.KeyCode == Keys.Enter)
+        {
+            e.SuppressKeyPress = true;
+            string t = input.Text.Trim();
+            if (t.Length == 0 || channel == null || Tw.Token == null) return;
+            if (irc.Send("PRIVMSG #" + channel + " :" + t))
+            {
+                pending.Enqueue(t);
+                sent.Add(t); if (sent.Count > 50) sent.RemoveAt(0); sentPos = sent.Count;
+                input.Text = "";
+                View.ToBottom();
+            }
+        }
+        else if (e.KeyCode == Keys.Up && sent.Count > 0) { e.SuppressKeyPress = true; sentPos = Math.Max(0, sentPos - 1); input.Text = sent[sentPos]; input.SelectionStart = input.Text.Length; }
+        else if (e.KeyCode == Keys.Down && sent.Count > 0) { e.SuppressKeyPress = true; sentPos = Math.Min(sent.Count, sentPos + 1); input.Text = sentPos < sent.Count ? sent[sentPos] : ""; input.SelectionStart = input.Text.Length; }
+        else if (e.KeyCode == Keys.Tab) { e.SuppressKeyPress = true; e.Handled = true; Complete(e.Shift); }
+    }
+
+    // Tab: complete emote names and @chatters, like 7TV
+    void Complete(bool back)
+    {
+        if (tabList == null)
+        {
+            string t = input.Text.Substring(0, input.SelectionStart);
+            int sp = t.LastIndexOf(' ') + 1;
+            tabBase = input.Text.Substring(0, sp); tabPrefix = t.Substring(sp);
+            string rest = input.Text.Substring(input.SelectionStart);
+            if (tabPrefix.Length == 0) return;
+            bool at = tabPrefix[0] == '@'; string p = at ? tabPrefix.Substring(1) : tabPrefix;
+            IEnumerable<string> pool = at ? chatters.Keys.Select(x => "@" + x) : third.Keys.Concat(twitchEmotes.Keys).Concat(chatters.Keys);
+            tabList = pool.Where(x => (at ? x.Substring(1) : x).StartsWith(p, StringComparison.OrdinalIgnoreCase)).Distinct().OrderBy(x => x.Length).ThenBy(x => x).Take(50).ToList();
+            tabIdx = back ? tabList.Count : -1;
+            tabBase = tabBase + "\u0000" + rest;
+            if (tabList.Count == 0) { tabList = null; return; }
+        }
+        tabIdx = (tabIdx + (back ? -1 : 1) + tabList.Count) % tabList.Count;
+        var parts = tabBase.Split('\u0000');
+        input.Text = parts[0] + tabList[tabIdx] + " " + parts[1].TrimStart();
+        input.SelectionStart = parts[0].Length + tabList[tabIdx].Length + 1;
+    }
+
+    class DarkColors : ProfessionalColorTable
+    {
+        public override Color ToolStripDropDownBackground { get { return Color.FromArgb(31, 31, 35); } }
+        public override Color MenuItemSelected { get { return Color.FromArgb(53, 53, 59); } }
+        public override Color MenuItemBorder { get { return Color.FromArgb(53, 53, 59); } }
+        public override Color MenuBorder { get { return Color.FromArgb(53, 53, 59); } }
+        public override Color ImageMarginGradientBegin { get { return Color.FromArgb(31, 31, 35); } }
+        public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(31, 31, 35); } }
+        public override Color ImageMarginGradientEnd { get { return Color.FromArgb(31, 31, 35); } }
+        public override Color SeparatorDark { get { return Color.FromArgb(53, 53, 59); } }
+    }
+}

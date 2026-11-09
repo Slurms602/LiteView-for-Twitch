@@ -16,8 +16,40 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Named = System.Collections.Generic.KeyValuePair<string, Emote>;
 
-// One emote or badge image: all frames decoded once (animated GIFs), drawn at 1x size.
+// Text drawn with GDI+ grayscale anti-aliasing (AntiAliasGridFit): smooth like the Twitch website whatever the
+// Windows font-smoothing setting is (GDI's own "standard" smoothing looks heavy and jagged at chat sizes).
+static class Txt
+{
+    static readonly Bitmap mb = new Bitmap(1, 1);
+    static readonly Graphics mg = Prep(Graphics.FromImage(mb));
+    public static readonly StringFormat Typo = (StringFormat)StringFormat.GenericTypographic.Clone();
+    static readonly StringFormat clip = Fmt(StringAlignment.Near), center = Fmt(StringAlignment.Center), wrap = new StringFormat(StringFormat.GenericTypographic) { Trimming = StringTrimming.Word };
+    static readonly Dictionary<int, SolidBrush> brushes = new Dictionary<int, SolidBrush>();
+    static StringFormat Fmt(StringAlignment a)
+    {
+        var f = (StringFormat)StringFormat.GenericTypographic.Clone();
+        f.FormatFlags |= StringFormatFlags.NoWrap; f.Trimming = StringTrimming.EllipsisCharacter; f.Alignment = a; f.LineAlignment = StringAlignment.Center;
+        return f;
+    }
+    public static Graphics Prep(Graphics g) { g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit; return g; }
+    public static SolidBrush Brush(Color c)
+    {
+        SolidBrush b; int k = c.ToArgb();
+        if (!brushes.TryGetValue(k, out b)) { b = new SolidBrush(c); brushes[k] = b; }
+        return b;
+    }
+    public static int Width(string s, Font f) { lock (mg) return (int)Math.Round(mg.MeasureString(s, f, PointF.Empty, Typo).Width); }
+    public static int Height(Font f) { lock (mg) return (int)Math.Ceiling(f.GetHeight(mg)); }
+    public static void At(Graphics g, string s, Font f, Color c, int x, int y) { Prep(g).DrawString(s, f, Brush(c), x, y, Typo); }
+    // one line in a box, vertically centred, "..." when it does not fit
+    public static void In(Graphics g, string s, Font f, Color c, Rectangle r, bool centred) { Prep(g).DrawString(s, f, Brush(c), r, centred ? center : clip); }
+    public static void Wrap(Graphics g, string s, Font f, Color c, Rectangle r) { Prep(g).DrawString(s, f, Brush(c), r, wrap); }
+}
+
+// One emote or badge image
+// (all frames decoded once for animated GIFs, drawn at 1x size)
 class Emote
 {
     public string Name, Url; public int W = 28, H = 28, FixedH; public bool Zero, SizeKnown;
@@ -252,7 +284,6 @@ class ChatView : Control
     public static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
         MentionBg = Color.FromArgb(62, 22, 26), NoticeBg = Color.FromArgb(31, 31, 35), Accent = Color.FromArgb(145, 71, 255), LinkC = Color.FromArgb(191, 148, 255);
     static readonly Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);
-    const TextFormatFlags TF = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
     public readonly List<Msg> Msgs = new List<Msg>();
     public event Action<string> NameClicked;
     int scroll, gen; readonly List<Place> anims = new List<Place>(); readonly List<KeyValuePair<Place, int>> animY = new List<KeyValuePair<Place, int>>();
@@ -268,8 +299,8 @@ class ChatView : Control
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         BackColor = Bg;
         animTick.Tick += (s, e) => Animate();
-        spaceW = TextRenderer.MeasureText("x x", F, Size.Empty, TF).Width - TextRenderer.MeasureText("xx", F, Size.Empty, TF).Width;
-        textH = TextRenderer.MeasureText("Ag", F, Size.Empty, TF).Height;
+        spaceW = Txt.Width("x x", F) - Txt.Width("xx", F);
+        textH = Txt.Height(F);
     }
 
     public void ToBottom() { if (scroll > 0) { scroll = 0; Invalidate(); } }
@@ -293,7 +324,7 @@ class ChatView : Control
     {
         bool hit = false;
         foreach (var m in Msgs)
-            if (m.Places != null && m.Shown.Any(p => p.E == e)) { if (!e.SizeKnown || e.State == 2) { m.LW = -1; Drop(m); hit = true; } }
+            if (m.Places != null && m.Shown.Any(p => p.E == e)) { m.LW = -1; Drop(m); hit = true; }
         e.SizeKnown = true;
         if (hit) Invalidate();
     }
@@ -306,8 +337,7 @@ class ChatView : Control
         int v;
         if (widths.TryGetValue(k, out v)) return v;
         if (widths.Count > 20000) widths.Clear();
-        // advance width without GDI's per-call overhang: (word + "x") - "x"
-        v = TextRenderer.MeasureText(w + "x", f, Size.Empty, TF).Width - TextRenderer.MeasureText("x", f, Size.Empty, TF).Width;
+        v = Txt.Width(w, f);
         widths[k] = v; return v;
     }
 
@@ -323,8 +353,10 @@ class ChatView : Control
         if (m.Reply != null) { m.Places.Add(new Place { R = new Rectangle(x0, y, right - x0, 16), P = new Piece { Kind = 7, Text = m.Reply, C = Dim } }); y += 18; }
         var lines = new List<List<Place>>(); var line = new List<Place>(); int x = x0;
         Place prevEmote = null;
-        foreach (var p in m.Shown)
+        foreach (var p0 in m.Shown)
         {
+            // an emote whose image could not load is shown as its name
+            var p = p0.Kind == 1 && p0.E.State == 3 ? new Piece { Kind = 0, Text = p0.E.Name ?? "?", C = Fg } : p0;
             int w, h;
             if (p.Kind == 1 || p.Kind == 2)
             {
@@ -390,10 +422,10 @@ class ChatView : Control
                     g.DrawImage(p.E.Frames[0], pl.R.X, pl.R.Y, pl.R.Width, pl.R.Height);
                 }
                 else if (p.Kind == 7)
-                    TextRenderer.DrawText(g, "↳ " + p.Text, FS, pl.R, Dim, bg, TF | TextFormatFlags.EndEllipsis);
+                    Txt.In(g, "↳ " + p.Text, FS, Dim, pl.R, false);
                 else
                 {
-                    TextRenderer.DrawText(g, p.Text, FontOf(p), pl.R.Location, p.Kind == 4 ? LinkC : p.C, bg, TF);
+                    Txt.At(g, p.Text, FontOf(p), p.Kind == 4 ? LinkC : p.C, pl.R.X, pl.R.Y);
                     if (p.Kind == 4) using (var pen = new Pen(LinkC)) g.DrawLine(pen, pl.R.Left, pl.R.Bottom, pl.R.Right - 1, pl.R.Bottom);
                 }
             }
@@ -431,10 +463,10 @@ class ChatView : Control
         if (scroll > 0)
         {
             string t = "⏸  Chat paused due to scroll";
-            var sz = TextRenderer.MeasureText(t, FB);
-            pausedBox = new Rectangle((ClientSize.Width - sz.Width - 28) / 2, ClientSize.Height - 44, sz.Width + 28, 32);
+            int tw = Txt.Width(t, FB);
+            pausedBox = new Rectangle((ClientSize.Width - tw - 28) / 2, ClientSize.Height - 44, tw + 28, 32);
             using (var br = new SolidBrush(Color.FromArgb(230, 14, 14, 16))) g.FillRectangle(br, pausedBox);
-            TextRenderer.DrawText(g, t, FB, pausedBox, Fg, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            Txt.In(g, t, FB, Fg, pausedBox, true);
         }
         else pausedBox = Rectangle.Empty;
         animTick.Enabled = anims.Count > 0;
@@ -508,7 +540,7 @@ class ChatPanel : Panel
 {
     public readonly ChatView View = new ChatView();
     readonly Panel head = new Panel(), foot = new Panel();
-    readonly Label headText = new Label();
+    static readonly Font HeadFont = new Font("Segoe UI Semibold", 9f);
     readonly Button gear = new Button();
     readonly TextBox input = new TextBox();
     readonly LinkLabel loginLink = new LinkLabel();
@@ -529,6 +561,14 @@ class ChatPanel : Panel
     readonly ConcurrentQueue<string> pending = new ConcurrentQueue<string>();
     readonly List<string> sent = new List<string>(); int sentPos;
     string tabBase, tabPrefix; List<string> tabList; int tabIdx;
+    // emote picker: sets by source (for its sections), recently used names
+    public static string RecentPath;
+    readonly EmotePicker picker = new EmotePicker();
+    readonly Button emoteBtn = new Button();
+    static List<KeyValuePair<string, List<Named>>> globalSets = new List<KeyValuePair<string, List<Named>>>();
+    volatile List<KeyValuePair<string, List<Named>>> channelSets = new List<KeyValuePair<string, List<Named>>>();
+    volatile List<Named> twitchSet; string twitchFor; bool twitchLoading;
+    List<string> recent;
 
     static readonly string[] DefaultColors = { "#FF0000", "#0000FF", "#008000", "#B22222", "#FF7F50", "#9ACD32", "#FF4500", "#2E8B57", "#DAA520", "#D2691E", "#5F9EA0", "#1E90FF", "#FF69B4", "#8A2BE2", "#00FF7F" };
     static readonly Regex UrlRx = new Regex(@"^(https?://\S+|(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)*\.(com|tv|gg|net|org|io|be|ly|me|co|app|link)(/\S*)?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -537,13 +577,17 @@ class ChatPanel : Panel
     {
         BackColor = ChatView.Bg;
         head.Dock = DockStyle.Top; head.Height = 38; head.BackColor = ChatView.Bg;
-        headText.Text = "STREAM CHAT"; headText.ForeColor = ChatView.Fg; headText.Font = new Font("Segoe UI Semibold", 9f); headText.Dock = DockStyle.Fill; headText.TextAlign = ContentAlignment.MiddleCenter;
         gear.Text = ""; gear.Font = new Font("Segoe MDL2 Assets", 10f); gear.FlatStyle = FlatStyle.Flat; gear.FlatAppearance.BorderSize = 0;
         gear.FlatAppearance.MouseOverBackColor = Color.FromArgb(38, 38, 44); gear.ForeColor = ChatView.Fg; gear.Width = 34; gear.Dock = DockStyle.Right; gear.Cursor = Cursors.Hand;
         gear.Click += (s, e) => Menu.Show(gear, new Point(gear.Width - Menu.Width, gear.Height));
         Menu.Renderer = new ToolStripProfessionalRenderer(new DarkColors()); Menu.ForeColor = ChatView.Fg; Menu.ShowImageMargin = false;
-        head.Controls.Add(headText); head.Controls.Add(gear);
-        head.Paint += (s, e) => { using (var p = new Pen(Color.FromArgb(53, 53, 59))) e.Graphics.DrawLine(p, 0, head.Height - 1, head.Width, head.Height - 1); };
+        head.Controls.Add(gear);
+        head.Paint += (s, e) =>
+        {
+            using (var p = new Pen(Color.FromArgb(53, 53, 59))) e.Graphics.DrawLine(p, 0, head.Height - 1, head.Width, head.Height - 1);
+            Txt.In(e.Graphics, "STREAM CHAT", HeadFont, ChatView.Fg, new Rectangle(gear.Width, 0, head.Width - 2 * gear.Width, head.Height - 1), true);
+        };
+        head.Resize += (s, e) => head.Invalidate();
 
         foot.Dock = DockStyle.Bottom; foot.Height = 50; foot.BackColor = ChatView.Bg; foot.Padding = new Padding(10, 8, 10, 10);
         input.BorderStyle = BorderStyle.FixedSingle; input.BackColor = Color.FromArgb(38, 38, 44); input.ForeColor = ChatView.Fg; input.Font = new Font("Segoe UI", 10.5f);
@@ -554,22 +598,36 @@ class ChatPanel : Panel
         loginLink.Text = "Log in with Twitch to chat"; loginLink.LinkColor = ChatView.LinkC; loginLink.ActiveLinkColor = ChatView.Fg; loginLink.Dock = DockStyle.Fill;
         loginLink.TextAlign = ContentAlignment.MiddleCenter; loginLink.LinkBehavior = LinkBehavior.HoverUnderline;
         loginLink.LinkClicked += (s, e) => { if (LoginRequested != null) LoginRequested(); };
-        foot.Controls.Add(input); foot.Controls.Add(loginLink);
+        emoteBtn.Text = ""; emoteBtn.Font = new Font("Segoe MDL2 Assets", 11f); emoteBtn.FlatStyle = FlatStyle.Flat; emoteBtn.FlatAppearance.BorderSize = 0;
+        emoteBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(53, 53, 59); emoteBtn.BackColor = Color.FromArgb(38, 38, 44); emoteBtn.ForeColor = ChatView.Fg;
+        emoteBtn.Width = 32; emoteBtn.Dock = DockStyle.Right; emoteBtn.Cursor = Cursors.Hand; emoteBtn.TabStop = false;
+        emoteBtn.Click += (s, e) => TogglePicker();
+        new ToolTip().SetToolTip(emoteBtn, "Emotes");
+        foot.Controls.Add(input); foot.Controls.Add(emoteBtn); foot.Controls.Add(loginLink);
+        picker.Dock = DockStyle.Bottom; picker.Height = 340; picker.Visible = false;
+        picker.Picked += Insert;
+        picker.HintClicked += () => { if (LoginRequested != null) LoginRequested(); };
+        picker.Closed += () => input.Focus();
         View.Dock = DockStyle.Fill;
         View.NameClicked += n => { input.Text = (input.Text.Length > 0 && !input.Text.EndsWith(" ") ? input.Text + " " : input.Text) + "@" + n + " "; input.Focus(); input.SelectionStart = input.Text.Length; };
-        Controls.Add(View); Controls.Add(foot); Controls.Add(head);
+        Controls.Add(View); Controls.Add(picker); Controls.Add(foot); Controls.Add(head);
 
         irc.Line += OnLine;
         irc.Status += s => inbox.Enqueue(Sys(s));
         drain.Tick += (s, e) => Drain();
-        Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => View.OnImage(e))); } catch { } };
+        Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
         UpdateLogin();
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, string l);
 
-    public void UpdateLogin() { input.Visible = Tw.Token != null; loginLink.Visible = Tw.Token == null; }
+    public void UpdateLogin()
+    {
+        input.Visible = emoteBtn.Visible = Tw.Token != null; loginLink.Visible = Tw.Token == null;
+        if (Tw.Token == null) picker.Visible = false;
+        else if (picker.Visible) { LoadTwitch(); RefreshPicker(); }
+    }
 
     public string Channel { get { return channel; } }
 
@@ -577,6 +635,7 @@ class ChatPanel : Panel
     {
         if (ch == channel && drain.Enabled) return;
         channel = ch; roomId = null; badges = new Dictionary<string, Emote>(); third = globals ?? new Dictionary<string, Emote>();
+        channelSets = new List<KeyValuePair<string, List<Named>>>(); RefreshPicker();
         View.Clear(); Msg dummy; while (inbox.TryDequeue(out dummy)) { }
         string dummyS; while (pending.TryDequeue(out dummyS)) { }
         chatters.Clear(); me = null;
@@ -598,10 +657,12 @@ class ChatPanel : Panel
         Task.Run(async () =>
         {
             var d = new Dictionary<string, Emote>();
-            await Ffz(d, "https://api.frankerfacez.com/v1/set/global", true);
-            await Bttv(d, "https://api.betterttv.net/3/cached/emotes/global", false);
-            await SevenTv(d, "https://7tv.io/v3/emote-sets/global", false);
+            var lf = await Ffz(d, "https://api.frankerfacez.com/v1/set/global", true);
+            var lb = await Bttv(d, "https://api.betterttv.net/3/cached/emotes/global", false);
+            var l7 = await SevenTv(d, "https://7tv.io/v3/emote-sets/global", false);
             globals = d;
+            globalSets = new List<KeyValuePair<string, List<Named>>> { Set("7TV global", l7), Set("BetterTTV global", lb), Set("FFZ global", lf) };
+            Post(RefreshPicker);
             if (roomId == null) third = d; else LoadChannel(roomId);
             if (Tw.Token != null && globalBadges == null) globalBadges = await Badges("chat/badges/global");
         });
@@ -613,11 +674,13 @@ class ChatPanel : Panel
         Task.Run(async () =>
         {
             var d = new Dictionary<string, Emote>(globals ?? new Dictionary<string, Emote>());
-            await Ffz(d, "https://api.frankerfacez.com/v1/room/id/" + id, false);
-            await Bttv(d, "https://api.betterttv.net/3/cached/users/twitch/" + id, true);
-            await SevenTv(d, "https://7tv.io/v3/users/twitch/" + id, true);
+            var lf = await Ffz(d, "https://api.frankerfacez.com/v1/room/id/" + id, false);
+            var lb = await Bttv(d, "https://api.betterttv.net/3/cached/users/twitch/" + id, true);
+            var l7 = await SevenTv(d, "https://7tv.io/v3/users/twitch/" + id, true);
             if (ch != channel) return;
             third = d;
+            channelSets = new List<KeyValuePair<string, List<Named>>> { Set("7TV channel", l7), Set("BetterTTV channel", lb), Set("FFZ channel", lf) };
+            Post(RefreshPicker);
             if (Tw.Token != null)
             {
                 if (globalBadges == null) globalBadges = await Badges("chat/badges/global");
@@ -640,8 +703,11 @@ class ChatPanel : Panel
         return d;
     }
 
-    static async Task SevenTv(Dictionary<string, Emote> d, string url, bool user)
+    static KeyValuePair<string, List<Named>> Set(string name, List<Named> list) { return new KeyValuePair<string, List<Named>>(name, list); }
+
+    static async Task<List<Named>> SevenTv(Dictionary<string, Emote> d, string url, bool user)
     {
+        var added = new List<Named>();
         var j = Tw.Parse(await Tw.Get(url));
         if (user) j = Tw.V(j, "emote_set");
         foreach (var e in Tw.A(j, "emotes"))
@@ -653,13 +719,15 @@ class ChatPanel : Panel
             foreach (var f in Tw.A(host, "files")) if (Tw.S(f, "name") == "1x.webp") { w = (int)Tw.N(f, "width"); h = (int)Tw.N(f, "height"); }
             var em = Images.Get("https:" + hu + "/1x." + (anim ? "gif" : "png"), name, w, h, 0);
             em.Zero = (Tw.N(e, "flags") & 1) != 0 || (Tw.N(data, "flags") & 256) != 0;
-            d[name] = em;
+            d[name] = em; added.Add(new Named(name, em));
         }
+        return added;
     }
 
     static readonly HashSet<string> BttvZero = new HashSet<string> { "SoSnowy", "IceCold", "SantaHat", "TopHat", "ReinDeer", "CandyCane", "cvMask", "cvHazmat" };
-    static async Task Bttv(Dictionary<string, Emote> d, string url, bool user)
+    static async Task<List<Named>> Bttv(Dictionary<string, Emote> d, string url, bool user)
     {
+        var added = new List<Named>();
         var j = Tw.Parse(await Tw.Get(url));
         var list = user ? Tw.A(j, "channelEmotes").Concat(Tw.A(j, "sharedEmotes")) : (j as object[] ?? new object[0]);
         foreach (var e in list)
@@ -668,12 +736,14 @@ class ChatPanel : Panel
             bool anim = Tw.B(e, "animated") || Tw.S(e, "imageType") == "gif";
             var em = Images.Get("https://cdn.betterttv.net/emote/" + id + "/1x." + (anim ? "gif" : "png"), code, 0, 0, 0);
             em.Zero = BttvZero.Contains(code);
-            d[code] = em;
+            d[code] = em; added.Add(new Named(code, em));
         }
+        return added;
     }
 
-    static async Task Ffz(Dictionary<string, Emote> d, string url, bool global)
+    static async Task<List<Named>> Ffz(Dictionary<string, Emote> d, string url, bool global)
     {
+        var added = new List<Named>();
         var j = Tw.Parse(await Tw.Get(url));
         var sets = Tw.V(j, "sets");
         var only = global ? new HashSet<string>(Tw.A(j, "default_sets").Select(x => Convert.ToString(x))) : null;
@@ -684,9 +754,102 @@ class ChatPanel : Panel
             {
                 string name = Tw.S(e, "name"), u = Tw.S(Tw.V(e, "urls"), "1"); if (name == null || u == null) continue;
                 if (u.StartsWith("//")) u = "https:" + u;
-                d[name] = Images.Get(u, name, (int)Tw.N(e, "width"), (int)Tw.N(e, "height"), 0);
+                var em = Images.Get(u, name, (int)Tw.N(e, "width"), (int)Tw.N(e, "height"), 0);
+                d[name] = em; added.Add(new Named(name, em));
             }
         }
+        return added;
+    }
+
+    // ---------- emote picker ----------
+    void TogglePicker()
+    {
+        if (picker.Visible) { picker.Visible = false; input.Focus(); return; }
+        LoadRecent(); LoadTwitch();
+        picker.Height = Math.Max(200, Math.Min(360, (Height - head.Height - foot.Height) * 3 / 5));
+        RefreshPicker(true);
+        picker.Visible = true; picker.Search.Text = ""; picker.Search.Focus();
+    }
+
+    void RefreshPicker() { RefreshPicker(false); }
+    void RefreshPicker(bool force)
+    {
+        if (!picker.Visible && !force) return;
+        var g = new List<KeyValuePair<string, List<Named>>>();
+        var rec = new List<Named>();
+        if (recent != null) foreach (var n in recent) { var e = Lookup(n); if (e != null) rec.Add(new Named(n, e)); }
+        g.Add(Set("Recently used", rec));
+        g.AddRange(channelSets);
+        var tw = twitchSet; if (tw != null) g.Add(Set(Tw.Has("user:read:emotes") ? "Twitch" : "Twitch global", tw));
+        g.AddRange(globalSets);
+        picker.Hint = Tw.Token != null && !Tw.Has("user:read:emotes") ? "Log in again to add your own Twitch emotes here" : null;
+        picker.SetGroups(g);
+    }
+
+    Emote Lookup(string name)
+    {
+        Emote e; if (third.TryGetValue(name, out e)) return e;
+        var tw = twitchSet; if (tw != null) foreach (var n in tw) if (n.Key == name) return n.Value;
+        string id; if (twitchEmotes.TryGetValue(name, out id)) return TwitchEmote(id, name);
+        return null;
+    }
+
+    static Emote TwitchEmote(string id, string name) { return Images.Get("https://static-cdn.jtvnw.net/emoticons/v2/" + id + "/default/dark/1.0", name, 28, 28, 0); }
+
+    // your own Twitch emotes (needs the user:read:emotes scope), else Twitch's global ones
+    async void LoadTwitch()
+    {
+        if (Tw.Token == null || twitchLoading || (twitchSet != null && twitchFor == Tw.Token)) return;
+        twitchLoading = true;
+        try
+        {
+            string token = Tw.Token;
+            bool mine = Tw.Has("user:read:emotes") && Tw.UserId != null;
+            var list = new List<Named>(); var seen = new HashSet<string>(); string cursor = null;
+            for (int page = 0; page < 30; page++)
+            {
+                var j = await Tw.Helix(mine ? "chat/emotes/user?user_id=" + Tw.UserId + (cursor != null ? "&after=" + cursor : "") : "chat/emotes/global");
+                if (j == null) break;
+                foreach (var e in Tw.A(j, "data"))
+                {
+                    string id = Tw.S(e, "id"), name = Tw.S(e, "name");
+                    if (id == null || name == null || !seen.Add(name)) continue;
+                    twitchEmotes[name] = id; list.Add(new Named(name, TwitchEmote(id, name)));
+                }
+                cursor = Tw.S(Tw.V(j, "pagination"), "cursor");
+                if (!mine || cursor == null) break;
+            }
+            twitchSet = list; twitchFor = token;
+        }
+        finally { twitchLoading = false; }
+        RefreshPicker();
+    }
+
+    void LoadRecent()
+    {
+        if (recent != null) return;
+        recent = new List<string>();
+        try { if (RecentPath != null && File.Exists(RecentPath)) recent.AddRange(File.ReadAllLines(RecentPath).Where(x => x.Length > 0).Take(30)); } catch { }
+    }
+
+    void Used(IEnumerable<string> names)
+    {
+        LoadRecent();
+        foreach (var n in names) { recent.Remove(n); recent.Insert(0, n); }
+        if (recent.Count > 30) recent.RemoveRange(30, recent.Count - 30);
+        try { if (RecentPath != null) File.WriteAllLines(RecentPath, recent); } catch { }
+    }
+
+    void Insert(string name)
+    {
+        string t = input.Text; int s = Math.Min(input.SelectionStart, t.Length), l = Math.Min(input.SelectionLength, t.Length - s);
+        string before = t.Substring(0, s), after = t.Substring(s + l).TrimStart();
+        string ins = (before.Length > 0 && !before.EndsWith(" ") ? " " : "") + name + " ";
+        if (before.Length + ins.Length + after.Length > input.MaxLength) return;
+        input.Text = before + ins + after;
+        input.SelectionStart = before.Length + ins.Length; input.SelectionLength = 0;
+        Used(new[] { name });
+        RefreshPicker();
     }
 
     // ---------- incoming ----------
@@ -860,6 +1023,8 @@ class ChatPanel : Panel
             if (irc.Send("PRIVMSG #" + channel + " :" + t))
             {
                 pending.Enqueue(t);
+                var d = third; var used = t.Split(' ').Where(w => w.Length > 0 && (d.ContainsKey(w) || twitchEmotes.ContainsKey(w))).Distinct().Reverse().ToList();
+                if (used.Count > 0) Used(used);
                 sent.Add(t); if (sent.Count > 50) sent.RemoveAt(0); sentPos = sent.Count;
                 input.Text = "";
                 View.ToBottom();

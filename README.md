@@ -37,7 +37,9 @@ priority, and the video itself (mpv) costs **under 10% of a thread**.
 - **Native chat**: name colours, badges, Twitch + 7TV + BetterTTV + FFZ emotes (animated ones move only while
   on screen), 7TV zero-width emotes, replies, mentions of you highlighted, links, sub/raid notices, deleted
   messages, sending with `Tab` completion of emotes and @names and `↑` for your last messages. Scroll up to
-  pause it. Twitch's web chat (with 7TV) stays available: gear icon in the chat, or right-click *Chat*.
+  pause it. Text is drawn with grayscale anti-aliasing, smooth whatever your Windows ClearType setting is.
+- **Emote picker** (smiley next to the chat input), like 7TV's: search the channel's 7TV, BetterTTV and FFZ emotes,
+  your own Twitch emotes and the global sets; recently used ones on top; a click puts the emote in your message. Twitch's web chat (with 7TV) stays available: gear icon in the chat, or right-click *Chat*.
 - **Video + chat in one window**: the video area stays 16:9 while you resize, so there are no black bars.
 - **Picture settings** (work on **any** GPU: AMD, Intel, NVIDIA):
 
@@ -60,7 +62,8 @@ priority, and the video itself (mpv) costs **under 10% of a thread**.
 1. Download `LiteView-for-Twitch-<version>.zip` from [Releases](../../releases/latest) and unzip it anywhere.
 2. Run `LiteView.exe`, log in to Twitch once in its window. Open a stream and click *Log in with Twitch* in the
    followed-channels column (or under the chat): Twitch's own activate page opens, click *Activate* and *Authorize*.
-   This lets LiteView read who you follow and chat as you (scopes `user:read:follows chat:read chat:edit`).
+   This lets LiteView read who you follow, list your Twitch emotes and chat as you
+   (scopes `user:read:follows user:read:emotes chat:read chat:edit`).
 3. Optional: GameFirst at startup: `Win+R` → `shell:startup` → right-drag `GameFirst.exe` in → *Create shortcuts here*.
 
 Needs Windows 10/11 64-bit (the WebView2 runtime and .NET Framework 4.8 are already part of Windows).
@@ -82,10 +85,10 @@ Twitch sends (most are 1080p60 at 6-8 Mbps).
 ## Build from source
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.1.0
+powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.2.0
 ```
 Downloads the pinned Streamlink, mpv and WebView2 SDK (checked by SHA-256 / Microsoft signature), compiles both
-apps with the C# compiler built into Windows, and writes `dist\LiteView-for-Twitch-1.1.0.zip`.
+apps with the C# compiler built into Windows, and writes `dist\LiteView-for-Twitch-1.2.0.zip`.
 
 ## Credits and licences
 

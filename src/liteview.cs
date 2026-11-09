@@ -75,6 +75,7 @@ class LiteView : Form
         string exe = Path.GetFileNameWithoutExtension(typeof(LiteView).Assembly.Location);   // LiteView.exe -> liteview.ini (a test copy gets its own)
         iniPath = Path.Combine(root, exe.ToLowerInvariant() + ".ini");
         Tw.Init(Path.Combine(root, "liteview.token"));
+        ChatPanel.RecentPath = Path.Combine(root, "liteview.emotes");
         streamlink = Directory.GetFiles(Path.Combine(tw, "streamlink"), "streamlinkw.exe", SearchOption.AllDirectories).FirstOrDefault();
         mpv = Path.Combine(tw, "mpv", "mpv.exe");
         slLog = Path.Combine(root, exe.ToLowerInvariant() == "liteview" ? "streamlink.log" : exe + "-streamlink.log");
@@ -233,6 +234,8 @@ class LiteView : Form
         if (env == null)
         {
             var opts = new CoreWebView2EnvironmentOptions(); opts.AreBrowserExtensionsEnabled = true;
+            // darker, crisper web text (Edge's low-contrast text tuning off); every WebView2 on this profile uses the same options
+            opts.AdditionalBrowserArguments = "--disable-features=LowTextContrast --text-contrast=200";
             env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(root, "webview"), opts);
         }
         return env;

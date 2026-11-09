@@ -130,7 +130,7 @@ class FollowBar : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        if (!collapsed) TextRenderer.DrawText(g, "FOLLOWED CHANNELS", FHead, new Point(12, 14), Fg, TF);
+        if (!collapsed) Txt.At(g, "FOLLOWED CHANNELS", FHead, Fg, 12, 13);
         var tr = ToggleRect;
         if (hover == -1) using (var b = new SolidBrush(HoverC)) g.FillRectangle(b, tr);
         TextRenderer.DrawText(g, collapsed ? "" : "", FIcon, tr, Fg, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
@@ -139,12 +139,12 @@ class FollowBar : Control
         {
             if (!collapsed && message != null)
             {
-                TextRenderer.DrawText(g, message, FGame, new Rectangle(12, HeadH + 6, Width - 24, 54), Dim, TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+                Txt.Wrap(g, message, FGame, Dim, new Rectangle(12, HeadH + 6, Width - 24, 54));
                 if (Tw.Token == null)
                 {
                     var lr = LoginRect;
                     using (var b = new SolidBrush(hover == -3 ? Color.FromArgb(119, 44, 232) : Accent)) g.FillRectangle(b, lr);
-                    TextRenderer.DrawText(g, "Log in with Twitch", FName, lr, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                    Txt.In(g, "Log in with Twitch", FName, Color.White, lr, true);
                 }
             }
             return;
@@ -161,11 +161,11 @@ class FollowBar : Control
             else using (var b = new SolidBrush(Sel)) g.FillEllipse(b, ax, y + 6, 30, 30);
             if (collapsed) continue;
             string count = Count(s.Viewers);
-            int cw = TextRenderer.MeasureText(count, FGame, Size.Empty, TF).Width;
-            TextRenderer.DrawText(g, s.Name ?? s.Login, FName, new Rectangle(50, y + 4, Width - 50 - cw - 26, 18), Fg, TF);
-            TextRenderer.DrawText(g, s.Game ?? "", FGame, new Rectangle(50, y + 22, Width - 60, 16), Dim, TF);
+            int cw = Txt.Width(count, FGame);
+            Txt.In(g, s.Name ?? s.Login, FName, Fg, new Rectangle(50, y + 3, Width - 50 - cw - 26, 19), false);
+            Txt.In(g, s.Game ?? "", FGame, Dim, new Rectangle(50, y + 21, Width - 60, 17), false);
             using (var b = new SolidBrush(Red)) g.FillEllipse(b, Width - cw - 22, y + 10, 8, 8);
-            TextRenderer.DrawText(g, count, FGame, new Point(Width - cw - 10, y + 6), Dim, TF);
+            Txt.At(g, count, FGame, Dim, Width - cw - 10, y + 6);
         }
     }
 

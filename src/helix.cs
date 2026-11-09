@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -17,11 +18,13 @@ static class Tw
 {
     // "LiteView for Twitch" on dev.twitch.tv (client type Public: no secret exists for it)
     public const string ClientId = "i82nikwku19tn6wk8ms6z7hr9l57wo";
-    const string Scopes = "user:read:follows chat:read chat:edit";
+    const string Scopes = "user:read:follows user:read:emotes chat:read chat:edit";
     public static readonly HttpClient Http = new HttpClient();
     static readonly JavaScriptSerializer js = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
     static readonly SemaphoreSlim refreshGate = new SemaphoreSlim(1);
     public static string Token, Login, UserId;
+    public static string[] Granted = new string[0];   // scopes of the current token
+    public static bool Has(string scope) { return Array.IndexOf(Granted, scope) >= 0; }
     static string refresh, path;
 
     public static void Init(string tokenFile)
@@ -96,7 +99,7 @@ static class Tw
             int code = 0; object d = null;
             try { using (var r = await Http.SendAsync(rq)) { code = (int)r.StatusCode; d = Parse(await r.Content.ReadAsStringAsync()); } }
             catch { }
-            if (code == 200) { Login = S(d, "login"); UserId = S(d, "user_id"); return true; }
+            if (code == 200) { Login = S(d, "login"); UserId = S(d, "user_id"); Granted = A(d, "scopes").Select(x => Convert.ToString(x)).ToArray(); return true; }
             if (code != 401) return Login != null;          // offline / Twitch trouble: keep the session
             if (!await RefreshToken(t)) break;
         }

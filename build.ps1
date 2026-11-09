@@ -3,7 +3,7 @@
 #   2. compiles LiteView.exe and GameFirst.exe with the C# compiler that ships with Windows
 #   3. assembles dist\LiteView-for-Twitch-<version>\ and the release zip
 # Usage:  powershell -ExecutionPolicy Bypass -File build.ps1 [-Version 1.1.0]
-param([string]$Version = '1.1.0')
+param([string]$Version = '1.2.0')
 $ErrorActionPreference = 'Stop'
 $root  = $PSScriptRoot
 $cache = Join-Path $root 'build\cache'
@@ -47,7 +47,7 @@ $common = '/nologo', '/codepage:65001', '/target:winexe', '/optimize+', '/platfo
 & $csc @common /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll `
     /r:System.Net.Http.dll /r:System.Web.Extensions.dll /r:System.Security.dll `
     "/r:$out\Microsoft.Web.WebView2.Core.dll" "/r:$out\Microsoft.Web.WebView2.WinForms.dll" "/out:$out\LiteView.exe" `
-    "$root\src\liteview.cs" "$root\src\common.cs" "$root\src\helix.cs" "$root\src\chat.cs" "$root\src\sidebar.cs"
+    "$root\src\liteview.cs" "$root\src\common.cs" "$root\src\helix.cs" "$root\src\chat.cs" "$root\src\sidebar.cs" "$root\src\picker.cs"
 if ($LASTEXITCODE -ne 0) { throw 'LiteView.exe did not compile' }
 & $csc @common "/out:$out\GameFirst.exe" "$root\src\guard.cs" "$root\src\common.cs"
 if ($LASTEXITCODE -ne 0) { throw 'GameFirst.exe did not compile' }

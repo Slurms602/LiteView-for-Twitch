@@ -1,0 +1,9 @@
+build/
+dist/
+*.exe
+*.dll
+*.log
+liteview.ini
+webview/
+extensions/
+twitch/

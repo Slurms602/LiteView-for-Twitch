@@ -50,17 +50,8 @@ partial class LiteView
 
     static void Harden(CoreWebView2 core, bool messages)
     {
-        core.IsMuted = true;
-        var st = core.Settings;
-        st.IsStatusBarEnabled = false;
-        st.AreDevToolsEnabled = Environment.GetEnvironmentVariable("LITEVIEW_DEVTOOLS") == "1";
-        st.AreHostObjectsAllowed = false;
-        st.IsWebMessageEnabled = messages;
-        st.IsGeneralAutofillEnabled = false;
-        st.IsPasswordAutosaveEnabled = false;
-        // camera, microphone, notifications, clipboard, location...: the Twitch pages here need none of them
-        core.PermissionRequested += (s, e) => e.State = CoreWebView2PermissionState.Deny;
-        core.DownloadStarting += (s, e) => e.Cancel = true;
+        // The navigation policy comes first and must not fail; the other settings are each optional, so an
+        // older WebView2 runtime without one of them loses only that setting, not the page.
         core.NavigationStarting += (s, e) =>
         {
             var nav = SafeUrl.ForWebView(e.Uri);
@@ -69,6 +60,22 @@ partial class LiteView
             if (nav == SafeUrl.Nav.OpenInBrowser && e.IsUserInitiated) Launcher.Open(e.Uri);
             else Log.Info("web: blocked a navigation (" + Launcher.SchemeOf(e.Uri) + ")");
         };
+        core.IsMuted = true;
+        var st = core.Settings;
+        Try("web messages", () => st.IsWebMessageEnabled = messages);
+        Try("host objects", () => st.AreHostObjectsAllowed = false);
+        Try("status bar", () => st.IsStatusBarEnabled = false);
+        Try("dev tools", () => st.AreDevToolsEnabled = Environment.GetEnvironmentVariable("LITEVIEW_DEVTOOLS") == "1");
+        Try("autofill", () => st.IsGeneralAutofillEnabled = false);
+        Try("password saving", () => st.IsPasswordAutosaveEnabled = false);
+        // camera, microphone, notifications, clipboard, location...: the Twitch pages here need none of them
+        Try("permissions", () => core.PermissionRequested += (s, e) => e.State = CoreWebView2PermissionState.Deny);
+        Try("downloads", () => core.DownloadStarting += (s, e) => e.Cancel = true);
+    }
+
+    static void Try(string what, Action a)
+    {
+        try { a(); } catch (Exception ex) { Log.Warn("web: could not set " + what + " (" + ex.GetType().Name + ")"); }
     }
 
     static string TryMessage(CoreWebView2WebMessageReceivedEventArgs e)
@@ -204,7 +211,9 @@ partial class LiteView
             string wv; try { wv = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch (Exception ex) { wv = "not available (" + ex.GetType().Name + ")"; }
             add("WebView2 runtime", wv);
             add("mpv", await FirstLine(mpv, "--version"));
-            add("Streamlink", await FirstLine(streamlink, "--version"));
+            // the console streamlink.exe next to streamlinkw.exe prints its version reliably
+            string slCon = string.IsNullOrEmpty(streamlink) ? null : Path.Combine(Path.GetDirectoryName(streamlink), "streamlink.exe");
+            add("Streamlink", await FirstLine(slCon != null && File.Exists(slCon) ? slCon : streamlink, "--version"));
             add("CPU logical processors", Environment.ProcessorCount);
             add("CPU pinning", mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X"));
             add("NVIDIA driver present", HasNvidia);

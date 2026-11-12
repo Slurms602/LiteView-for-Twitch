@@ -62,12 +62,12 @@ Deliberate differences from upstream (an upstream change touching these needs a 
 
 | Area | Fork behaviour | Why |
 |---|---|---|
-| Browser extensions | Never copied from Chrome or downloaded from the Chrome Web Store; WebView2 extensions off | Unverified code from outside the app (`docs/SECURITY_MODEL.md` S-1) |
-| Twitch login | Device code shown in the app, Twitch's page opens in the system browser | No embedded login page (S-6) |
-| Links | Only `http`/`https` URLs are opened, through one validated launcher | Chat and web content could launch other URL schemes (S-2, S-3) |
-| WebView2 | Navigation limited to Twitch, messages to the app checked for origin and format | S-4, S-5 |
-| Downloads | Size caps and host allow-lists for API data, emotes and avatars | S-7, S-8 |
-| GameFirst | Ships changing only LiteView's own player processes; Chrome etc. only if you add them | Unrelated apps are not touched by default (S-10) |
+| Browser extensions | Never copied from Chrome or downloaded from the Chrome Web Store; WebView2 extensions off | Unverified code from outside the app (SEC-1) |
+| Twitch login | Device code shown in the app, Twitch's page opens in the system browser | No embedded login page (SEC-6) |
+| Links | Only `http`/`https` URLs are opened, through one validated launcher | Chat and web content could launch other URL schemes (SEC-2, SEC-3) |
+| WebView2 | Navigation limited to Twitch, messages to the app checked for origin and format | SEC-4, SEC-5 |
+| Downloads | Size caps and host allow-lists for API data, emotes and avatars | SEC-7, SEC-8 |
+| GameFirst | Ships changing only LiteView's own player processes; Chrome etc. only if you add them | Unrelated apps are not touched by default (SEC-14) |
 | Build | SDK-style projects (`LiteView.sln`) instead of `csc.exe` lines in `build.ps1` | Tests, pinned packages, CI |
 
 ## Ledger

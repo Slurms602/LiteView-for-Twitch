@@ -1,4 +1,13 @@
-# LiteView for Twitch
+# LiteView Enhanced (a fork of LiteView for Twitch)
+
+> **This is a fork** of [itsdeeezy/LiteView-for-Twitch](https://github.com/itsdeeezy/LiteView-for-Twitch) (based on its
+> 1.2.0 source), focused on security, reliability and tests first. What changed so far: [CHANGELOG.md](CHANGELOG.md).
+> Status: **0.1.0, not yet tested on Windows** ([docs/TESTING.md](docs/TESTING.md)), and still using upstream's Twitch
+> application id ([docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)). Everything below is upstream's description, corrected
+> where the fork behaves differently. Upstream's measurements are upstream's; this fork has not measured yet.
+> Docs: [audit](docs/BASELINE_AUDIT.md) · [architecture](docs/ARCHITECTURE.md) · [security](docs/SECURITY_MODEL.md) ·
+> [roadmap](docs/ROADMAP.md) · [development](docs/DEVELOPMENT.md) · [following upstream](docs/UPSTREAM.md)
+
 
 **Watch Twitch while you game, without the browser eating your FPS, and with a sharper picture than the website.**
 
@@ -39,7 +48,7 @@ priority, and the video itself (mpv) costs **under 10% of a thread**.
   messages, sending with `Tab` completion of emotes and @names and `↑` for your last messages. Scroll up to
   pause it. Text is drawn with grayscale anti-aliasing, smooth whatever your Windows ClearType setting is.
 - **Emote picker** (smiley next to the chat input), like 7TV's: search the channel's 7TV, BetterTTV and FFZ emotes,
-  your own Twitch emotes and the global sets; recently used ones on top; a click puts the emote in your message. Twitch's web chat (with 7TV) stays available: gear icon in the chat, or right-click *Chat*.
+  your own Twitch emotes and the global sets; recently used ones on top; a click puts the emote in your message. Twitch's web chat stays available: gear icon in the chat, or right-click *Chat* (the fork no longer loads the 7TV extension into it).
 - **Video + chat in one window**: the video area stays 16:9 while you resize, so there are no black bars.
 - **Picture settings** (work on **any** GPU: AMD, Intel, NVIDIA):
 
@@ -55,13 +64,14 @@ priority, and the video itself (mpv) costs **under 10% of a thread**.
 - **Game first**: LiteView and everything it starts (WebView2, Streamlink, mpv) run on the CPU die *without* 3D V-Cache on Ryzen X3D chips (auto-detected), at Below Normal priority, with mpv's GPU work at Below Normal GPU priority.
 - **Volume, mute, quality, fullscreen** in the top bar. On the video: double-click / `F` fullscreen, `Esc` leave, mouse wheel volume, `M` mute.
 - **Ad segments skipped** (Streamlink), and **HEVC/AV1 up to 1440p** used automatically when a streamer offers it.
-- **GameFirst.exe** (optional): a tiny background helper that keeps **Chrome** (or Discord, Steam…) off your game's cores and below the game too.
+- **GameFirst.exe** (optional): a tiny background helper that keeps LiteView's player off your game's cores and below the game; add **Chrome** (or Discord, Steam…) to `gamefirst.ini` to include them (the fork changes no other app unless you list it).
 
 ## Install
 
 1. Download `LiteView-for-Twitch-<version>.zip` from [Releases](../../releases/latest) and unzip it anywhere.
 2. Run `LiteView.exe`, log in to Twitch once in its window. Open a stream and click *Log in with Twitch* in the
-   followed-channels column (or under the chat): Twitch's own activate page opens, click *Activate* and *Authorize*.
+   followed-channels column (or under the chat): Twitch's own activate page opens **in your browser**; check that it
+   shows the code LiteView displays, then click *Activate* and *Authorize*.
    This lets LiteView read who you follow, list your Twitch emotes and chat as you
    (scopes `user:read:follows user:read:emotes chat:read chat:edit`).
 3. Optional: GameFirst at startup: `Win+R` → `shell:startup` → right-drag `GameFirst.exe` in → *Create shortcuts here*.
@@ -76,19 +86,24 @@ A video stream has none, so they cannot run on video. FSR 1 is AMD's newest upsc
 
 **Where is my login stored?** Only on your PC: the Twitch page login in the `webview` folder next to `LiteView.exe`,
 and the chat / followed-channels token in `liteview.token`, encrypted for your Windows account. LiteView has no
-telemetry and talks only to Twitch, the 7TV / BetterTTV / FFZ emote services, and the Chrome Web Store once
-(to fetch 7TV for the web chat if Chrome does not have it). *Log out* in the chat's gear menu revokes the token.
+telemetry and talks only to Twitch and the 7TV / BetterTTV / FFZ emote services (the fork no longer contacts the
+Chrome Web Store). *Log out* in the chat's gear menu revokes the token. LiteView writes `liteview.log` next to the exe
+(no tokens, no chat); *Export diagnostics...* in the gear menu saves a shareable report.
 
 **Known limits:** best at 100% Windows display scaling for now; the picture can only be as good as the stream
 Twitch sends (most are 1080p60 at 6-8 Mbps).
 
 ## Build from source
 
+Needs the .NET SDK 10 (`winget install Microsoft.DotNet.SDK.10`); the app itself still runs on the .NET Framework
+that is part of Windows.
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.2.0
+powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.0
 ```
-Downloads the pinned Streamlink, mpv and WebView2 SDK (checked by SHA-256 / Microsoft signature), compiles both
-apps with the C# compiler built into Windows, and writes `dist\LiteView-for-Twitch-1.2.0.zip`.
+Downloads the pinned Streamlink and mpv (checked by SHA-256), restores the pinned WebView2 SDK (lock-file hashes,
+Microsoft signature checked), runs the unit tests, compiles both apps and writes `dist\LiteView-Enhanced-0.1.0.zip`
+with its SHA-256. Details: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Credits and licences
 

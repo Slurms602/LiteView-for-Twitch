@@ -237,7 +237,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     {
         if (env == null)
         {
-            // no browser extensions: the fork never copies or downloads them (docs/SECURITY_MODEL.md S-1)
+            // no browser extensions: the fork never copies or downloads them (docs/BASELINE_AUDIT.md SEC-1)
             var opts = new CoreWebView2EnvironmentOptions(); opts.AreBrowserExtensionsEnabled = false;
             // darker, crisper web text (Edge's low-contrast text tuning off); every WebView2 on this profile uses the same options
             opts.AdditionalBrowserArguments = "--disable-features=LowTextContrast --text-contrast=200";

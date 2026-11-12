@@ -1,7 +1,7 @@
 # Third-party notices
 
-LiteView for Twitch bundles the following programs and shaders. Each keeps its own licence; the
-LiteView source code itself (src/, build.ps1, config/*.ini, config/mpv/*.conf) is MIT (see `LICENSE`).
+LiteView for Twitch (and this fork, LiteView Enhanced) bundles the following programs and shaders. Each keeps its own
+licence; the LiteView source code itself (src/, tests/, tools/, build.ps1, config/*.ini, config/mpv/*.conf) is MIT (see `LICENSE`).
 
 | Component | Version | Licence | Source |
 |---|---|---|---|
@@ -16,8 +16,12 @@ LiteView source code itself (src/, build.ps1, config/*.ini, config/mpv/*.conf) i
 | NLMeans (`nlmeans_sharpen_denoise.glsl`) by an3223 | - | LGPL-3.0 | https://github.com/AN3223/dotfiles/tree/master/.config/mpv/shaders |
 | Adaptive Sharpen (`adaptive-sharpen.glsl`, `adaptive-sharpen_strong.glsl`) by bacondither, mpv port by igv | - | BSD-2-Clause | https://gist.github.com/igv/8a77e4eb8276753b54bb94c1c50c317e (`_strong` only raises `curve_height` from 1.0 to 1.5) |
 
-Not bundled, loaded at run time from the user's own Chrome install or the Chrome Web Store:
-**7TV** browser extension (https://7tv.app). (web chat only)
+The 7TV browser extension is **no longer** loaded by this fork (upstream copied it from Chrome or downloaded it
+from the Chrome Web Store for the web chat).
+
+Used only to build and test, not shipped: Microsoft.NETFramework.ReferenceAssemblies (MIT), Microsoft.NET.Test.Sdk (MIT),
+xunit and xunit.runner.visualstudio (Apache-2.0). Their versions are pinned in `Directory.Packages.props`.
+`LiteView.Core.dll` is part of this project (MIT).
 
 Not bundled, fetched at run time by the native chat: emote and badge images and emote lists from Twitch,
 7TV (https://7tv.app), BetterTTV (https://betterttv.com) and FrankerFaceZ (https://www.frankerfacez.com) through their

@@ -47,6 +47,10 @@ When every commit up to some point is decided: `tools/upstream.sh done <sha>`, t
 
 `tools/upstream.sh file src/chat.cs` shows upstream's and our changes to one file side by side, which helps with conflicts.
 
+**Reminder on GitHub**: once this fork is on GitHub, `.github/workflows/upstream-watch.yml` runs every Monday and
+keeps one issue, *Upstream changes to review*, listing upstream commits newer than `.upstream-reviewed` (it only
+reports; `DRY_RUN=1 tools/upstream-watch.sh` shows the same text locally). Close it after `tools/upstream.sh done`.
+
 ## Rules that protect the fork's work
 
 1. **Never** `git merge -X theirs`, `git checkout upstream/main -- <file>`, or copy upstream files over ours. They silently

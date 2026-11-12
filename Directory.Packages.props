@@ -1,0 +1,10 @@
+<Project>
+  <!-- Every package version, pinned in one place. packages.lock.json files record their hashes. -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" />
+    <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+</Project>

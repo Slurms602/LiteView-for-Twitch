@@ -9,3 +9,9 @@ extensions/
 twitch/
 liteview.token
 *.token
+# SDK build output
+bin/
+obj/
+TestResults/
+*.user
+.vs/

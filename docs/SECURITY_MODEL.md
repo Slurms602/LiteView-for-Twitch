@@ -22,7 +22,7 @@ What LiteView Enhanced trusts, what it does not, and how each boundary is protec
 | B5 | Page → app messages | Not trusted | Only from `https://*.twitch.tv`, only `watch:<per-run secret>:<login>`, login validated (SEC-5) |
 | B6 | Links (chat, web pages, login) | Not trusted | One launcher (`src/app/Launcher.cs`) opens absolute `http(s)` URLs with a host and no user-info; everything else is refused and logged by scheme only (SEC-2, SEC-3) |
 | B7 | Child processes (Streamlink, mpv) | Trusted binaries (pinned, SHA-256) | Command line built from validated parts and quoted by CommandLineToArgvW rules; started suspended in a kill-on-close job; Below Normal priority |
-| B8 | mpv IPC pipe | Local | Random name per stream; we are the client; replies parsed defensively (length cap, numbers clamped) |
+| B8 | mpv IPC pipe | Local, same user | Random name per stream; we are the client; replies parsed defensively (length cap, numbers clamped). mpv 0.42.0 restricts the pipe to the current user at the same or higher integrity level and rejects remote clients (`input/ipc-win.c`, read 2026-11-12) |
 | B9 | Local files next to the exe (`liteview.ini`, `liteview.token`, `liteview.emotes`, logs) | The user's own | ini parse is tolerant and size-capped; atomic writes; token DPAPI-encrypted for the Windows user |
 | B10 | Downloaded dependencies at build time | Must be authentic | Streamlink and mpv: pinned URLs + SHA-256; NuGet: nuget.org only, signed packages required, versions pinned, hashes in `packages.lock.json`, restore in locked mode; WebView2 DLLs: Microsoft Authenticode check |
 | B11 | GameFirst and other processes | Other apps are not ours | Default list is LiteView's own player processes only; other apps only when the user lists them (SEC-14) |
@@ -52,7 +52,6 @@ What LiteView Enhanced trusts, what it does not, and how each boundary is protec
 | The Following page runs Twitch's full website in WebView2, with its third-party scripts | Upstream's browsing UI; navigation, messages and permissions are restricted | Native browsing (P2) removes it from normal use |
 | Web chat (optional) runs Twitch's popout chat | Kept as a fallback | Same restrictions as above |
 | Upstream's Twitch client id | Needs the owner's dev.twitch.tv registration | Before a public release |
-| mpv IPC pipe permissions are mpv's defaults | Not audited | Check mpv's `CreateNamedPipe` security descriptor (P1) |
 | GDI+ still decodes PNG/GIF/JPEG from the network | No managed decoder in .NET Framework | Inputs are size-checked first; consider WIC with limits later |
 | No code signing of LiteView.exe | No certificate | Releases are not described as signed; checksums are published (`FILES.sha256`, `<zip>.sha256`) |
 | GameFirst does not undo its changes when it exits | Upstream design | P4: per-app policies with rollback |

@@ -32,7 +32,6 @@ Windows pass and one green CI run.
    CLEARMSG/CLEARCHAT) to measure frame time, memory and the emote budget (RES-7).
 6. Status/errors: a clearer error area than the status line (UI-5), with retry and "open log".
 7. Sleep/resume and network change handling for playback (reconnect on resume).
-8. Audit mpv's IPC pipe permissions.
 
 ## P2 - Native Twitch interface
 

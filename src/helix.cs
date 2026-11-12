@@ -13,10 +13,13 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
+using LiteViewCore;
 
 static class Tw
 {
-    // "LiteView for Twitch" on dev.twitch.tv (client type Public: no secret exists for it)
+    // "LiteView for Twitch" on dev.twitch.tv (client type Public: no secret exists for it).
+    // This is UPSTREAM's registered application. Before this fork is released publicly it needs its own
+    // registration (dev.twitch.tv > Applications, client type Public, device code flow) - see docs/KNOWN_ISSUES.md.
     public const string ClientId = "i82nikwku19tn6wk8ms6z7hr9l57wo";
     const string Scopes = "user:read:follows user:read:emotes chat:read chat:edit";
     public static readonly HttpClient Http = new HttpClient();
@@ -31,30 +34,34 @@ static class Tw
     {
         ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
         Http.Timeout = TimeSpan.FromSeconds(20);
-        Http.DefaultRequestHeaders.UserAgent.ParseAdd("LiteView/1.1");
+        Http.MaxResponseContentBufferSize = Bounded.MaxJsonBytes;   // upstream: the 2 GB default
+        Http.DefaultRequestHeaders.UserAgent.ParseAdd("LiteView-Enhanced/" + typeof(Tw).Assembly.GetName().Version);
         path = tokenFile;
         try
         {
+            if (!File.Exists(path)) return;
             var s = Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(path), null, DataProtectionScope.CurrentUser)).Split('\n');
             if (s[0].Length > 0) { Token = s[0]; refresh = s.Length > 1 && s[1].Length > 0 ? s[1] : null; }
         }
-        catch { }
+        catch (Exception ex) { Log.Warn("token file unreadable (" + ex.GetType().Name + "): log in again"); }
     }
 
     static void Save()
     {
         try
         {
-            if (Token == null) { File.Delete(path); return; }
-            File.WriteAllBytes(path, ProtectedData.Protect(Encoding.UTF8.GetBytes(Token + "\n" + refresh), null, DataProtectionScope.CurrentUser));
+            if (Token == null) { AtomicFile.Delete(path); return; }
+            // DPAPI (this Windows user only), written atomically (upstream: File.WriteAllBytes)
+            AtomicFile.Write(path, ProtectedData.Protect(Encoding.UTF8.GetBytes(Token + "\n" + refresh), null, DataProtectionScope.CurrentUser), false);
         }
-        catch { }
+        catch (Exception ex) { Log.Error("saving the token", ex); }
     }
 
     public static void LogOut()
     {
         string t = Token;
-        Token = refresh = Login = UserId = null; Save();
+        Token = refresh = Login = UserId = null; Granted = new string[0]; Save();
+        Log.Info("logged out; token revoked and deleted");
         if (t != null) Post("https://id.twitch.tv/oauth2/revoke", "client_id=" + ClientId + "&token=" + Uri.EscapeDataString(t)).ContinueWith(x => { });
     }
 
@@ -67,9 +74,27 @@ static class Tw
     public static object[] A(object o, string k) { return V(o, k) as object[] ?? new object[0]; }
     public static IEnumerable<KeyValuePair<string, object>> Props(object o) { return o as Dictionary<string, object> ?? new Dictionary<string, object>(); }
 
+    // JSON from the emote services: only their API hosts over https, at most 16 MB
     public static async Task<string> Get(string url)
     {
-        try { using (var r = await Http.GetAsync(url)) return r.IsSuccessStatusCode ? await r.Content.ReadAsStringAsync() : null; }
+        if (!SafeUrl.IsAllowedApi(url)) { Log.Warn("refused API request to an unknown host"); return null; }
+        var b = await GetBytes(url, Bounded.MaxJsonBytes);
+        return b == null ? null : Encoding.UTF8.GetString(b);
+    }
+
+    // a download with a size limit (null on any failure); images are checked by the caller
+    public static async Task<byte[]> GetBytes(string url, int max)
+    {
+        try
+        {
+            using (var r = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+            {
+                if (!r.IsSuccessStatusCode) return null;
+                long? len = r.Content.Headers.ContentLength;
+                if (len.HasValue && len.Value > max) return null;
+                using (var st = await r.Content.ReadAsStreamAsync()) return await Bounded.ReadAllAsync(st, max);
+            }
+        }
         catch { return null; }
     }
 
@@ -99,12 +124,19 @@ static class Tw
             int code = 0; object d = null;
             try { using (var r = await Http.SendAsync(rq)) { code = (int)r.StatusCode; d = Parse(await r.Content.ReadAsStringAsync()); } }
             catch { }
-            if (code == 200) { Login = S(d, "login"); UserId = S(d, "user_id"); Granted = A(d, "scopes").Select(x => Convert.ToString(x)).ToArray(); return true; }
+            if (code == 200)
+            {
+                string login = S(d, "login"), uid = S(d, "user_id");
+                // the token must belong to a real account and have been issued to this app
+                if (!ChannelName.IsValidLogin(login) || !ChannelName.IsNumericId(uid) || (S(d, "client_id") != null && S(d, "client_id") != ClientId))
+                { Log.Warn("token validation: unexpected answer, logging out"); break; }
+                Login = login; UserId = uid; Granted = A(d, "scopes").Select(x => Convert.ToString(x)).ToArray(); return true;
+            }
             if (code != 401) return Login != null;          // offline / Twitch trouble: keep the session
             if (!await RefreshToken(t)) break;
         }
-        if (Token != null) { Token = refresh = null; Save(); }
-        Login = UserId = null;
+        if (Token != null) { Token = refresh = null; Save(); Log.Info("token no longer valid: logged out"); }
+        Login = UserId = null; Granted = new string[0];
         return false;
     }
 
@@ -127,7 +159,8 @@ static class Tw
 
     public static async Task<object> Helix(string query)
     {
-        for (int i = 0; i < 2 && Token != null; i++)
+        bool waited = false;
+        for (int i = 0; i < 3 && Token != null; i++)
         {
             string t = Token;
             var rq = new HttpRequestMessage(HttpMethod.Get, "https://api.twitch.tv/helix/" + query);
@@ -138,7 +171,18 @@ static class Tw
                 using (var r = await Http.SendAsync(rq))
                 {
                     if ((int)r.StatusCode == 401) { if (await RefreshToken(t)) continue; return null; }
-                    return r.IsSuccessStatusCode ? Parse(await r.Content.ReadAsStringAsync()) : null;
+                    if ((int)r.StatusCode == 429 && !waited)
+                    {   // rate limited: wait until Twitch's bucket refills (at most 10 s), once
+                        waited = true;
+                        IEnumerable<string> v; long reset;
+                        double s = r.Headers.TryGetValues("Ratelimit-Reset", out v) && long.TryParse(v.FirstOrDefault(), out reset)
+                            ? reset - DateTimeOffset.UtcNow.ToUnixTimeSeconds() : 2;
+                        Log.Warn("Twitch API rate limit; waiting " + Math.Max(1, Math.Min(10, s)) + " s");
+                        await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, Math.Min(10, s))));
+                        continue;
+                    }
+                    if (!r.IsSuccessStatusCode) return null;
+                    using (var st = await r.Content.ReadAsStreamAsync()) return Parse(Encoding.UTF8.GetString(await Bounded.ReadAllAsync(st, Bounded.MaxJsonBytes)));
                 }
             }
             catch { return null; }

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using LiteViewCore;
 
 static class Native
 {
@@ -31,28 +32,21 @@ static class Native
     public const uint PROCESS_QUERY_INFORMATION = 0x400, PROCESS_SET_INFORMATION = 0x200, PROCESS_VM_READ = 0x10, PROCESS_QUERY_LIMITED = 0x1000;
     public const uint ABOVE_NORMAL = 0x8000;
 
-    // Logical processors sharing the SMALLEST L3 = the die without 3D V-Cache (0 if all L3s are equal).
+    // Logical processors sharing the SMALLEST L3 = the die without 3D V-Cache (0 if all L3s are equal,
+    // or the CPU has more than one processor group). The decision is in src/core/Limits.cs (tested).
     public static ulong NonCacheDieMask()
     {
         int len = 0; GetLogicalProcessorInformationEx(2, IntPtr.Zero, ref len);
+        if (len <= 0 || len > 4 * 1024 * 1024) return 0;
         IntPtr buf = Marshal.AllocHGlobal(len);
         try
         {
             if (!GetLogicalProcessorInformationEx(2, buf, ref len)) return 0;
-            var l3 = new List<KeyValuePair<uint, ulong>>();
-            for (int off = 0; off < len;)
-            {
-                IntPtr p = buf + off;
-                if (Marshal.ReadInt32(p, 0) == 2 && Marshal.ReadByte(p, 8) == 3)
-                    l3.Add(new KeyValuePair<uint, ulong>((uint)Marshal.ReadInt32(p, 12), (ulong)Marshal.ReadInt64(p, 40)));
-                off += Marshal.ReadInt32(p, 4);
-            }
-            if (l3.Count < 2) return 0;
-            l3.Sort((a, b) => a.Key.CompareTo(b.Key));
-            if (l3[0].Key == l3[l3.Count - 1].Key) return 0;
-            ulong m = 0; foreach (var c in l3) if (c.Key == l3[0].Key) m |= c.Value;
-            return m;
+            var bytes = new byte[len];
+            Marshal.Copy(buf, bytes, 0, len);
+            return CpuTopology.SmallestL3Mask(CpuTopology.ParseL3(bytes, len));
         }
+        catch { return 0; }
         finally { Marshal.FreeHGlobal(buf); }
     }
 
@@ -81,19 +75,7 @@ static class Native
         return pi.pid;
     }
 
-    public static Dictionary<string, string> ReadIni(string path)
-    {
-        var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(path)) return d;
-        foreach (var raw in File.ReadAllLines(path))
-        {
-            var line = raw.Trim();
-            if (line.Length == 0 || line[0] == '#' || line[0] == ';') continue;
-            int eq = line.IndexOf('=');
-            if (eq > 0) d[line.Substring(0, eq).Trim()] = line.Substring(eq + 1).Trim();
-        }
-        return d;
-    }
+    public static Dictionary<string, string> ReadIni(string path) { return IniStore.Read(path); }   // same format; falls back to the .bak
 
-    public static string Get(Dictionary<string, string> d, string k, string def) { string v; return d.TryGetValue(k, out v) && v.Length > 0 ? v : def; }
+    public static string Get(Dictionary<string, string> d, string k, string def) { return IniStore.Get(d, k, def); }
 }

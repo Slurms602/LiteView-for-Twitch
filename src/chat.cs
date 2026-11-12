@@ -17,6 +17,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Named = System.Collections.Generic.KeyValuePair<string, Emote>;
+using LiteViewCore;
 
 // Text drawn with GDI+ grayscale anti-aliasing (AntiAliasGridFit): smooth like the Twitch website whatever the
 // Windows font-smoothing setting is (GDI's own "standard" smoothing looks heavy and jagged at chat sizes).
@@ -55,6 +56,8 @@ class Emote
     public string Name, Url; public int W = 28, H = 28, FixedH; public bool Zero, SizeKnown;
     public Bitmap[] Frames; public int[] Ends; public int Total;
     public volatile int State;   // 0 new, 1 loading, 2 ready, 3 failed
+    public long LastUse;          // Images.Clock ms when last drawn (the decoded frames' memory budget)
+    public long Bytes;            // decoded size of Frames
     public bool Animated { get { return Frames != null && Frames.Length > 1; } }
     public int Index(long ms)
     {
@@ -68,8 +71,39 @@ class Emote
 static class Images
 {
     static readonly Dictionary<string, Emote> byUrl = new Dictionary<string, Emote>();
-    static readonly SemaphoreSlim gate = new SemaphoreSlim(4);
+    static readonly SemaphoreSlim gate = new SemaphoreSlim(EmoteLimits.MaxConcurrentDownloads);
     public static event Action<Emote> Loaded;   // raised on a worker thread
+    // Decoded frames are kept within a memory budget (upstream kept every emote ever seen, forever).
+    // The budget is only touched on the UI thread, which is also the only thread that draws frames.
+    public static long BudgetBytes = 128L * 1024 * 1024;
+    static readonly ByteBudget<Emote> budget = new ByteBudget<Emote>(BudgetBytes);
+    static readonly Stopwatch clock = Stopwatch.StartNew();
+    static int evicted, refused;
+    public static long Clock { get { return clock.ElapsedMilliseconds; } }
+
+    /// <summary>Marks an emote as drawn now (UI thread).</summary>
+    public static void Used(Emote e) { e.LastUse = clock.ElapsedMilliseconds; if (e.State == 2) budget.Touch(e, e.Bytes); }
+
+    /// <summary>Frees the least recently drawn emotes while over budget; nothing drawn in the last 10 s is freed (UI thread).</summary>
+    public static void Trim()
+    {
+        budget.Budget = BudgetBytes;
+        if (budget.Total <= budget.Budget) return;
+        long now = clock.ElapsedMilliseconds;
+        foreach (var e in budget.Evict(x => now - x.LastUse < 10000 || x.State != 2))
+        {
+            var frames = e.Frames;
+            e.State = 0; e.Frames = null; e.Ends = null;   // loads again if it is needed later
+            if (frames != null) foreach (var b in frames) b.Dispose();
+            evicted++;
+        }
+    }
+
+    public static string Stats()
+    {
+        int n; lock (byUrl) n = byUrl.Count;
+        return n + " known, " + budget.Count + " decoded, " + (budget.Total / (1024 * 1024)) + " of " + (BudgetBytes / (1024 * 1024)) + " MB, " + evicted + " freed, " + refused + " refused";
+    }
 
     public static Emote Get(string url, string name, int w, int h, int fixedH)
     {
@@ -80,6 +114,7 @@ static class Images
             e = new Emote { Url = url, Name = name, FixedH = fixedH };
             if (fixedH > 0) { e.W = e.H = fixedH; e.SizeKnown = true; }
             else if (w > 0 && h > 0) { Fit(e, w, h); e.SizeKnown = true; }
+            if (!SafeUrl.IsAllowedImage(url)) e.State = 3;   // not from Twitch / 7TV / BTTV / FFZ: never downloaded
             byUrl[url] = e;
             return e;
         }
@@ -87,9 +122,8 @@ static class Images
 
     static void Fit(Emote e, int w, int h)
     {
-        int cap = e.FixedH > 0 ? e.FixedH : 32;
-        if (h > cap || e.FixedH > 0) { w = Math.Max(1, w * cap / h); h = cap; }
-        e.W = w; e.H = h;
+        int ow, oh; EmoteLimits.Fit(w, h, e.FixedH, out ow, out oh);   // upstream rule, plus a width cap
+        e.W = ow; e.H = oh;
     }
 
     public static void Need(Emote e)
@@ -99,7 +133,12 @@ static class Images
         Task.Run(async () =>
         {
             await gate.WaitAsync();
-            try { Decode(e, await Tw.Http.GetByteArrayAsync(e.Url)); e.State = 2; }
+            try
+            {
+                var bytes = await Tw.GetBytes(e.Url, EmoteLimits.MaxDownloadBytes);
+                if (bytes == null || !ImageSniff.Acceptable(bytes)) { Interlocked.Increment(ref refused); e.State = 3; }
+                else { Decode(e, bytes); e.State = 2; }
+            }
             catch { e.State = 3; }
             finally { gate.Release(); }
             var h = Loaded; if (h != null) h(e);
@@ -111,25 +150,34 @@ static class Images
         using (var ms = new MemoryStream(b))
         using (var img = Image.FromStream(ms))
         {
+            if (!EmoteLimits.SourceOk(img.Width, img.Height)) throw new InvalidDataException("image too large");
             Fit(e, img.Width, img.Height);
             int n = 1; FrameDimension dim = null;
-            try { dim = new FrameDimension(img.FrameDimensionsList[0]); n = Math.Min(400, img.GetFrameCount(dim)); } catch { }
-            var delays = new int[n];
-            if (n > 1) try { var p = img.GetPropertyItem(0x5100); for (int i = 0; i < n && i * 4 + 3 < p.Value.Length; i++) delays[i] = BitConverter.ToInt32(p.Value, i * 4) * 10; } catch { }
-            var frames = new Bitmap[n]; var ends = new int[n]; int t = 0;
-            for (int i = 0; i < n; i++)
+            try { dim = new FrameDimension(img.FrameDimensionsList[0]); n = Math.Max(1, img.GetFrameCount(dim)); } catch { }
+            // keep at most EmoteLimits.FramesToKeep frames (by count and decoded bytes), spread evenly, same total duration
+            int[] plan = EmoteLimits.FramePlan(n, EmoteLimits.FramesToKeep(n, e.W, e.H));
+            var src = new int[n];
+            if (n > 1) try { var p = img.GetPropertyItem(0x5100); for (int i = 0; i < n && i * 4 + 3 < p.Value.Length; i++) src[i] = BitConverter.ToInt32(p.Value, i * 4) * 10; } catch { }
+            int[] delays = EmoteLimits.MergeDelays(src, plan);
+            var frames = new Bitmap[plan.Length]; var ends = new int[plan.Length]; long t = 0;
+            try
             {
-                if (n > 1) img.SelectActiveFrame(dim, i);
-                var f = new Bitmap(e.W, e.H, PixelFormat.Format32bppPArgb);
-                using (var g = Graphics.FromImage(f))
+                for (int k = 0; k < plan.Length; k++)
                 {
-                    g.InterpolationMode = img.Height == e.H ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
-                    g.PixelOffsetMode = PixelOffsetMode.Half;
-                    g.DrawImage(img, new Rectangle(0, 0, e.W, e.H));
+                    if (n > 1) img.SelectActiveFrame(dim, plan[k]);
+                    var f = new Bitmap(e.W, e.H, PixelFormat.Format32bppPArgb);
+                    frames[k] = f;
+                    using (var g = Graphics.FromImage(f))
+                    {
+                        g.InterpolationMode = img.Height == e.H ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
+                        g.PixelOffsetMode = PixelOffsetMode.Half;
+                        g.DrawImage(img, new Rectangle(0, 0, e.W, e.H));
+                    }
+                    t += delays[k]; ends[k] = (int)Math.Min(int.MaxValue, t);
                 }
-                frames[i] = f; t += delays[i] < 20 ? 100 : delays[i]; ends[i] = t;
             }
-            e.Ends = ends; e.Total = Math.Max(1, t); e.Frames = frames;
+            catch { foreach (var f in frames) if (f != null) f.Dispose(); throw; }
+            e.Ends = ends; e.Total = (int)Math.Max(1, Math.Min(int.MaxValue, t)); e.Bytes = (long)frames.Length * e.W * e.H * 4; e.Frames = frames;
         }
     }
 }
@@ -159,6 +207,7 @@ class Irc
 
     public bool Send(string raw)
     {
+        if (raw == null || raw.IndexOf('\r') >= 0 || raw.IndexOf('\n') >= 0) return false;   // one IRC line only
         var s = ws;
         if (s == null || s.State != WebSocketState.Open) return false;
         Task.Run(() => SendRaw(s, raw));
@@ -177,92 +226,55 @@ class Irc
 
     async Task Loop(string chan, string login, string token, CancellationToken c)
     {
-        int wait = 1000; var rnd = new Random();
+        if (!IrcProtocol.IsSafeChannel(chan)) { Say("Not a channel name."); return; }
+        var rnd = new Random();
+        // 1 s, 2 s, 4 s ... 30 s with jitter; reset only after a connection stayed up a minute
+        var backoff = new Backoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60), rnd);
         while (!c.IsCancellationRequested)
         {
-            var s = new ClientWebSocket();
+            var s = new ClientWebSocket(); var up = Stopwatch.StartNew(); bool connected = false;
             try
             {
                 await s.ConnectAsync(new Uri("wss://irc-ws.chat.twitch.tv:443"), c);
-                ws = s;
+                ws = s; connected = true; up.Restart();
                 await SendRaw(s, "CAP REQ :twitch.tv/tags twitch.tv/commands");
                 await SendRaw(s, token != null ? "PASS oauth:" + token : "PASS SCHMOOPIIE");
                 await SendRaw(s, "NICK " + (token != null ? login : "justinfan" + rnd.Next(10000, 99999)));
                 await SendRaw(s, "JOIN #" + chan);
-                wait = 1000;
-                var buf = new byte[32768]; var acc = new MemoryStream();
-                bool again = false;
-                while (s.State == WebSocketState.Open && !again)
+                var buf = new byte[32768];
+                using (var acc = new FrameBuffer(1024 * 1024))   // one WebSocket message is never buffered past 1 MB
                 {
-                    var r = await s.ReceiveAsync(new ArraySegment<byte>(buf), c);
-                    if (r.MessageType == WebSocketMessageType.Close) break;
-                    acc.Write(buf, 0, r.Count);
-                    if (!r.EndOfMessage) continue;
-                    string text = Encoding.UTF8.GetString(acc.GetBuffer(), 0, (int)acc.Length); acc.SetLength(0);
-                    foreach (var line in text.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries))
+                    bool again = false;
+                    while (s.State == WebSocketState.Open && !again)
                     {
-                        if (line.StartsWith("PING")) { await SendRaw(s, "PONG" + line.Substring(4)); continue; }
-                        if (line.EndsWith(" RECONNECT")) { again = true; break; }
-                        var h = Line; if (h != null) h(line);
+                        var r = await s.ReceiveAsync(new ArraySegment<byte>(buf), c);
+                        if (r.MessageType == WebSocketMessageType.Close) break;
+                        if (!acc.Append(buf, r.Count)) { Log.Warn("chat: oversized message from the server, reconnecting"); break; }
+                        if (!r.EndOfMessage) continue;
+                        foreach (var line in IrcProtocol.Lines(acc.Take()))
+                        {
+                            string pong = IrcProtocol.PongFor(line);
+                            if (pong != null) { await SendRaw(s, pong); continue; }
+                            // only Twitch's RECONNECT command (upstream also matched chat messages ending in " RECONNECT")
+                            if (line.IndexOf("RECONNECT", StringComparison.Ordinal) >= 0 && IrcProtocol.IsReconnect(IrcMsg.Parse(line))) { again = true; break; }
+                            var h = Line; if (h != null) h(line);
+                        }
                     }
                 }
             }
-            catch { }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { if (!c.IsCancellationRequested) Log.Info("chat: connection ended: " + ex.GetType().Name); }
             finally { if (ws == s) ws = null; try { s.Dispose(); } catch { } }
             if (c.IsCancellationRequested) break;
+            if (connected) backoff.Ended(up.Elapsed);
+            var wait = backoff.Next();
             Say("Reconnecting to chat...");
             try { await Task.Delay(wait, c); } catch { break; }
-            wait = Math.Min(wait * 2, 30000);
         }
     }
 }
 
-class IrcMsg
-{
-    public Dictionary<string, string> Tags = new Dictionary<string, string>();
-    public string Prefix, Cmd, Chan, Text;
-    public string Tag(string k) { string v; return Tags.TryGetValue(k, out v) ? v : null; }
-    public string Nick { get { if (Prefix == null) return null; int i = Prefix.IndexOf('!'); return i < 0 ? Prefix : Prefix.Substring(0, i); } }
-
-    public static IrcMsg Parse(string line)
-    {
-        var m = new IrcMsg(); int i = 0;
-        if (line.StartsWith("@"))
-        {
-            int sp = line.IndexOf(' '); if (sp < 0) return null;
-            foreach (var kv in line.Substring(1, sp - 1).Split(';'))
-            {
-                int eq = kv.IndexOf('=');
-                if (eq > 0) m.Tags[kv.Substring(0, eq)] = Unescape(kv.Substring(eq + 1));
-            }
-            i = sp + 1;
-        }
-        if (i < line.Length && line[i] == ':')
-        {
-            int sp = line.IndexOf(' ', i); if (sp < 0) return null;
-            m.Prefix = line.Substring(i + 1, sp - i - 1); i = sp + 1;
-        }
-        int t = line.IndexOf(" :", i);
-        string mid = t < 0 ? line.Substring(i) : line.Substring(i, t - i);
-        m.Text = t < 0 ? null : line.Substring(t + 2);
-        var parts = mid.Split(' ');
-        m.Cmd = parts[0]; m.Chan = parts.Length > 1 ? parts[1].TrimStart('#') : null;
-        return m;
-    }
-
-    static string Unescape(string v)
-    {
-        if (v.IndexOf('\\') < 0) return v;
-        var sb = new StringBuilder();
-        for (int i = 0; i < v.Length; i++)
-        {
-            if (v[i] != '\\' || i + 1 >= v.Length) { if (v[i] != '\\') sb.Append(v[i]); continue; }
-            char n = v[++i];
-            sb.Append(n == 's' ? ' ' : n == ':' ? ';' : n == 'r' ? '\r' : n == 'n' ? '\n' : n);
-        }
-        return sb.ToString();
-    }
-}
+// IrcMsg (one parsed IRC line) moved to src/core/IrcMsg.cs, unchanged in use, so it is unit tested.
 
 // A piece of a chat line: 0 word, 1 emote, 2 badge, 3 name, 4 link, 5 @mention, 6 dim word
 class Piece { public byte Kind; public string Text; public Emote E; public Color C; }
@@ -446,11 +458,13 @@ class ChatView : Control
             if (y >= ClientSize.Height) continue;
             if (y + m.H <= 0) { top = 1; break; }
             Render(m); m.Seen = gen;
+            foreach (var pl in m.Places) if (pl.P.E != null) Images.Used(pl.P.E);
             g.DrawImageUnscaled(m.Cache, 0, y);
             if (!m.Dynamic) continue;
             foreach (var pl in m.Places)
             {
                 var p = pl.P;
+                if ((p.Kind == 1 || p.Kind == 2) && p.E.State == 0) Images.Need(p.E);   // its frames were freed: load again
                 if ((p.Kind != 1 && p.Kind != 2) || p.E.State != 2 || (!p.E.Animated && !p.E.Zero)) continue;
                 int f = p.E.Index(now); pl.Last = f;
                 g.DrawImage(p.E.Frames[f], pl.R.X, pl.R.Y + y, pl.R.Width, pl.R.Height);
@@ -518,14 +532,14 @@ class ChatView : Control
         if (pausedBox.Contains(e.Location)) { scroll = 0; Invalidate(); return; }
         Msg m; var pl = Hit(e.Location, out m);
         if (pl == null) return;
-        if (pl.P.Kind == 4) { try { var t = pl.P.Text; Process.Start(t.StartsWith("http") ? t : "https://" + t); } catch { } }
+        if (pl.P.Kind == 4) { var u = SafeUrl.FromChatWord(pl.P.Text); if (u != null) Launcher.Open(u); }   // upstream: Process.Start(raw word)
         else if (pl.P.Kind == 3 && m.Login != null && NameClicked != null) NameClicked(m.Login);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         Msg m; var pl = Hit(e.Location, out m);
-        string t = pl == null ? null : pl.P.Kind == 1 || pl.P.Kind == 2 ? pl.P.E.Name : null;
+        string t = pl == null ? null : pl.P.Kind == 1 || pl.P.Kind == 2 ? pl.P.E.Name : pl.P.Kind == 4 ? LinkTip(pl.P.Text) : null;
         Cursor = pl != null && (pl.P.Kind == 4 || pl.P.Kind == 3) || pausedBox.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
         if (t == tipText) return;
         tipText = t;
@@ -533,6 +547,9 @@ class ChatView : Control
     }
 
     protected override void OnResize(EventArgs e) { base.OnResize(e); foreach (var m in Msgs) Drop(m); }
+
+    // where a chat link really goes, shown before it is clicked
+    static string LinkTip(string word) { var u = SafeUrl.FromChatWord(word); return u == null ? null : "Opens in your browser: " + u.Host + "\n" + (u.AbsoluteUri.Length > 120 ? u.AbsoluteUri.Substring(0, 120) + "..." : u.AbsoluteUri); }
 }
 
 // The chat column: header, messages, input. Joins one channel at a time.
@@ -877,7 +894,7 @@ class ChatPanel : Panel
                 inbox.Enqueue(m); break;
             }
             case "ROOMSTATE":
-                if (im.Tag("room-id") != null && roomId == null) { roomId = im.Tag("room-id"); LoadChannel(roomId); }
+                if (ChannelName.IsNumericId(im.Tag("room-id")) && roomId == null) { roomId = im.Tag("room-id"); LoadChannel(roomId); }   // digits only: it goes into API URLs
                 break;
             case "USERSTATE": case "GLOBALUSERSTATE":
             {
@@ -925,6 +942,9 @@ class ChatPanel : Panel
 
     Msg Build(IrcMsg im, string text, string login)
     {
+        text = IrcProtocol.ForDisplay(text);   // never lay out more than 2000 characters of one message
+        if (chatters.Count > 20000) chatters.Clear();
+        if (twitchEmotes.Count > 20000) twitchEmotes.Clear();
         var m = new Msg { Id = im.Tag("id"), Login = login };
         m.Display = im.Tag("display-name"); if (string.IsNullOrEmpty(m.Display)) m.Display = login ?? "";
         m.NameColor = ParseColor(im.Tag("color"), login);
@@ -948,7 +968,7 @@ class ChatPanel : Panel
         string rp = im.Tag("reply-parent-display-name");
         if (rp != null)
         {
-            m.Reply = "Replying to @" + rp + ": " + (im.Tag("reply-parent-msg-body") ?? "");
+            m.Reply = IrcProtocol.ForDisplay("Replying to @" + rp + ": " + (im.Tag("reply-parent-msg-body") ?? ""));
         }
         Color tc = action ? m.NameColor : ChatView.Fg;
         // Twitch emotes by position (positions count Unicode code points, not UTF-16 units)
@@ -1009,6 +1029,7 @@ class ChatPanel : Panel
         while (inbox.TryDequeue(out m)) list.Add(m);
         if (list.Count > 150) list = list.GetRange(list.Count - 150, 150);   // a flood: keep the newest
         View.Add(list);
+        Images.Trim();
     }
 
     // ---------- sending ----------
@@ -1018,7 +1039,7 @@ class ChatPanel : Panel
         if (e.KeyCode == Keys.Enter)
         {
             e.SuppressKeyPress = true;
-            string t = input.Text.Trim();
+            string t = IrcProtocol.CleanOutgoing(input.Text);   // no CR/LF/control characters, at most 500
             if (t.Length == 0 || channel == null || Tw.Token == null) return;
             if (irc.Send("PRIVMSG #" + channel + " :" + t))
             {

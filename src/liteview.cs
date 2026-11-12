@@ -265,7 +265,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
             if (web != w) return;
             var core = w.CoreWebView2;
             Harden(core, true);
-            core.NewWindowRequested += (s, e) => { e.Handled = true; if (SafeUrl.ForWebView(e.Uri) == SafeUrl.Nav.Allow) core.Navigate(e.Uri); else Launcher.Open(e.Uri); };
+            core.NewWindowRequested += (s, e) => { e.Handled = true; if (SafeUrl.ForWebView(e.Uri) == SafeUrl.Nav.Allow) core.Navigate(e.Uri); else if (e.IsUserInitiated) Launcher.Open(e.Uri); };
             core.WebMessageReceived += (s, e) => { string n = WebMessage.Watch(TryMessage(e), e.Source, webSecret); if (n != null) BeginInvoke((Action)(() => Watch(n))); };
             // A plain click on a channel (card, sidebar, search result) watches it here instead of opening the heavy page.
             await core.AddScriptToExecuteOnDocumentCreatedAsync(@"(function(){
@@ -345,7 +345,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             {
                 await chatWeb.EnsureCoreWebView2Async(await Env());
                 Harden(chatWeb.CoreWebView2, false);
-                chatWeb.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; Launcher.Open(e.Uri); };   // upstream: Process.Start(any URI)
+                chatWeb.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; if (e.IsUserInitiated) Launcher.Open(e.Uri); };   // upstream: Process.Start(any URI)
                 chatReady = true;
             }
             catch (Exception ex) { Log.Error("web chat", ex); chatStarting = false; return; }

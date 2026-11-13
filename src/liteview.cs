@@ -278,6 +278,8 @@ document.addEventListener('click',function(e){if(e.button!==0||e.ctrlKey||e.shif
 var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;var n=ch(a);if(!n)return;
 e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             if (web != w) return;
+            await ApplyPendingSignOut(core);
+            if (web != w) return;
             webReady = true;
             core.Navigate(Home);
         }
@@ -671,7 +673,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     {
         Application.EnableVisualStyles();
         CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
-        if (args.Length > 0) startChannel = args[0];
+        ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();
         ulong m = Native.NonCacheDieMask();
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this

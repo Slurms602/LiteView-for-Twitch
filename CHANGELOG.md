@@ -32,12 +32,22 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 
 ### Added
 
+- Gear menu: **Sign out of twitch.tv in LiteView** (the website login used by the Following page and web chat;
+  *Log out* still ends only the chat login).
 - `liteview.log` (rotated at 1 MB, 3 kept; no tokens, no chat), and crash logging.
 - Chat gear menu: **Export diagnostics...** (a report without credentials or channel names) and **Open log folder**.
 
+- Chat no longer stops silently after sleep or a network change: LiteView notices a dead connection and reconnects,
+  and after resume from sleep it restarts the stream at the live edge.
+
 ### For developers
 
-- SDK-style projects (`LiteView.sln`), 176 unit tests, GitHub Actions CI, pinned packages with lock files,
+- `LiteView.exe <channel> --chat-stress=200` floods the chat with synthetic messages and logs memory and handle
+  counts every 10 s (docs/TESTING.md).
+
+- Twitch login/API and the chat connection moved into the tested library and are tested against a simulated
+  Twitch and chat server; JSON is read by a small built-in reader instead of `JavaScriptSerializer`.
+- SDK-style projects (`LiteView.sln`), 228 unit tests, GitHub Actions CI, pinned packages with lock files,
   `tools/upstream.sh` for taking upstream changes. See `docs/`.
 - CI starts the packaged app on Windows and checks that its window appears and closes cleanly (`tools/smoke.ps1`).
 - If LiteView cannot start, it says so in a message box (upstream closed without a word).

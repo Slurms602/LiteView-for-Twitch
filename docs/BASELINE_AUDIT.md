@@ -62,7 +62,7 @@ Severity: **High**: exploitable or likely to hurt users. **Medium**: real defect
 | SEC-14 | Low | **GameFirst changes unrelated apps by default**: the shipped `apps=` includes Chrome (affinity, priority, GPU priority, and reading Chrome processes' command lines). | `config/gamefirst.ini`, `guard.cs` 36 | Default is LiteView's own processes; other apps only when listed (documented in the ini). | none (config) | Fixed |
 | SEC-15 | Info | DPAPI user-scope token without extra entropy: any process of the same user can decrypt it. Inherent to per-user storage (Credential Manager has the same property). The write was not atomic. | `helix.cs` 44-52 | Atomic write; logout deletes it (and any `.bak`). Entropy not added (it would live in the exe). | `StorageTests.AtomicWriteAndDelete` | Accepted risk |
 | SEC-16 | Info | The fork uses **upstream's Twitch client id**, which belongs to upstream's dev.twitch.tv application. | `helix.cs` 20 | Comment added; needs its own registration before a public release. | n/a | **Open (owner decision)** |
-| SEC-17 | Low | Logging out of chat does not clear the WebView2 profile, so the Twitch *website* stays signed in inside LiteView. | `helix.cs` 54-59 | - | - | Open (P1) |
+| SEC-17 | Low | Logging out of chat does not clear the WebView2 profile, so the Twitch *website* stays signed in inside LiteView. | `helix.cs` 54-59 | Gear menu → *Sign out of twitch.tv in LiteView* clears the LiteView WebView2 profile's cookies and storage (now, or when the Following page next opens) | - | Fixed (P1), unverified |
 | SEC-18 | Low | After log out, `Tw.Granted` keeps the old scopes (`Has()` stays true). | `helix.cs` 57 | Cleared on log out and on failed validation. | none (static state) | Fixed |
 | SEC-19 | Info | Command line built with `string.Format` and hand quotes; safe only because the channel is reduced to `[a-z0-9_]` and Windows paths cannot contain `"`. | `liteview.cs` 383-391 | `WinArgs.Quote` (CommandLineToArgvW rules) + channel/pipe validation; the builder refuses bad input. | `WinArgsTests` (round trip through an argv parser) | Fixed |
 | SEC-20 | Info | `/oauth2/validate` answer not checked against the client id; login/user id not validated. | `helix.cs` 102 | Checked. | none | Fixed |
@@ -147,14 +147,14 @@ size-limited image download had no deadline for the body, so a stalled server co
 |---|---|---|
 | DUP-1 | Two `CreateProcessW` P/Invokes (`LiteView`, `Native`), three `SendMessage` P/Invokes, two dark combo set-ups. | Open (cleanup when touched) |
 | DUP-2 | Colours and fonts repeated in every control class (`Bg`, `Fg`, `Dim`, `Accent`...): no theme module. | Open (P4 theming) |
-| DEP-1 | `System.Web.Extensions` (`JavaScriptSerializer`) for JSON: a .NET Framework-only, unmaintained API. Bounded by the new size caps; fine while the app targets .NET Framework. | Open (Info) |
+| DEP-1 | `System.Web.Extensions` (`JavaScriptSerializer`) for JSON: a .NET Framework-only, unmaintained API. | Replaced by `src/core/Json.cs` (P1) |
 | DEP-2 | Build compiled with the C# 5 compiler in Windows (`csc.exe`); no tests, no CI, no lock files. | Fixed: SDK projects, tests, CI, lock files |
 
 ### 2.7 Tests, diagnostics, feedback
 
 | ID | Finding | Status |
 |---|---|---|
-| DIAG-1 | No automated tests at all. | 176 unit tests for the extracted logic (`tests/`). UI and integration tests: Open (P1) |
+| DIAG-1 | No automated tests at all. | 228 unit tests for the extracted logic (`tests/`). UI and integration tests: Open (P1) |
 | DIAG-2 | No application log; only `streamlink.log`. | `liteview.log`, rotating, redacted |
 | DIAG-3 | No diagnostics export. | Chat gear menu → *Export diagnostics...* |
 | DIAG-4 | Many `catch { }` blocks hide failures (token load, settings save, emote loads, chat). | The important ones now log; the rest are deliberate (logging must not break drawing) |

@@ -54,6 +54,9 @@ namespace LiteViewCore
             lock (gate) { file = Path.Combine(dir, name + ".log"); maxBytes = Math.Max(4096, max); keep = Math.Max(1, files); }
         }
 
+        /// <summary>Stops writing (tests).</summary>
+        public static void Close() { lock (gate) file = null; }
+
         public static void Info(string msg) { Write("INFO ", msg); }
         public static void Warn(string msg) { Write("WARN ", msg); }
         public static void Error(string msg) { Write("ERROR", msg); }

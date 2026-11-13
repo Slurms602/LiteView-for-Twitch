@@ -40,9 +40,27 @@ partial class LiteView
     int mpvPipeGen = -1, mpvDropped;
     volatile bool mpvResync;   // commands were dropped: send the whole state again once mpv reads again
 
+    // ---------- command line ----------
+
+    static int stressRate;   // --chat-stress=<messages per second>
+
+    static void ParseArgs(string[] args)
+    {
+        foreach (var a in args)
+        {
+            if (a.StartsWith("--chat-stress", StringComparison.OrdinalIgnoreCase))
+            {
+                int eq = a.IndexOf('='), r;
+                stressRate = eq > 0 && int.TryParse(a.Substring(eq + 1), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out r) ? Math.Max(1, Math.Min(5000, r)) : 100;
+            }
+            else if (!a.StartsWith("--", StringComparison.Ordinal) && startChannel == null) startChannel = a;
+        }
+    }
+
     void InitFork()
     {
         Shown += (s, e) => windowShown = true;
+        if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>
         {
@@ -50,6 +68,13 @@ partial class LiteView
             if (watching && retryGen == gen && channel != null && slProc == null) Watch(channel, true);
         };
         status.Click += (s, e) => { if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPower;
+        System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetwork;
+        FormClosed += (s, e) =>
+        {
+            Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPower;
+            System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= OnNetwork;
+        };
         Log.Info("window ready; CPU mask " + (mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X")) + ", NVIDIA " + HasNvidia);
     }
 
@@ -85,6 +110,80 @@ partial class LiteView
             try { var b = Encoding.UTF8.GetBytes(item.Value + "\n"); p.Write(b, 0, b.Length); p.Flush(); }
             catch (Exception) { }   // the pipe broke (mpv ended): PipeLoop notices and reconnects
         }
+    }
+
+    // ---------- chat stress mode ----------
+    // LiteView.exe <channel> --chat-stress=200: while watching with the native chat, synthetic messages (emotes of the
+    // channel, long ones, Unicode, deletions, timeouts, sub notices) are fed into the chat as if they came from Twitch.
+    // Every 10 s liteview.log gets a "stress:" line with memory, handles and the emote cache, to compare runs.
+
+    System.Threading.Timer stressTimer;
+
+    void StartStress()
+    {
+        var gen0 = new ChatStress("stress", Environment.TickCount);
+        List<string> emotes = new List<string>(); string emotesFor = null;
+        double due = 0; var sw = Stopwatch.StartNew(); long lastLog = 0, lastCount = 0;
+        Text = Text + "  -  chat stress " + stressRate + "/s";
+        Log.Info("chat stress mode: " + stressRate + " messages per second");
+        int busy = 0;
+        stressTimer = new System.Threading.Timer(_ =>
+        {
+            if (Interlocked.Exchange(ref busy, 1) == 1) return;   // the previous tick is still feeding
+            try
+            {
+                string ch = nchat.Channel;
+                if (!watching || webChat || ch == null) return;
+                if (ch != emotesFor || sw.ElapsedMilliseconds % 5000 < 60) { emotes = nchat.EmoteNames(); emotesFor = ch; }
+                due += stressRate / 20.0;
+                for (; due >= 1; due--) nchat.Inject(gen0.Next(emotes).Replace(" #stress", " #" + ch));
+                long now = sw.ElapsedMilliseconds;
+                if (now - lastLog >= 10000)
+                {
+                    using (var me = Process.GetCurrentProcess())
+                        Log.Info("stress: " + gen0.Count + " messages (" + ((gen0.Count - lastCount) * 1000 / Math.Max(1, now - lastLog)) + "/s), working set "
+                            + me.WorkingSet64 / (1024 * 1024) + " MB, private " + me.PrivateMemorySize64 / (1024 * 1024) + " MB, threads " + me.Threads.Count
+                            + ", handles " + me.HandleCount + ", GDI " + GetGuiResources(me.Handle, 0) + ", USER " + GetGuiResources(me.Handle, 1)
+                            + ", CPU " + (int)me.TotalProcessorTime.TotalSeconds + " s, emotes: " + Images.Stats());
+                    lastLog = now; lastCount = gen0.Count;
+                }
+            }
+            catch (Exception ex) { Log.Error("chat stress", ex); }
+            finally { Volatile.Write(ref busy, 0); }
+        }, null, 1000, 50);
+        FormClosing += (s, e) => { if (stressTimer != null) stressTimer.Dispose(); };
+    }
+
+    // ---------- sleep / resume and network changes ----------
+
+    void Later(Action a) { try { if (!IsDisposed && IsHandleCreated) BeginInvoke(a); } catch (InvalidOperationException) { } }
+
+    void OnPower(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume) Later(AfterResume);
+    }
+
+    // After sleep the stream is minutes behind (or its connections are dead) and the chat socket may be half-open:
+    // check the login, then start chat and the stream again at the live edge.
+    void AfterResume()
+    {
+        Log.Info("resumed from sleep");
+        CheckLogin();
+        if (!watching || channel == null) return;
+        if (chatOn.Checked && !webChat) nchat.Reconnect();
+        Watch(channel, true);
+    }
+
+    void OnNetwork(object sender, System.Net.NetworkInformation.NetworkAvailabilityEventArgs e)
+    {
+        if (!e.IsAvailable) { Log.Info("network: no connection"); return; }
+        Later(() =>
+        {
+            Log.Info("network: connected again");
+            if (!watching || channel == null) return;
+            if (chatOn.Checked && !webChat) nchat.Reconnect();
+            if (slProc == null && canRetry) Watch(channel);   // a stream that gave up or is waiting to retry: now
+        });
     }
 
     // ---------- embedded browser ----------
@@ -249,9 +348,42 @@ partial class LiteView
         diag.Click += (s, e) => ExportDiagnostics();
         var logs = new ToolStripMenuItem("Open log folder");
         logs.Click += (s, e) => { try { using (Process.Start("explorer.exe", WinArgs.Quote(root))) { } } catch (Exception ex) { Log.Error("open folder", ex); } };
+        var site = new ToolStripMenuItem("Sign out of twitch.tv in LiteView");
+        site.Click += (s, e) => SignOutOfWebsite();
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(site);
         menu.Items.Add(diag);
         menu.Items.Add(logs);
+    }
+
+    // The Following page and the web chat keep their own Twitch website login (cookies in the webview folder).
+    // "Log out" only ends the chat/API login (SEC-17), so this clears the website session too.
+    bool signOutPending;
+
+    async void SignOutOfWebsite()
+    {
+        if (MessageBox.Show(this, "Sign out of the Twitch website inside LiteView (the Following page and the web chat)?\n\n"
+            + "Your chat login is separate: use Log out for that.", "LiteView", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+        signOutPending = true;
+        if (web != null && webReady)
+        {
+            try { await ApplyPendingSignOut(web.CoreWebView2); web.CoreWebView2.Navigate(Home); }
+            catch (Exception ex) { Log.Error("website sign-out", ex); }
+        }
+        else { status.ForeColor = Dim; status.Text = "Signed out of twitch.tv; it applies when the Following page opens"; }
+    }
+
+    async System.Threading.Tasks.Task ApplyPendingSignOut(CoreWebView2 core)
+    {
+        if (!signOutPending) return;
+        try
+        {
+            await core.Profile.ClearBrowsingDataAsync();   // cookies, storage, cache of the LiteView profile only
+            signOutPending = false;
+            Log.Info("signed out of the Twitch website (WebView2 profile data cleared)");
+            status.ForeColor = Dim; status.Text = "Signed out of twitch.tv in LiteView";
+        }
+        catch (Exception ex) { Log.Error("website sign-out", ex); }
     }
 
     [DllImport("user32.dll")] static extern uint GetGuiResources(IntPtr process, uint flags);

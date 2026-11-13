@@ -184,100 +184,7 @@ static class Images
     }
 }
 
-// Twitch IRC over a WebSocket; reconnects by itself. Anonymous (read-only) without a token.
-class Irc
-{
-    public event Action<string> Line;
-    public event Action<string> Status;
-    ClientWebSocket ws; CancellationTokenSource cts;
-    readonly SemaphoreSlim sendGate = new SemaphoreSlim(1);
-
-    // The login and token are read again for every connection attempt, so a refreshed token is used.
-    public void Start(string channel)
-    {
-        Stop();
-        cts = new CancellationTokenSource();
-        var c = cts.Token;
-        Task.Run(() => Loop(channel, c));
-    }
-
-    public void Stop()
-    {
-        if (cts != null) { cts.Cancel(); cts = null; }
-        var s = ws; ws = null;
-        if (s != null) try { s.Abort(); } catch { }
-    }
-
-    public bool Send(string raw)
-    {
-        if (raw == null || raw.IndexOf('\r') >= 0 || raw.IndexOf('\n') >= 0) return false;   // one IRC line only
-        var s = ws;
-        if (s == null || s.State != WebSocketState.Open) return false;
-        Task.Run(() => SendRaw(s, raw));
-        return true;
-    }
-
-    async Task SendRaw(ClientWebSocket s, string raw)
-    {
-        await sendGate.WaitAsync();
-        try { var b = Encoding.UTF8.GetBytes(raw + "\r\n"); await s.SendAsync(new ArraySegment<byte>(b), WebSocketMessageType.Text, true, CancellationToken.None); }
-        catch { }
-        finally { sendGate.Release(); }
-    }
-
-    void Say(string s) { var h = Status; if (h != null) h(s); }
-
-    async Task Loop(string chan, CancellationToken c)
-    {
-        if (!IrcProtocol.IsSafeChannel(chan)) { Say("Not a channel name."); return; }
-        var rnd = new Random();
-        // 1 s, 2 s, 4 s ... 30 s with jitter; reset only after a connection stayed up a minute
-        var backoff = new Backoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60), rnd);
-        while (!c.IsCancellationRequested)
-        {
-            var s = new ClientWebSocket(); var up = Stopwatch.StartNew(); bool connected = false;
-            try
-            {
-                await s.ConnectAsync(new Uri("wss://irc-ws.chat.twitch.tv:443"), c);
-                ws = s; connected = true; up.Restart();
-                await SendRaw(s, "CAP REQ :twitch.tv/tags twitch.tv/commands");
-                string login, token; Tw.Session(out login, out token);   // login and token from the same moment
-                await SendRaw(s, token != null ? "PASS oauth:" + token : "PASS SCHMOOPIIE");
-                await SendRaw(s, "NICK " + (token != null ? login : "justinfan" + rnd.Next(10000, 99999)));
-                await SendRaw(s, "JOIN #" + chan);
-                var buf = new byte[32768];
-                using (var acc = new FrameBuffer(1024 * 1024))   // one WebSocket message is never buffered past 1 MB
-                {
-                    bool again = false;
-                    while (s.State == WebSocketState.Open && !again)
-                    {
-                        var r = await s.ReceiveAsync(new ArraySegment<byte>(buf), c);
-                        if (r.MessageType == WebSocketMessageType.Close) break;
-                        if (!acc.Append(buf, r.Count)) { Log.Warn("chat: oversized message from the server, reconnecting"); break; }
-                        if (!r.EndOfMessage) continue;
-                        foreach (var line in IrcProtocol.Lines(acc.Take()))
-                        {
-                            string pong = IrcProtocol.PongFor(line);
-                            if (pong != null) { await SendRaw(s, pong); continue; }
-                            // only Twitch's RECONNECT command (upstream also matched chat messages ending in " RECONNECT")
-                            if (line.IndexOf("RECONNECT", StringComparison.Ordinal) >= 0 && IrcProtocol.IsReconnect(IrcMsg.Parse(line))) { again = true; break; }
-                            var h = Line; if (h != null) h(line);
-                        }
-                    }
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex) { if (!c.IsCancellationRequested) Log.Info("chat: connection ended: " + ex.GetType().Name); }
-            finally { if (ws == s) ws = null; try { s.Dispose(); } catch { } }
-            if (c.IsCancellationRequested) break;
-            if (connected) backoff.Ended(up.Elapsed);
-            var wait = backoff.Next();
-            Say("Reconnecting to chat...");
-            try { await Task.Delay(wait, c); } catch { break; }
-        }
-    }
-}
-
+// Irc (the chat connection) moved to src/core/IrcClient.cs so it is tested against a fake server.
 // IrcMsg (one parsed IRC line) moved to src/core/IrcMsg.cs, unchanged in use, so it is unit tested.
 
 // A piece of a chat line: 0 word, 1 emote, 2 badge, 3 name, 4 link, 5 @mention, 6 dim word
@@ -566,7 +473,7 @@ class ChatPanel : Panel
     readonly TextBox input = new TextBox();
     readonly LinkLabel loginLink = new LinkLabel();
     public readonly ContextMenuStrip Menu = new ContextMenuStrip();
-    readonly Irc irc = new Irc();
+    readonly Irc irc = new Irc(Tw.Session);   // login + token are read for every connection attempt
     readonly ConcurrentQueue<Msg> inbox = new ConcurrentQueue<Msg>();
     readonly System.Windows.Forms.Timer drain = new System.Windows.Forms.Timer { Interval = 100 };
     public event Action LoginRequested;
@@ -886,6 +793,10 @@ class ChatPanel : Panel
         foreach (var w in text.Split(' ')) if (w.Length > 0) m.P.Add(new Piece { Kind = 6, Text = w, C = ChatView.Dim });
         return m;
     }
+
+    // chat stress mode (src/app/LiteView.Fork.cs): synthetic lines take the same path as Twitch's
+    public void Inject(string line) { OnLine(line); }
+    public List<string> EmoteNames() { return third.Keys.Take(5000).ToList(); }
 
     void OnLine(string line)
     {

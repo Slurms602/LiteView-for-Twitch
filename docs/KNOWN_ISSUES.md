@@ -14,7 +14,6 @@ Verified or clearly visible in the code. Finding ids are from `BASELINE_AUDIT.md
 | Issue | Detail | Plan |
 |---|---|---|
 | DPI scaling (UI-1) | Fixed pixel layout; best at 100 % display scaling, blurry when Windows scales it | P2 |
-| Logout keeps the website session (SEC-17) | The Twitch website stays logged in inside the `webview` folder | P1 |
 | Web chat has no 7TV emotes | Extensions are no longer loaded (security). The native chat shows 7TV, BTTV and FFZ emotes | By design |
 | Following page depends on Twitch's website markup (EXT-1) | A Twitch redesign can break clicking channels | Native browsing, P2 |
 | Logging in to twitch.tv on the Following page fails through a VPN | Twitch's login answers "This username does not exist" or "Your browser is not currently supported" when it distrusts the network: the owner hit it through a VPN, and a GitHub Windows runner (datacenter address) gets the same in plain Microsoft Edge, upstream 1.1.0 and this fork alike. Log in with the VPN off; the login is kept afterwards. Email login is refused by Twitch either way (its older form says to use the username) | Native Following page, P2 (uses the browser login instead) |

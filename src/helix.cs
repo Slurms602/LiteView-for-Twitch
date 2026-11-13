@@ -1,18 +1,15 @@
 // Twitch's official Helix API for LiteView: device-code login (public client, no secret),
 // followed live channels, avatars and chat badges. The token stays next to the exe,
 // encrypted for this Windows user (DPAPI); it is never sent anywhere but Twitch.
+// The logic lives in src/core/TwitchClient.cs (tested); `Tw` keeps upstream's static API for the rest of the app.
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
-using System.Web.Script.Serialization;
 using LiteViewCore;
 
 static class Tw
@@ -21,19 +18,11 @@ static class Tw
     // This is UPSTREAM's registered application. Before this fork is released publicly it needs its own
     // registration (dev.twitch.tv > Applications, client type Public, device code flow) - see docs/KNOWN_ISSUES.md.
     public const string ClientId = "i82nikwku19tn6wk8ms6z7hr9l57wo";
-    const string Scopes = "user:read:follows user:read:emotes chat:read chat:edit";
     public static readonly HttpClient Http = new HttpClient();
-    static readonly JavaScriptSerializer js = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
-    static readonly SemaphoreSlim refreshGate = new SemaphoreSlim(1);
-    public static string Token, Login, UserId;
-    public static string[] Granted = new string[0];   // scopes of the current token
-    public static bool Has(string scope) { return Array.IndexOf(Granted, scope) >= 0; }
-    static string refresh, path;
-    // Credentials change only under credLock, and each change bumps authGen; an answer that arrives after a
-    // log out or a new login (authGen moved on) is thrown away instead of bringing old credentials back.
-    static readonly object credLock = new object();
-    static int authGen;
-    enum Refresh { Ok, Rejected, Unreachable }
+    // Set by Init. Before that nobody is logged in: the chat panel and the sidebar are built (and ask) before the
+    // window's constructor calls Init, as in upstream, where these were plain static fields.
+    static volatile TwitchClient api;
+    static TwitchClient Api { get { var a = api; if (a == null) throw new InvalidOperationException("Tw.Init has not run"); return a; } }
 
     public static void Init(string tokenFile)
     {
@@ -41,221 +30,55 @@ static class Tw
         Http.Timeout = TimeSpan.FromSeconds(20);
         Http.MaxResponseContentBufferSize = Bounded.MaxJsonBytes;   // upstream: the 2 GB default
         Http.DefaultRequestHeaders.UserAgent.ParseAdd("LiteView-Enhanced/" + typeof(Tw).Assembly.GetName().Version);
-        path = tokenFile;
-        try
-        {
-            if (!File.Exists(path)) return;
-            var s = Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(path), null, DataProtectionScope.CurrentUser)).Split('\n');
-            if (s[0].Length > 0) { Token = s[0]; refresh = s.Length > 1 && s[1].Length > 0 ? s[1] : null; }
-        }
-        catch (Exception ex) { Log.Warn("token file unreadable (" + ex.GetType().Name + "): log in again"); }
+        api = new TwitchClient(ClientId, Http, new DpapiTokenFile(tokenFile));
+        api.Load();
     }
 
-    static void Save()
+    public static string Token { get { var a = api; return a != null ? a.Token : null; } }
+    public static string Login { get { var a = api; return a != null ? a.Login : null; } }
+    public static string UserId { get { var a = api; return a != null ? a.UserId : null; } }
+    public static string[] Granted { get { var a = api; return a != null ? a.Granted : new string[0]; } }   // scopes of the current token
+    public static bool Has(string scope) { var a = api; return a != null && a.Has(scope); }
+    public static void Session(out string login, out string token) { var a = api; if (a != null) a.Session(out login, out token); else login = token = null; }
+
+    public static void LogOut() { var a = api; if (a != null) a.LogOut(); }
+    public static Task<bool> Validate() { return Api.Validate(); }
+    public static Task<object> Helix(string query) { return Api.Helix(query); }
+    public static Task<string> Get(string url) { return Api.Get(url); }
+    public static Task<byte[]> GetBytes(string url, int max) { return Api.GetBytes(url, max); }
+    public static Task<object> StartDevice() { return Api.StartDevice(); }
+    public static Task<string> PollDevice(string deviceCode) { return Api.PollDevice(deviceCode); }
+
+    // ---- JSON helpers (objects = Dictionary, arrays = object[], as with upstream's JavaScriptSerializer) ----
+    public static object Parse(string s) { return Json.Parse(s); }
+    public static object V(object o, string k) { return Json.V(o, k); }
+    public static string S(object o, string k) { return Json.S(o, k); }
+    public static long N(object o, string k) { return Json.N(o, k); }
+    public static bool B(object o, string k) { return Json.B(o, k); }
+    public static object[] A(object o, string k) { return Json.A(o, k); }
+    public static IEnumerable<KeyValuePair<string, object>> Props(object o) { return Json.Props(o); }
+}
+
+// liteview.token: "token\nrefresh" encrypted with DPAPI for the current Windows user, written atomically.
+sealed class DpapiTokenFile : ITokenStore
+{
+    readonly string path;
+    public DpapiTokenFile(string path) { this.path = path; }
+
+    public bool TryLoad(out string token, out string refresh)
     {
-        try
-        {
-            if (Token == null) { AtomicFile.Delete(path); return; }
-            // DPAPI (this Windows user only), written atomically (upstream: File.WriteAllBytes)
-            AtomicFile.Write(path, ProtectedData.Protect(Encoding.UTF8.GetBytes(Token + "\n" + refresh), null, DataProtectionScope.CurrentUser), false);
-        }
-        catch (Exception ex) { Log.Error("saving the token", ex); }
+        token = refresh = null;
+        if (!File.Exists(path)) return false;
+        var s = Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(path), null, DataProtectionScope.CurrentUser)).Split('\n');
+        token = s[0].Length > 0 ? s[0] : null;
+        refresh = s.Length > 1 && s[1].Length > 0 ? s[1] : null;
+        return token != null;
     }
 
-    public static void LogOut()
+    public void Save(string token, string refresh)
     {
-        string t;
-        lock (credLock) { t = Token; authGen++; Token = refresh = Login = UserId = null; Granted = new string[0]; Save(); }
-        Log.Info("logged out; token revoked and deleted");
-        if (t != null) Post("https://id.twitch.tv/oauth2/revoke", "client_id=" + ClientId + "&token=" + Uri.EscapeDataString(t)).ContinueWith(x => { });
+        AtomicFile.Write(path, ProtectedData.Protect(Encoding.UTF8.GetBytes(token + "\n" + refresh), null, DataProtectionScope.CurrentUser), false);
     }
 
-    // ---- JSON helpers (JavaScriptSerializer: objects = Dictionary, arrays = object[]) ----
-    public static object Parse(string s) { try { return s == null ? null : js.DeserializeObject(s); } catch { return null; } }
-    public static object V(object o, string k) { var d = o as Dictionary<string, object>; object v; return d != null && d.TryGetValue(k, out v) ? v : null; }
-    public static string S(object o, string k) { var v = V(o, k); return v == null ? null : Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture); }
-    public static long N(object o, string k) { var v = V(o, k); try { return v == null ? 0 : Convert.ToInt64(v); } catch { return 0; } }
-    public static bool B(object o, string k) { var v = V(o, k); return v is bool && (bool)v; }
-    public static object[] A(object o, string k) { return V(o, k) as object[] ?? new object[0]; }
-    public static IEnumerable<KeyValuePair<string, object>> Props(object o) { return o as Dictionary<string, object> ?? new Dictionary<string, object>(); }
-
-    // JSON from the emote services: only their API hosts over https, at most 16 MB
-    public static async Task<string> Get(string url)
-    {
-        if (!SafeUrl.IsAllowedApi(url)) { Log.Warn("refused API request to an unknown host"); return null; }
-        var b = await GetBytes(url, Bounded.MaxJsonBytes);
-        return b == null ? null : Encoding.UTF8.GetString(b);
-    }
-
-    // a download with a size limit (null on any failure); images are checked by the caller
-    // (one deadline for headers AND body: HttpClient.Timeout alone does not cover a body that stalls)
-    public static async Task<byte[]> GetBytes(string url, int max)
-    {
-        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
-        {
-            try
-            {
-                using (var r = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token))
-                using (cts.Token.Register(() => { try { r.Dispose(); } catch { } }))   // ends a read that is stuck in the socket
-                {
-                    if (!r.IsSuccessStatusCode) return null;
-                    long? len = r.Content.Headers.ContentLength;
-                    if (len.HasValue && len.Value > max) return null;
-                    using (var st = await r.Content.ReadAsStreamAsync()) return await Bounded.ReadAllAsync(st, max, cts.Token);
-                }
-            }
-            catch { return null; }
-        }
-    }
-
-    static async Task<KeyValuePair<int, object>> Post(string url, string form)
-    {
-        try
-        {
-            using (var r = await Http.PostAsync(url, new StringContent(form, Encoding.UTF8, "application/x-www-form-urlencoded")))
-                return new KeyValuePair<int, object>((int)r.StatusCode, Parse(await r.Content.ReadAsStringAsync()));
-        }
-        catch { return new KeyValuePair<int, object>(0, null); }
-    }
-
-    static void Take(object d)
-    {
-        lock (credLock) { authGen++; Token = S(d, "access_token"); refresh = S(d, "refresh_token"); Save(); }
-    }
-
-    // Every credential change happens under credLock and bumps authGen. Each request takes one snapshot
-    // (token, refresh token, generation) under the lock, and applies its answer only if the generation is unchanged.
-    static void ClearLocked(string why)
-    {
-        authGen++; Token = refresh = Login = UserId = null; Granted = new string[0]; Save();
-        Log.Info(why);
-    }
-
-    /// <summary>The account chat should use right now: login and token taken together (token null = anonymous).</summary>
-    public static void Session(out string login, out string token)
-    {
-        lock (credLock) { login = Login; token = Login != null ? Token : null; }
-    }
-
-    // Signed in and the token is good (refreshed when it expired). Twitch asks apps to check hourly.
-    public static async Task<bool> Validate()
-    {
-        for (int i = 0; i < 2; i++)
-        {
-            string t; int g;
-            lock (credLock)
-            {
-                t = Token; g = authGen;
-                if (t == null) { Login = UserId = null; Granted = new string[0]; return false; }
-            }
-            var rq = new HttpRequestMessage(HttpMethod.Get, "https://id.twitch.tv/oauth2/validate");
-            rq.Headers.Authorization = new AuthenticationHeaderValue("OAuth", t);
-            int code = 0; object d = null;
-            try { using (var r = await Http.SendAsync(rq)) { code = (int)r.StatusCode; d = Parse(await r.Content.ReadAsStringAsync()); } }
-            catch { }
-            if (code == 200)
-            {
-                string login = S(d, "login"), uid = S(d, "user_id");
-                // the token must belong to a real account and have been issued to this app
-                bool sane = ChannelName.IsValidLogin(login) && ChannelName.IsNumericId(uid) && (S(d, "client_id") == null || S(d, "client_id") == ClientId);
-                lock (credLock)
-                {
-                    if (g != authGen) return Login != null;   // logged out / in again meanwhile: this answer is stale
-                    if (!sane) { ClearLocked("token validation: unexpected answer, logged out"); return false; }
-                    Login = login; UserId = uid; Granted = A(d, "scopes").Select(x => Convert.ToString(x)).ToArray();
-                }
-                return true;
-            }
-            if (code != 401) { lock (credLock) return Login != null; }   // offline / Twitch trouble: keep the session
-            var rr = await RefreshToken(t, g);
-            if (rr == Refresh.Ok) continue;
-            if (rr == Refresh.Unreachable)
-            {   // Twitch did not reject the refresh token, it just did not answer: keep it and try again later
-                // (upstream deleted the login here). Until then chat runs anonymously and sending is off.
-                lock (credLock) { if (g == authGen) { Login = UserId = null; Granted = new string[0]; } }
-                Log.Warn("token expired and Twitch is unreachable; keeping the login to retry");
-                return false;
-            }
-            return false;   // rejected: RefreshToken has logged out (if nothing newer happened meanwhile)
-        }
-        lock (credLock) return Login != null && Token != null;
-    }
-
-    // Public clients get one-time refresh tokens: one refresh at a time, and a caller that waited
-    // just uses the token the other one got.
-    static async Task<Refresh> RefreshToken(string failed, int g)
-    {
-        await refreshGate.WaitAsync();
-        try
-        {
-            string rt;
-            lock (credLock)
-            {
-                if (g != authGen || Token != failed) return Token != null ? Refresh.Ok : Refresh.Rejected;   // refreshed or logged out meanwhile
-                rt = refresh;
-                if (rt == null) { ClearLocked("token expired and there is no refresh token: logged out"); return Refresh.Rejected; }
-            }
-            var r = await Post("https://id.twitch.tv/oauth2/token", "client_id=" + ClientId + "&grant_type=refresh_token&refresh_token=" + Uri.EscapeDataString(rt));
-            lock (credLock)
-            {
-                if (g != authGen) return Token != null ? Refresh.Ok : Refresh.Rejected;   // logged out meanwhile: do not bring the token back
-                if (r.Key == 200 && S(r.Value, "access_token") != null) { Take(r.Value); Log.Info("token refreshed"); return Refresh.Ok; }
-                if (r.Key == 400 || r.Key == 401) { ClearLocked("refresh token rejected: logged out"); return Refresh.Rejected; }
-            }
-            return Refresh.Unreachable;   // network error, 5xx, 429: the refresh token may still be good
-        }
-        finally { refreshGate.Release(); }
-    }
-
-    public static async Task<object> Helix(string query)
-    {
-        bool waited = false;
-        for (int i = 0; i < 3; i++)
-        {
-            string t; int g;
-            lock (credLock) { t = Token; g = authGen; }
-            if (t == null) return null;
-            var rq = new HttpRequestMessage(HttpMethod.Get, "https://api.twitch.tv/helix/" + query);
-            rq.Headers.Add("Client-Id", ClientId);
-            rq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", t);
-            try
-            {
-                using (var r = await Http.SendAsync(rq))
-                {
-                    if ((int)r.StatusCode == 401) { if (await RefreshToken(t, g) == Refresh.Ok) continue; return null; }
-                    if ((int)r.StatusCode == 429 && !waited)
-                    {   // rate limited: wait until Twitch's bucket refills (at most 10 s), once
-                        waited = true;
-                        IEnumerable<string> v; long reset;
-                        double s = r.Headers.TryGetValues("Ratelimit-Reset", out v) && long.TryParse(v.FirstOrDefault(), out reset)
-                            ? reset - DateTimeOffset.UtcNow.ToUnixTimeSeconds() : 2;
-                        Log.Warn("Twitch API rate limit; waiting " + Math.Max(1, Math.Min(10, s)) + " s");
-                        await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, Math.Min(10, s))));
-                        continue;
-                    }
-                    if (!r.IsSuccessStatusCode) return null;
-                    using (var st = await r.Content.ReadAsStreamAsync()) return Parse(Encoding.UTF8.GetString(await Bounded.ReadAllAsync(st, Bounded.MaxJsonBytes)));
-                }
-            }
-            catch { return null; }
-        }
-        return null;
-    }
-
-    // ---- Device Code Grant Flow: show the code page, then poll until the user allows it ----
-    public static async Task<object> StartDevice()
-    {
-        var r = await Post("https://id.twitch.tv/oauth2/device", "client_id=" + ClientId + "&scopes=" + Uri.EscapeDataString(Scopes));
-        return r.Key == 200 ? r.Value : null;
-    }
-
-    // "ok" when signed in; "authorization_pending" / "slow_down" = keep polling; anything else = failed
-    public static async Task<string> PollDevice(string deviceCode)
-    {
-        var r = await Post("https://id.twitch.tv/oauth2/token", "client_id=" + ClientId + "&scopes=" + Uri.EscapeDataString(Scopes) +
-            "&device_code=" + Uri.EscapeDataString(deviceCode) + "&grant_type=urn:ietf:params:oauth:grant-type:device_code");
-        if (r.Key == 200 && S(r.Value, "access_token") != null) { Take(r.Value); return await Validate() ? "ok" : "login failed"; }
-        if (r.Key == 0) return "authorization_pending";   // network hiccup: try again
-        return S(r.Value, "message") ?? ("error " + r.Key);
-    }
+    public void Delete() { AtomicFile.Delete(path); }
 }

@@ -68,6 +68,7 @@ partial class LiteView
             if (watching && retryGen == gen && channel != null && slProc == null) Watch(channel, true);
         };
         InitProblems();
+        InitScreens();
         status.Click += (s, e) => { if (problemTitle != null) ShowProblemDetails(); else if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPower;
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetwork;
@@ -76,7 +77,7 @@ partial class LiteView
             Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPower;
             System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= OnNetwork;
         };
-        Log.Info("window ready; CPU mask " + (mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X")) + ", NVIDIA " + HasNvidia);
+        Log.Info("window ready; CPU mask " + (mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X")) + ", NVIDIA RTX " + HasNvidia);
     }
 
     void QueueMpv(int g, string json)
@@ -484,7 +485,7 @@ partial class LiteView
             add("Streamlink", await FirstLine(slCon != null && File.Exists(slCon) ? slCon : streamlink, "--version"));
             add("CPU logical processors", Environment.ProcessorCount);
             add("CPU pinning", mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X"));
-            add("NVIDIA driver present", HasNvidia);
+            add("NVIDIA RTX card (RTX option)", HasNvidia);
             using (var gr = CreateGraphics()) add("Display DPI (this window)", gr.DpiX);
             add("Screens", string.Join("; ", Screen.AllScreens.Select(sc => sc.Bounds.Width + "x" + sc.Bounds.Height + " at " + sc.Bounds.X + "," + sc.Bounds.Y + (sc.Primary ? " (primary)" : ""))));
             add("Logged in to Twitch", Tw.Token != null ? "yes" : "no");

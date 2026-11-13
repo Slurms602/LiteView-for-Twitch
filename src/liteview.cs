@@ -57,7 +57,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     readonly CheckBox chatOn = new CheckBox(), rtx = new CheckBox();
     readonly ComboBox picture = new ComboBox();
     static readonly string[] Pictures = { "Picture: Off", "Picture: Enhance", "Picture: High", "Picture: Ultra" };
-    static readonly bool HasNvidia = File.Exists(Path.Combine(Environment.SystemDirectory, "nvapi64.dll"));
+    static readonly bool HasNvidia = HasRtxCard();   // fork: an NVIDIA RTX card, not only an NVIDIA driver (src/app/LiteView.Screens.cs)
     int videoH; string appliedPic, appliedVf; DateTime lastResize = DateTime.MinValue;
     readonly Button muteBtn = new Button();
     readonly VolumeBar volBar = new VolumeBar();
@@ -477,7 +477,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         else
         {
             fullscreen = false; bar.Visible = true;
-            FormBorderStyle = FormBorderStyle.Sizable; Bounds = normalBounds; WindowState = normalState;
+            FormBorderStyle = FormBorderStyle.Sizable; Bounds = RestoreTarget(normalBounds); WindowState = normalState;
         }
         Relayout();
     }

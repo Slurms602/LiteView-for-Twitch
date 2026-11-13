@@ -59,10 +59,14 @@ jobs:
         shell: pwsh
         run: |
           $dir = 'dist/LiteView-Enhanced-0.0.0-ci'; $failed = 0
+          dotnet build tests/FakeStreamlink -c Release --no-restore -o fake
+          $fake = (Resolve-Path fake/streamlinkw.exe).Path
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'problem', 'chat') {
-            $a11y = $scene -in 'live', 'followed', 'chat'   # also check what screen readers see
-            ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-')) -Seconds 12 -A11y:$a11y -Env @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'problem', 'chat', 'watch', 'offline', 'fail') {
+            $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
+            $more = @{ A11y = $scene -in 'live', 'followed', 'chat' }   # also check what screen readers see
+            if ($scene -in 'watch', 'offline', 'fail') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
+            ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-')) -Env $vars @more
             if ($LASTEXITCODE) { $failed++ }
           }
           exit $failed

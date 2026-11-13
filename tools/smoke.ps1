@@ -8,7 +8,8 @@ param(
     [string]$Out = 'smoke',
     [int]$Seconds = 30,
     [string[]]$AppArgs = @(),
-    [switch]$A11y,          # also save what screen readers see (tools/a11y-dump.ps1) as a11y.txt
+    [switch]$A11y,
+    [string]$FakeStreamlink,   # CI: replace Streamlink in the copy with tests/FakeStreamlink (no Twitch needed)          # also save what screen readers see (tools/a11y-dump.ps1) as a11y.txt
     [hashtable]$Env = @{}   # e.g. @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'followed' } (made-up data, docs/TESTING.md)
 )
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,11 @@ $Out = (New-Item -ItemType Directory -Force $Out).FullName
 $src = (Resolve-Path $Dir).Path
 $app = Join-Path ([IO.Path]::GetTempPath()) ('liteview-smoke-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 Copy-Item $src $app -Recurse
+if ($FakeStreamlink)
+{
+    $sl = Get-ChildItem (Join-Path $app 'twitch\streamlink') -Recurse -Filter streamlinkw.exe | Select-Object -First 1
+    Copy-Item $FakeStreamlink $sl.FullName -Force
+}
 $exe = Join-Path $app 'LiteView.exe'
 $report = New-Object System.Collections.Generic.List[string]
 function Note([string]$s) { $report.Add($s); Write-Host $s }

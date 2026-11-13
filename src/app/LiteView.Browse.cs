@@ -66,6 +66,12 @@ partial class LiteView
                 stressRate = 15; StartStress();
                 return;
             }
+            if (Fixture.SceneName == "watch" || Fixture.SceneName == "offline" || Fixture.SceneName == "fail")
+            {   // with tests/FakeStreamlink: real mpv with a test video / Streamlink waiting / a failing stream
+                Watch(Fixture.SceneName == "watch" ? "play_demo" : Fixture.SceneName + "_demo");
+                if (Fixture.SceneName == "watch") { stressRate = 10; StartStress(); }
+                return;
+            }
             if (Fixture.SceneName != "problem") return;
             ShowProblem("Could not open the stream: Unable to open URL: https://usher.ttvnw.net/api/channel/hls/x.m3u8  -  trying again in 4 s",
                 "error: Unable to open URL: https://usher.ttvnw.net/api/channel/hls/<channel>.m3u8 (HTTPSConnectionPool(host='usher.ttvnw.net', port=443): Read timed out.)\n\n" +

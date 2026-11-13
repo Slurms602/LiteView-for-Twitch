@@ -237,7 +237,7 @@ partial class LiteView
     void StartStreamProcess(string name, string q)
     {
         int g = ++gen; played = false; mpvGen = -1; canRetry = false;
-        if (Fixture.On) { status.ForeColor = Dim; status.Text = "UI fixture: no video"; return; }   // testing only: no Streamlink, no network
+        if (Fixture.On && !Fixture.Streams) { status.ForeColor = Dim; status.Text = "UI fixture: no video"; return; }   // testing only: no Streamlink, no network
         pipeName = StreamCommand.NewPipeName();
         string cmdline;
         try

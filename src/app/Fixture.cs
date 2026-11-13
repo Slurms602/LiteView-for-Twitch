@@ -2,7 +2,8 @@
 // login, so CI can take screenshots of the logged-in pages (tools/smoke.ps1). The real token file is not read or
 // written, the window title says "UI fixture", and LITEVIEW_UI_FIXTURE_SCENE picks what is shown after start:
 // live (default), followed, recent, history, search:<text>, problem (the details of src/app/ProblemPopup.cs), or chat
-// (the watch view with synthetic chat; no video: Streamlink is not started in fixture mode).
+// (the watch view with synthetic chat; no video: Streamlink is not started in fixture mode), and with
+// LITEVIEW_UI_FIXTURE_STREAMS=1 (CI replaces Streamlink with tests/FakeStreamlink) watch, offline or fail.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -21,6 +22,7 @@ using LiteViewCore;
 static class Fixture
 {
     public static readonly bool On = Environment.GetEnvironmentVariable("LITEVIEW_UI_FIXTURE") == "1";
+    public static readonly bool Streams = On && Environment.GetEnvironmentVariable("LITEVIEW_UI_FIXTURE_STREAMS") == "1";   // CI with tests/FakeStreamlink
     public static string SceneName { get { return Environment.GetEnvironmentVariable("LITEVIEW_UI_FIXTURE_SCENE") ?? "live"; } }
 
     static readonly string[] Live =

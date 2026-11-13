@@ -24,8 +24,8 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | Path | Contents | Origin |
 |---|---|---|
 | `src/liteview.cs` | Main window: top bar, layout (16:9 video area), browse/watch modes, WebView2 set-up, Streamlink start, mpv IPC thread, picture presets, settings | upstream, small edits |
-| `src/chat.cs` | Native chat: `Txt` (text drawing), `Emote`/`Images` (download, decode, frame budget), `Irc` (WebSocket), `ChatView` (layout + drawing), `ChatPanel` (emote sets, badges, sending, Tab completion) | upstream, edits |
-| `src/helix.cs` | `Tw`: Twitch API client, token storage (DPAPI), device-code login, refresh, validation, bounded HTTP | upstream, edits |
+| `src/chat.cs` | Native chat: `Txt` (text drawing), `Emote`/`Images` (download, decode, frame budget), `ChatView` (layout + drawing), `ChatPanel` (emote sets, badges, sending, Tab completion) | upstream, edits |
+| `src/helix.cs` | `Tw`: upstream's static Twitch API, now a facade over `src/core/TwitchClient.cs`; the DPAPI token file | upstream, rewritten as facade |
 | `src/sidebar.cs` | Followed live channels column | upstream, small edits |
 | `src/picker.cs` | Emote picker | upstream, one line |
 | `src/common.cs` | `Native`: Win32 P/Invokes, CPU-die mask, ini helpers | upstream, delegates to core |
@@ -47,6 +47,9 @@ fork-only half is `src/app/LiteView.Fork.cs`.
 
 | File | Responsibility |
 |---|---|
+| `TwitchClient.cs` | Twitch login and API: token load/validate/refresh/log out, device-code flow, Helix GET with 401 refresh and 429 wait, bounded downloads. HTTP, token store, delay and clock are injected (tests use a fake Twitch) |
+| `Json.cs` | Strict, depth-limited JSON reader with upstream's value shapes, and the `V/S/N/B/A/Props` accessors |
+| `IrcClient.cs` | `Irc`: the chat connection loop (handshake, PING, RECONNECT, backoff, one-line sends) over `IIrcTransport` (`WebSocketTransport` in the app, a fake in tests) |
 | `IrcMsg.cs` | Parse one IRCv3 line (tags, prefix, command, channel, text) |
 | `IrcProtocol.cs` | PING/PONG, RECONNECT, outgoing text clean-up, display length cap, `FrameBuffer` (bounded WebSocket message assembly) |
 | `ChannelName.cs` | Channel login validation and normalisation from typed text or URLs; numeric ids |
@@ -125,8 +128,10 @@ supports trimming / Native AOT, or if measurements show a real start-up or memor
 
 ### JSON
 
-`JavaScriptSerializer` (in .NET Framework) is kept: bounded by the 16 MB response cap and its default
-recursion limit, and replacing it would add dependencies (System.Text.Json on net48 brings about eight DLLs).
+Upstream used `JavaScriptSerializer`, which exists only in .NET Framework, so the login code could not be tested on
+.NET 10. It was replaced by `src/core/Json.cs` (about 200 lines, no dependency) that returns the same shapes
+(`Dictionary<string, object>`, `object[]`, `long`/`double`, `string`, `bool`, `null`). System.Text.Json was not used:
+on net48 it brings about eight extra DLLs.
 
 ### Emote memory
 

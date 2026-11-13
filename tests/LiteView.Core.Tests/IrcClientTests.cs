@@ -187,3 +187,42 @@ public class IrcClientTests
         lock (conns) Assert.Empty(conns);
     }
 }
+
+public class IrcLifecycleTests
+{
+    // A connection that only completes when the test says so: the old loop finishes connecting after Start was called again.
+    sealed class SlowConn : IIrcTransport
+    {
+        public readonly TaskCompletionSource Connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource Release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        readonly TaskCompletionSource<string?> never = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        public volatile bool Aborted; volatile bool open;
+        public bool IsOpen => open && !Aborted;
+        public async Task ConnectAsync(Uri server, CancellationToken ct) { Connected.TrySetResult(); await Release.Task; open = true; }
+        public Task SendAsync(string text, CancellationToken ct) => Task.CompletedTask;
+        public Task<string?> ReceiveAsync(CancellationToken ct) { ct.Register(() => never.TrySetCanceled()); return never.Task; }
+        public void Abort() { Aborted = true; never.TrySetResult(null); }
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task AnOldConnectionCannotReplaceTheNewOne()
+    {
+        var conns = new List<SlowConn>();
+        var irc = new Irc((out string? l, out string? t) => { l = null; t = null; },
+            () => { var c = new SlowConn(); lock (conns) conns.Add(c); return c; }, (d, ct) => Task.Delay(d, ct));
+        irc.Start("first");
+        SlowConn c1; while (true) { lock (conns) if (conns.Count == 1) { c1 = conns[0]; break; } await Task.Delay(5); }
+        await c1.Connected.Task;                     // the first loop is inside ConnectAsync
+        irc.Start("second");                         // switch channel
+        SlowConn c2; while (true) { lock (conns) if (conns.Count == 2) { c2 = conns[1]; break; } await Task.Delay(5); }
+        c2.Release.SetResult();                      // the new connection is up...
+        for (int i = 0; i < 200 && !irc.Send("PRIVMSG #second :x"); i++) await Task.Delay(5);
+        c1.Release.SetResult();                      // ...then the old one finishes connecting
+        await Task.Delay(100);
+        Assert.True(irc.Send("PRIVMSG #second :still mine"));
+        irc.Stop();
+        Assert.True(c2.Aborted);                     // Stop reaches the current connection
+        Assert.False(irc.Send("PRIVMSG #second :after stop"));
+    }
+}

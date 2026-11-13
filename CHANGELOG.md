@@ -37,5 +37,7 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 
 ### For developers
 
-- SDK-style projects (`LiteView.sln`), 176 unit tests, GitHub Actions CI, pinned packages with lock files,
+- Twitch login/API and the chat connection moved into the tested library and are tested against a simulated
+  Twitch and chat server; JSON is read by a small built-in reader instead of `JavaScriptSerializer`.
+- SDK-style projects (`LiteView.sln`), 223 unit tests, GitHub Actions CI, pinned packages with lock files,
   `tools/upstream.sh` for taking upstream changes. See `docs/`.

@@ -147,14 +147,14 @@ size-limited image download had no deadline for the body, so a stalled server co
 |---|---|---|
 | DUP-1 | Two `CreateProcessW` P/Invokes (`LiteView`, `Native`), three `SendMessage` P/Invokes, two dark combo set-ups. | Open (cleanup when touched) |
 | DUP-2 | Colours and fonts repeated in every control class (`Bg`, `Fg`, `Dim`, `Accent`...): no theme module. | Open (P4 theming) |
-| DEP-1 | `System.Web.Extensions` (`JavaScriptSerializer`) for JSON: a .NET Framework-only, unmaintained API. Bounded by the new size caps; fine while the app targets .NET Framework. | Open (Info) |
+| DEP-1 | `System.Web.Extensions` (`JavaScriptSerializer`) for JSON: a .NET Framework-only, unmaintained API. | Replaced by `src/core/Json.cs` (P1) |
 | DEP-2 | Build compiled with the C# 5 compiler in Windows (`csc.exe`); no tests, no CI, no lock files. | Fixed: SDK projects, tests, CI, lock files |
 
 ### 2.7 Tests, diagnostics, feedback
 
 | ID | Finding | Status |
 |---|---|---|
-| DIAG-1 | No automated tests at all. | 176 unit tests for the extracted logic (`tests/`). UI and integration tests: Open (P1) |
+| DIAG-1 | No automated tests at all. | 223 unit tests for the extracted logic (`tests/`). UI and integration tests: Open (P1) |
 | DIAG-2 | No application log; only `streamlink.log`. | `liteview.log`, rotating, redacted |
 | DIAG-3 | No diagnostics export. | Chat gear menu → *Export diagnostics...* |
 | DIAG-4 | Many `catch { }` blocks hide failures (token load, settings save, emote loads, chat). | The important ones now log; the rest are deliberate (logging must not break drawing) |

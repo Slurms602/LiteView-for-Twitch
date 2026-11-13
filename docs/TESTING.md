@@ -6,7 +6,7 @@
 dotnet test LiteView.sln -c Release
 ```
 
-176 unit tests (xUnit, `tests/LiteView.Core.Tests`) cover the pure logic in `src/core`. They run on any OS and need
+223 unit tests (xUnit, `tests/LiteView.Core.Tests`) cover the pure logic in `src/core`. They run on any OS and need
 no network, credentials or Twitch account.
 
 | Area | Test class | What it checks |
@@ -24,12 +24,18 @@ no network, credentials or Twitch account.
 | Process command | `WinArgsTests` | Quoting round-trips through a CommandLineToArgvW-rule parser; full Streamlink command; bad channels/pipe names refused |
 | Stream outcome, quality, backoff | `StreamOutcomeTests`, `QualityTests`, `BackoffTests` | Offline/failed/ended/fatal from Streamlink errors; selectors; growth, cap, jitter range, healthy reset |
 | CPU topology | `TopologyTests` | X3D dual-die, equal dies (9900X: no pinning), multi-group, buffer parsing |
+| JSON | `JsonTests` | Value shapes the app reads, numbers, escapes and surrogates, malformed input, depth limit |
+| Twitch login and API (fake Twitch) | `TwitchClientTests` | Refresh and save; rejected vs unreachable refresh; log out during a refresh; a stale validation after a new login; two expired requests refresh once (one-time refresh tokens); token of another app; offline validation keeps the session; 429 wait; oversized answers; unknown hosts never contacted; stalled download ends at the deadline; device flow; log out revokes |
+| Chat connection (fake server) | `IrcClientTests` | Anonymous and logged-in handshake; PING/PONG; RECONNECT uses the current token; chat text ending in RECONNECT is text; oversized message reconnects; backoff grows and resets after a healthy connection; Stop; one-line Send; bad channel |
 
 CI (`.github/workflows/ci.yml`) runs the build with warnings as errors, the tests, a secret scan, a vulnerable
 package check and the full `build.ps1` packaging on Windows.
 
-**Not automated yet** (P1): integration tests with a fake Helix/IRC server and fake Streamlink/mpv, UI tests,
-the chat stress test, long-run leak tests.
+The race tests (log out during a refresh, stale validation) and the RECONNECT/backoff tests were checked to fail
+when the fix they guard is removed.
+
+**Not automated yet** (P1): fake Streamlink/mpv processes (process start, job object and pipe code are Win32 and
+need a Windows runner), UI tests, the chat stress test, long-run leak tests.
 
 ## Manual pass on Windows (required for the P0 milestone)
 

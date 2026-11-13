@@ -73,6 +73,9 @@ Deliberate differences from upstream (an upstream change touching these needs a 
 | Downloads | Size caps and host allow-lists for API data, emotes and avatars | SEC-7, SEC-8 |
 | GameFirst | Ships changing only LiteView's own player processes; Chrome etc. only if you add them | Unrelated apps are not touched by default (SEC-14) |
 | Build | SDK-style projects (`LiteView.sln`) instead of `csc.exe` lines in `build.ps1` | Tests, pinned packages, CI |
+| Twitch API / login | Logic in `src/core/TwitchClient.cs`; `src/helix.cs` is a facade with upstream's names | Tested state machine. Upstream changes to `helix.cs` are **ported** into `TwitchClient` (new Helix calls usually need nothing: they go through `Tw.Helix`) |
+| Chat connection | `Irc` in `src/core/IrcClient.cs` (removed from `src/chat.cs`) | Tested against a fake server. Upstream changes to its `Irc` class are ported there |
+| JSON | `src/core/Json.cs` instead of `JavaScriptSerializer` | Same value shapes; testable on any OS |
 
 ## Ledger
 

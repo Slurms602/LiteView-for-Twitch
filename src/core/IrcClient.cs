@@ -68,8 +68,12 @@ namespace LiteViewCore
         readonly Func<TimeSpan> clock;
         readonly Random rnd;
         readonly SemaphoreSlim sendGate = new SemaphoreSlim(1);
+        // Start/Stop and publishing the current connection happen under `life`; `run` numbers the loops, so an
+        // old loop that finishes connecting after a Stop/Start can never publish (or clear) the new connection.
+        readonly object life = new object();
         volatile IIrcTransport? cur;
         CancellationTokenSource? cts;
+        int run;
 
         /// <summary>The running connection loop (tests wait on it).</summary>
         public Task? Running { get; private set; }
@@ -88,14 +92,20 @@ namespace LiteViewCore
         // The login and token are read again for every connection attempt, so a refreshed token is used.
         public void Start(string channel)
         {
-            Stop();
-            cts = new CancellationTokenSource();
-            var c = cts.Token;
-            Running = Task.Run(() => Loop(channel, c));
+            lock (life)
+            {
+                StopLocked();
+                cts = new CancellationTokenSource();
+                var c = cts.Token; int r = run;
+                Running = Task.Run(() => Loop(channel, r, c));
+            }
         }
 
-        public void Stop()
+        public void Stop() { lock (life) StopLocked(); }
+
+        void StopLocked()
         {
+            run++;
             if (cts != null) { cts.Cancel(); cts = null; }   // not disposed: the loop may still read its token
             var s = cur; cur = null;
             if (s != null) s.Abort();
@@ -120,7 +130,7 @@ namespace LiteViewCore
 
         void Say(string s) { Status?.Invoke(s); }
 
-        async Task Loop(string chan, CancellationToken c)
+        async Task Loop(string chan, int r, CancellationToken c)
         {
             if (!IrcProtocol.IsSafeChannel(chan)) { Say("Not a channel name."); return; }
             // 1 s, 2 s, 4 s ... 30 s with jitter; reset only after a connection stayed up a minute
@@ -131,8 +141,10 @@ namespace LiteViewCore
                 try
                 {
                     await s.ConnectAsync(Server, c).ConfigureAwait(false);
-                    if (c.IsCancellationRequested) break;
-                    cur = s; connected = true; upAt = clock();
+                    bool mine;
+                    lock (life) { mine = r == run && !c.IsCancellationRequested; if (mine) cur = s; }
+                    if (!mine) break;   // stopped or restarted while connecting: this connection is not used
+                    connected = true; upAt = clock();
                     await SendRaw(s, "CAP REQ :twitch.tv/tags twitch.tv/commands").ConfigureAwait(false);
                     session(out var login, out var token);   // login and token from the same moment
                     int anon; lock (rnd) anon = rnd.Next(10000, 99999);
@@ -157,7 +169,7 @@ namespace LiteViewCore
                 catch (OperationCanceledException) { }
                 catch (TooLargeException) { Log.Warn("chat: oversized message from the server, reconnecting"); }
                 catch (Exception ex) { if (!c.IsCancellationRequested) Log.Info("chat: connection ended: " + ex.GetType().Name); }
-                finally { if (cur == s) cur = null; try { s.Dispose(); } catch (Exception) { } }
+                finally { lock (life) { if (cur == s) cur = null; } try { s.Dispose(); } catch (Exception) { } }
                 if (c.IsCancellationRequested) break;
                 if (connected) backoff.Ended(clock() - upAt);
                 var wait = backoff.Next();

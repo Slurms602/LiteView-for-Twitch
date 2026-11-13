@@ -154,3 +154,44 @@ public class IrcProtocolTests
         Assert.Equal("é😀", fb.Take());
     }
 }
+
+public class ChatStressTests
+{
+    [Fact]
+    public void LinesAreValidTwitchShapedIrc()
+    {
+        var g = new ChatStress("chan", 3);
+        var emotes = new[] { "KEKW", "Pog", "catJAM", "OMEGALUL" };
+        var cmds = new Dictionary<string, int>();
+        int withEmote = 0, long_ = 0;
+        for (int i = 0; i < 5000; i++)
+        {
+            string line = g.Next(emotes);
+            var m = IrcMsg.Parse(line);
+            Assert.NotNull(m);
+            Assert.DoesNotContain('\r', line); Assert.DoesNotContain('\n', line);
+            cmds[m!.Cmd!] = cmds.TryGetValue(m.Cmd!, out var c) ? c + 1 : 1;
+            Assert.Equal("chan", m.Chan);
+            if (m.Cmd == "PRIVMSG")
+            {
+                Assert.True(m.Text!.Length <= IrcProtocol.MaxMessageChars);
+                Assert.NotNull(m.Tag("id")); Assert.NotNull(m.Tag("display-name"));
+                if (emotes.Any(e => m.Text.Split(' ').Contains(e))) withEmote++;
+                if (m.Text.Length > 200) long_++;
+            }
+        }
+        Assert.True(cmds["PRIVMSG"] > 4500);
+        Assert.True(cmds.ContainsKey("USERNOTICE") && cmds.ContainsKey("CLEARMSG") && cmds.ContainsKey("CLEARCHAT"));
+        Assert.True(withEmote > 2000, "emotes: " + withEmote);
+        Assert.True(long_ > 50, "long messages: " + long_);
+        Assert.Equal(5000, g.Count);
+    }
+
+    [Fact]
+    public void SameSeedSameStream()
+    {
+        var a = new ChatStress("c", 9); var b = new ChatStress("c", 9);
+        // ids are GUIDs, so compare the parts that come from the seed
+        for (int i = 0; i < 200; i++) Assert.Equal(IrcMsg.Parse(a.Next(new[] { "X" }))!.Cmd, IrcMsg.Parse(b.Next(new[] { "X" }))!.Cmd);
+    }
+}

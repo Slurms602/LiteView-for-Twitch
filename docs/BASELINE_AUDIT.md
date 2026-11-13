@@ -154,7 +154,7 @@ size-limited image download had no deadline for the body, so a stalled server co
 
 | ID | Finding | Status |
 |---|---|---|
-| DIAG-1 | No automated tests at all. | 223 unit tests for the extracted logic (`tests/`). UI and integration tests: Open (P1) |
+| DIAG-1 | No automated tests at all. | 228 unit tests for the extracted logic (`tests/`). UI and integration tests: Open (P1) |
 | DIAG-2 | No application log; only `streamlink.log`. | `liteview.log`, rotating, redacted |
 | DIAG-3 | No diagnostics export. | Chat gear menu → *Export diagnostics...* |
 | DIAG-4 | Many `catch { }` blocks hide failures (token load, settings save, emote loads, chat). | The important ones now log; the rest are deliberate (logging must not break drawing) |

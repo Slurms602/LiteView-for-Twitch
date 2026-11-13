@@ -40,8 +40,26 @@ partial class LiteView
     int mpvPipeGen = -1, mpvDropped;
     volatile bool mpvResync;   // commands were dropped: send the whole state again once mpv reads again
 
+    // ---------- command line ----------
+
+    static int stressRate;   // --chat-stress=<messages per second>
+
+    static void ParseArgs(string[] args)
+    {
+        foreach (var a in args)
+        {
+            if (a.StartsWith("--chat-stress", StringComparison.OrdinalIgnoreCase))
+            {
+                int eq = a.IndexOf('='), r;
+                stressRate = eq > 0 && int.TryParse(a.Substring(eq + 1), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out r) ? Math.Max(1, Math.Min(5000, r)) : 100;
+            }
+            else if (!a.StartsWith("--", StringComparison.Ordinal) && startChannel == null) startChannel = a;
+        }
+    }
+
     void InitFork()
     {
+        if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>
         {
@@ -91,6 +109,48 @@ partial class LiteView
             try { var b = Encoding.UTF8.GetBytes(item.Value + "\n"); p.Write(b, 0, b.Length); p.Flush(); }
             catch (Exception) { }   // the pipe broke (mpv ended): PipeLoop notices and reconnects
         }
+    }
+
+    // ---------- chat stress mode ----------
+    // LiteView.exe <channel> --chat-stress=200: while watching with the native chat, synthetic messages (emotes of the
+    // channel, long ones, Unicode, deletions, timeouts, sub notices) are fed into the chat as if they came from Twitch.
+    // Every 10 s liteview.log gets a "stress:" line with memory, handles and the emote cache, to compare runs.
+
+    System.Threading.Timer stressTimer;
+
+    void StartStress()
+    {
+        var gen0 = new ChatStress("stress", Environment.TickCount);
+        List<string> emotes = new List<string>(); string emotesFor = null;
+        double due = 0; var sw = Stopwatch.StartNew(); long lastLog = 0, lastCount = 0;
+        Text = Text + "  -  chat stress " + stressRate + "/s";
+        Log.Info("chat stress mode: " + stressRate + " messages per second");
+        int busy = 0;
+        stressTimer = new System.Threading.Timer(_ =>
+        {
+            if (Interlocked.Exchange(ref busy, 1) == 1) return;   // the previous tick is still feeding
+            try
+            {
+                string ch = nchat.Channel;
+                if (!watching || webChat || ch == null) return;
+                if (ch != emotesFor || sw.ElapsedMilliseconds % 5000 < 60) { emotes = nchat.EmoteNames(); emotesFor = ch; }
+                due += stressRate / 20.0;
+                for (; due >= 1; due--) nchat.Inject(gen0.Next(emotes).Replace(" #stress", " #" + ch));
+                long now = sw.ElapsedMilliseconds;
+                if (now - lastLog >= 10000)
+                {
+                    using (var me = Process.GetCurrentProcess())
+                        Log.Info("stress: " + gen0.Count + " messages (" + ((gen0.Count - lastCount) * 1000 / Math.Max(1, now - lastLog)) + "/s), working set "
+                            + me.WorkingSet64 / (1024 * 1024) + " MB, private " + me.PrivateMemorySize64 / (1024 * 1024) + " MB, threads " + me.Threads.Count
+                            + ", handles " + me.HandleCount + ", GDI " + GetGuiResources(me.Handle, 0) + ", USER " + GetGuiResources(me.Handle, 1)
+                            + ", CPU " + (int)me.TotalProcessorTime.TotalSeconds + " s, emotes: " + Images.Stats());
+                    lastLog = now; lastCount = gen0.Count;
+                }
+            }
+            catch (Exception ex) { Log.Error("chat stress", ex); }
+            finally { Volatile.Write(ref busy, 0); }
+        }, null, 1000, 50);
+        FormClosing += (s, e) => { if (stressTimer != null) stressTimer.Dispose(); };
     }
 
     // ---------- sleep / resume and network changes ----------

@@ -669,7 +669,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     [STAThread]
     static void Main(string[] args)
     {
-        if (args.Length > 0) startChannel = args[0];
+        ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();
         ulong m = Native.NonCacheDieMask();
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this

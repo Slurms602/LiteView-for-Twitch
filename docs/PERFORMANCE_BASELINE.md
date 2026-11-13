@@ -46,6 +46,10 @@ and private bytes; threads, handles, GDI/USER objects (`Export diagnostics` show
 (3D, Video Decode) from Task Manager or `typeperf "\GPU Engine(*)\Utilization Percentage"`; mpv dropped and delayed
 frames (mpv stats overlay, `i` key, or the IPC property `frame-drop-count`); network throughput.
 
+For chat specifically, `LiteView.exe <channel> --chat-stress=<messages per second>` (see `TESTING.md`) writes
+memory, handle and emote-cache figures to `liteview.log` every 10 seconds, so busy-chat runs can be repeated and
+compared without a busy real channel.
+
 Suggested tools: Windows Performance Recorder/Analyzer or `typeperf` for CPU and GPU counters, PresentMon or
 CapFrameX for game frame times. Store the raw CSVs under `docs/perf/<date>-<commit>/` with a short README.
 

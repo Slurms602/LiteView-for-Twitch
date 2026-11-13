@@ -794,6 +794,10 @@ class ChatPanel : Panel
         return m;
     }
 
+    // chat stress mode (src/app/LiteView.Fork.cs): synthetic lines take the same path as Twitch's
+    public void Inject(string line) { OnLine(line); }
+    public List<string> EmoteNames() { return third.Keys.Take(5000).ToList(); }
+
     void OnLine(string line)
     {
         IrcMsg im;

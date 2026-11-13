@@ -6,7 +6,7 @@
 dotnet test LiteView.sln -c Release
 ```
 
-223 unit tests (xUnit, `tests/LiteView.Core.Tests`) cover the pure logic in `src/core`. They run on any OS and need
+228 unit tests (xUnit, `tests/LiteView.Core.Tests`) cover the pure logic in `src/core`. They run on any OS and need
 no network, credentials or Twitch account.
 
 | Area | Test class | What it checks |
@@ -65,6 +65,19 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 19 | Display scaling 100 % and 150 % | Same as upstream (DPI support is P2, not part of this milestone) |
 
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
+
+## Chat stress mode (Windows)
+
+```powershell
+dist\LiteView-Enhanced-0.1.0\LiteView.exe <a channel with many 7TV emotes> --chat-stress=200
+```
+
+While you watch with the native chat, LiteView adds 200 synthetic messages per second (the channel's own emotes,
+long messages, Unicode, links, replies, deletions, timeouts, sub notices) on top of the real chat. The title bar says
+*chat stress*. Every 10 seconds `liteview.log` gets a `stress:` line: messages per second, working set, private
+memory, threads, handles, GDI/USER objects, CPU seconds and the emote cache. Run it for 10-30 minutes, scroll the
+chat up and down now and then, and keep the log. Healthy: memory and GDI objects level off; the chat stays smooth;
+the emote cache stays within its budget. The generator is `src/core/ChatStress.cs` (tested in `ChatStressTests`).
 
 ## Test rules
 

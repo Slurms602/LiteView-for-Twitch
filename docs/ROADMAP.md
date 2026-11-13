@@ -13,7 +13,7 @@ checked on Windows. "Implemented" means written, compiled and unit-tested where 
 | Upstream tracking workflow | Done: `docs/UPSTREAM.md`, `tools/upstream.sh` (tested against a simulated upstream) |
 | Security hardening (SEC-1 … SEC-21) | Implemented, unit-tested where the logic allows; **needs the Windows pass** in `TESTING.md` |
 | Confirmed reliability fixes (REL-1 … REL-15) | Implemented; same |
-| Basic tests | Done: 223 unit tests, CI on Linux and Windows (CI not yet run: needs the push, and Actions enabled on the fork) |
+| Basic tests | Done: 228 unit tests, CI on Linux and Windows (CI not yet run: needs the push, and Actions enabled on the fork) |
 | Diagnostics | Implemented: log, crash log, *Export diagnostics...* |
 | Architecture docs | Done |
 
@@ -28,10 +28,11 @@ Windows pass and one green CI run.
 4. Integration tests with fakes. **Done for Twitch login/API and the chat connection** (`TwitchClient`, `Irc` moved
    into `src/core`). Still to do: fake Streamlink/mpv executables (exit codes, messages, a hung pipe), which need
    the Win32 process code to run on a Windows CI runner.
-5. Chat stress tool: synthetic IRC feed (high rate, long messages, Unicode, many animated emotes, frequent
-   CLEARMSG/CLEARCHAT) to measure frame time, memory and the emote budget (RES-7).
+5. Chat stress tool: **done** (`--chat-stress=N`, logs memory/handles/emote cache every 10 s). Still to do: run it on
+   Windows and set the emote budget and any chat limits from the numbers (RES-7).
 6. Status/errors: a clearer error area than the status line (UI-5), with retry and "open log".
-7. Sleep/resume and network change handling for playback (reconnect on resume).
+7. Sleep/resume and network changes: **implemented** (chat liveness PING, restart on resume, reconnect when the
+   network returns); needs the Windows check.
 
 ## P2 - Native Twitch interface
 

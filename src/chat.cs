@@ -206,7 +206,7 @@ class ChatView : Control
 {
     public static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
         MentionBg = Color.FromArgb(62, 22, 26), NoticeBg = Color.FromArgb(31, 31, 35), Accent = Color.FromArgb(145, 71, 255), LinkC = Color.FromArgb(191, 148, 255);
-    static readonly Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);
+    static Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);   // fork: SetTextSize
     public readonly List<Msg> Msgs = new List<Msg>();
     public event Action<string> NameClicked;
     int scroll, gen; readonly List<Place> anims = new List<Place>(); readonly List<KeyValuePair<Place, int>> animY = new List<KeyValuePair<Place, int>>();
@@ -227,6 +227,17 @@ class ChatView : Control
     }
 
     public void ToBottom() { if (scroll > 0) { scroll = 0; Invalidate(); } }
+
+    // fork (chat text size, src/app/LiteView.Chat.cs): new fonts, then every message is laid out again
+    public void SetTextSize(float pt)
+    {
+        if (Math.Abs(F.Size - pt) < 0.01f) return;
+        F = new Font("Segoe UI", pt); FB = new Font("Segoe UI Semibold", pt); FS = new Font("Segoe UI", pt - 1f);
+        widths.Clear();
+        spaceW = Txt.Width("x x", F) - Txt.Width("xx", F);
+        textH = Txt.Height(F);
+        Redo(m => true);
+    }
 
     public void Clear() { foreach (var m in Msgs) Drop(m); Msgs.Clear(); scroll = 0; Invalidate(); }
 
@@ -805,7 +816,7 @@ class ChatPanel : Panel
         if (im == null) return;
         switch (im.Cmd)
         {
-            case "PRIVMSG": inbox.Enqueue(Build(im, im.Text, im.Nick)); break;
+            case "PRIVMSG": if (!ChatPrefs.Filter.IsIgnored(im.Nick)) inbox.Enqueue(Build(im, im.Text, im.Nick)); break;   // fork: ignored users
             case "USERNOTICE":
             {
                 var m = Build(im, im.Text ?? "", im.Tag("login")); m.Style = 2;
@@ -871,6 +882,7 @@ class ChatPanel : Panel
         m.NameColor = ParseColor(im.Tag("color"), login);
         if (login != null) chatters[m.Display] = 0;
         var bd = badges; var gb = globalBadges;
+        if (ChatPrefs.Timestamps) { string ts = ChatFilter.Stamp(im.Tag("tmi-sent-ts")); if (ts.Length > 0) m.P.Add(new Piece { Kind = 6, Text = ts, C = ChatView.Dim }); }   // fork
         foreach (var b in (im.Tag("badges") ?? "").Split(','))
         {
             if (b.Length == 0) continue;
@@ -926,6 +938,7 @@ class ChatPanel : Panel
         Words(m, text.Substring(pos), tc, login == Tw.Login && login != null && im.Tag("emotes") == null);
         if (Tw.Login != null && login != Tw.Login && Regex.IsMatch(text, @"(^|\W)@?" + Regex.Escape(Tw.Login) + @"(\W|$)", RegexOptions.IgnoreCase)) m.Style = 1;
         if (m.Reply != null && Tw.Login != null && im.Tag("reply-parent-user-login") == Tw.Login && login != Tw.Login) m.Style = 1;
+        if (m.Style == 0 && login != null && login != Tw.Login && ChatPrefs.Filter.Highlights(text)) m.Style = 1;   // fork: highlight words
         return m;
     }
 

@@ -39,7 +39,7 @@ static class Tw
     public static string UserId { get { var a = api; return a != null ? a.UserId : null; } }
     public static string[] Granted { get { var a = api; return a != null ? a.Granted : new string[0]; } }   // scopes of the current token
     public static bool Has(string scope) { var a = api; return a != null && a.Has(scope); }
-    public static void Session(out string login, out string token) { var a = api; if (a != null) a.Session(out login, out token); else login = token = null; }
+    public static void Session(out string login, out string token) { var a = api; if (a != null && !Fixture.On) a.Session(out login, out token); else login = token = null; }   // fixture: anonymous chat
 
     public static void LogOut() { var a = api; if (a != null) a.LogOut(); }
     public static Task<bool> Validate() { return Api.Validate(); }

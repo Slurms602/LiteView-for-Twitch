@@ -36,7 +36,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
 
     static readonly Color Bg = Color.FromArgb(14, 14, 16), Bar = Color.FromArgb(24, 24, 27), Hover = Color.FromArgb(38, 38, 44),
         Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Accent = Color.FromArgb(145, 71, 255), Live = Color.FromArgb(235, 4, 0);
-    const int BarH = 40, ChatW = 340;
+    const int BarH = 40;   // fork: ChatW is a setting (src/app/LiteView.Chat.cs)
     const string Home = "https://www.twitch.tv/directory/following/live";
     static readonly string[] Qualities = Quality.Choices;
 

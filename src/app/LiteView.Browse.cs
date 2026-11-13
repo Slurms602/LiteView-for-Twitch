@@ -54,10 +54,18 @@ partial class LiteView
 
         if (!nativeBrowse) InitWeb();
         InitKeys(); InitNotify(); InitUpdates();   // src/app/LiteView.Extras.cs
+        InitChatPrefs();
         Shown += (s, e) => { if (startChannel == null && openLast && browse.Recent.Count > 0) Watch(browse.Recent.Items[0]); };
         if (Fixture.On) Shown += (s, e) =>
         {
             Fixture.Scene(this, browse, search);
+            if (Fixture.SceneName == "chat")
+            {   // the watch view with synthetic chat (no video in fixture mode), timestamps and a highlight word on
+                ChatPrefs.Timestamps = true; ChatPrefs.Filter.SetWords("clip");
+                Watch("nightowl_plays");
+                stressRate = 15; StartStress();
+                return;
+            }
             if (Fixture.SceneName != "problem") return;
             ShowProblem("Could not open the stream: Unable to open URL: https://usher.ttvnw.net/api/channel/hls/x.m3u8  -  trying again in 4 s",
                 "error: Unable to open URL: https://usher.ttvnw.net/api/channel/hls/<channel>.m3u8 (HTTPSConnectionPool(host='usher.ttvnw.net', port=443): Read timed out.)\n\n" +
@@ -173,6 +181,7 @@ partial class LiteView
         yield return Kv("quiet", quiet);
         yield return Kv("updates", autoUpdates ? "1" : "0");
         yield return Kv("updatechecked", updateChecked);
+        foreach (var kv in ChatSettings()) yield return kv;
     }
 
     void LoadForkSettings(Dictionary<string, string> ini)
@@ -192,6 +201,7 @@ partial class LiteView
         quiet = QuietHours.TryParse(q, out qf, out qt) ? q : "";
         autoUpdates = Native.Get(ini, "updates", "0") == "1";
         updateChecked = Native.Get(ini, "updatechecked", "");
+        LoadChatSettings(ini);
     }
 
     static KeyValuePair<string, string> Kv(string k, string v) { return new KeyValuePair<string, string>(k, v); }

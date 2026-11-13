@@ -17,5 +17,19 @@ foreach ($list in $root.FindAll([System.Windows.Automation.TreeScope]::Descendan
     foreach ($it in $items) { if ($i++ -ge $MaxItems) { break }; $lines.Add("  - " + $it.Current.Name) }
 }
 if ($lines.Count -eq 0) { $lines.Add('no lists found') }
+# the raw tree (what is there at all), a few levels deep
+$walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+function Walk($e, [int]$depth)
+{
+    if ($depth -gt 7 -or $script:count -gt 300) { return }
+    $script:count++
+    $c = $e.Current
+    $lines.Add(('  ' * $depth) + $c.ControlType.ProgrammaticName + " '" + $c.Name + "' [" + $c.ClassName + "] " + $c.FrameworkId)
+    $ch = $walker.GetFirstChild($e)
+    while ($ch -ne $null) { Walk $ch ($depth + 1); $ch = $walker.GetNextSibling($ch) }
+}
+$script:count = 0
+$lines.Add('--- raw tree')
+Walk $root 0
 $lines | Set-Content $Out -Encoding utf8
 $lines | ForEach-Object { Write-Host $_ }

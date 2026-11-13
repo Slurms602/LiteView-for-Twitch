@@ -19,7 +19,10 @@ static class Tw
     // registration (dev.twitch.tv > Applications, client type Public, device code flow) - see docs/KNOWN_ISSUES.md.
     public const string ClientId = "i82nikwku19tn6wk8ms6z7hr9l57wo";
     public static readonly HttpClient Http = new HttpClient();
-    static TwitchClient api;
+    // Set by Init. Before that nobody is logged in: the chat panel and the sidebar are built (and ask) before the
+    // window's constructor calls Init, as in upstream, where these were plain static fields.
+    static volatile TwitchClient api;
+    static TwitchClient Api { get { var a = api; if (a == null) throw new InvalidOperationException("Tw.Init has not run"); return a; } }
 
     public static void Init(string tokenFile)
     {
@@ -31,20 +34,20 @@ static class Tw
         api.Load();
     }
 
-    public static string Token { get { return api.Token; } }
-    public static string Login { get { return api.Login; } }
-    public static string UserId { get { return api.UserId; } }
-    public static string[] Granted { get { return api.Granted; } }   // scopes of the current token
-    public static bool Has(string scope) { return api.Has(scope); }
-    public static void Session(out string login, out string token) { api.Session(out login, out token); }
+    public static string Token { get { var a = api; return a != null ? a.Token : null; } }
+    public static string Login { get { var a = api; return a != null ? a.Login : null; } }
+    public static string UserId { get { var a = api; return a != null ? a.UserId : null; } }
+    public static string[] Granted { get { var a = api; return a != null ? a.Granted : new string[0]; } }   // scopes of the current token
+    public static bool Has(string scope) { var a = api; return a != null && a.Has(scope); }
+    public static void Session(out string login, out string token) { var a = api; if (a != null) a.Session(out login, out token); else login = token = null; }
 
-    public static void LogOut() { api.LogOut(); }
-    public static Task<bool> Validate() { return api.Validate(); }
-    public static Task<object> Helix(string query) { return api.Helix(query); }
-    public static Task<string> Get(string url) { return api.Get(url); }
-    public static Task<byte[]> GetBytes(string url, int max) { return api.GetBytes(url, max); }
-    public static Task<object> StartDevice() { return api.StartDevice(); }
-    public static Task<string> PollDevice(string deviceCode) { return api.PollDevice(deviceCode); }
+    public static void LogOut() { var a = api; if (a != null) a.LogOut(); }
+    public static Task<bool> Validate() { return Api.Validate(); }
+    public static Task<object> Helix(string query) { return Api.Helix(query); }
+    public static Task<string> Get(string url) { return Api.Get(url); }
+    public static Task<byte[]> GetBytes(string url, int max) { return Api.GetBytes(url, max); }
+    public static Task<object> StartDevice() { return Api.StartDevice(); }
+    public static Task<string> PollDevice(string deviceCode) { return Api.PollDevice(deviceCode); }
 
     // ---- JSON helpers (objects = Dictionary, arrays = object[], as with upstream's JavaScriptSerializer) ----
     public static object Parse(string s) { return Json.Parse(s); }

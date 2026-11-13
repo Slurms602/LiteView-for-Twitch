@@ -29,7 +29,12 @@ no network, credentials or Twitch account.
 | Chat connection (fake server) | `IrcClientTests` | Anonymous and logged-in handshake; PING/PONG; RECONNECT uses the current token; chat text ending in RECONNECT is text; oversized message reconnects; backoff grows and resets after a healthy connection; Stop; one-line Send; bad channel |
 
 CI (`.github/workflows/ci.yml`) runs the build with warnings as errors, the tests, a secret scan, a vulnerable
-package check and the full `build.ps1` packaging on Windows.
+package check and the full `build.ps1` packaging on Windows. It then starts the packaged app on the Windows runner
+(`tools/smoke.ps1`, on a copy of the folder): the main window must appear and stay up for 30 s, `liteview.log` must
+have no errors, and the window must close normally with nothing left running. The run's `smoke-<commit>` artifact
+has a picture of the window, the whole screen, the logs and Windows' crash events. The runner is not logged in to
+Twitch and has no GPU, so this covers starting and closing, not playback. `tools\smoke.ps1 -Dir <built folder>`
+does the same on your own PC without touching that folder.
 
 The race tests (log out during a refresh, stale validation) and the RECONNECT/backoff tests were checked to fail
 when the fix they guard is removed.

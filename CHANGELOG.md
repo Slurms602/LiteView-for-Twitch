@@ -49,3 +49,5 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   Twitch and chat server; JSON is read by a small built-in reader instead of `JavaScriptSerializer`.
 - SDK-style projects (`LiteView.sln`), 228 unit tests, GitHub Actions CI, pinned packages with lock files,
   `tools/upstream.sh` for taking upstream changes. See `docs/`.
+- CI starts the packaged app on Windows and checks that its window appears and closes cleanly (`tools/smoke.ps1`).
+- If LiteView cannot start, it says so in a message box (upstream closed without a word).

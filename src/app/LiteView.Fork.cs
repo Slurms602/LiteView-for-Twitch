@@ -59,6 +59,7 @@ partial class LiteView
 
     void InitFork()
     {
+        Shown += (s, e) => windowShown = true;
         if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>
@@ -482,6 +483,28 @@ partial class LiteView
             + Environment.OSVersion.VersionString + ", " + RuntimeInformation.FrameworkDescription);
     }
 
+    static volatile bool windowShown;
+    static int fatalShown;
+
+    // LiteView is about to end. Before the window is up, a message is the only sign of it (upstream: nothing).
+    static void Fatal(object ex)
+    {
+        string log = "liteview.log";
+        try { log = LogFatal(ex); } catch { }   // LiteView.Core.dll itself may be what failed to load
+        if (Interlocked.Exchange(ref fatalShown, 1) != 0) return;
+        try
+        {
+            var x = ex as Exception;
+            MessageBox.Show((windowShown ? "LiteView stopped because of an error" : "LiteView could not start") + ":\n\n"
+                + (x != null ? x.GetType().Name + ": " + x.Message : "unknown error") + "\n\nDetails: " + log, "LiteView",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        catch { }
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static string LogFatal(object ex) { Log.Error("fatal: " + ex); return Log.File ?? "liteview.log"; }
+
     static void CatchCrashes()
     {
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -494,7 +517,7 @@ partial class LiteView
             MessageBox.Show("Something went wrong: " + e.Exception.Message + "\n\nLiteView keeps running. The details are in " + Path.GetFileName(Log.File ?? "liteview.log")
                 + " (chat gear menu > Open log folder).", "LiteView", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         };
-        AppDomain.CurrentDomain.UnhandledException += (s, e) => Log.Error("fatal: " + e.ExceptionObject);
+        AppDomain.CurrentDomain.UnhandledException += (s, e) => Fatal(e.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (s, e) => { Log.Warn("background task: " + e.Exception.GetBaseException().Message); e.SetObserved(); };
     }
 }

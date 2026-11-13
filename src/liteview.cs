@@ -671,6 +671,8 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     [STAThread]
     static void Main(string[] args)
     {
+        Application.EnableVisualStyles();
+        CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();
         ulong m = Native.NonCacheDieMask();
@@ -679,8 +681,6 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             if (m != 0) self.ProcessorAffinity = new IntPtr((long)m);
             self.PriorityClass = ProcessPriorityClass.BelowNormal;
         }
-        Application.EnableVisualStyles();
-        CatchCrashes();
         Application.Run(new LiteView());
     }
 }

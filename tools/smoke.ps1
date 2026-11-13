@@ -32,6 +32,24 @@ function Screenshot([string]$name) {
     } catch { Note "screenshot failed: $($_.Exception.Message)" }
 }
 
+function WindowShot([IntPtr]$h, [string]$name) {   # the window's own content, even where other windows cover it
+    try {
+        Add-Type -AssemblyName System.Drawing
+        if (-not ('Smoke.Win' -as [type])) {
+            Add-Type -Namespace Smoke -Name Win -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, int[] r);
+[DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
+'@
+        }
+        $r = New-Object int[] 4
+        if (-not [Smoke.Win]::GetWindowRect($h, $r)) { Note "window screenshot: no window rectangle"; return }
+        $bmp = New-Object System.Drawing.Bitmap ([Math]::Max(1, $r[2] - $r[0])), ([Math]::Max(1, $r[3] - $r[1]))
+        $g = [System.Drawing.Graphics]::FromImage($bmp); $dc = $g.GetHdc()
+        try { [void][Smoke.Win]::PrintWindow($h, $dc, 2) } finally { $g.ReleaseHdc($dc); $g.Dispose() }   # 2 = PW_RENDERFULLCONTENT (WebView2)
+        $bmp.Save((Join-Path $Out $name), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    } catch { Note "window screenshot failed: $($_.Exception.Message)" }
+}
+
 function Tree([int]$id) {   # the process and everything it started (WebView2, Streamlink, mpv)
     $all = @(Get-CimInstance Win32_Process)
     $ids = New-Object System.Collections.Generic.List[int]; $ids.Add($id)
@@ -50,7 +68,8 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     Start-Sleep -Milliseconds 500
     $p.Refresh()
     if ($p.HasExited) { break }
-    if ($null -eq $firstWindow -and $p.MainWindowHandle -ne [IntPtr]::Zero) { $firstWindow = ((Get-Date) - $t0).TotalSeconds }
+    # the main window, not an error message box (title "LiteView")
+    if ($null -eq $firstWindow -and $p.MainWindowHandle -ne [IntPtr]::Zero -and $p.MainWindowTitle -like 'LiteView for Twitch*') { $firstWindow = ((Get-Date) - $t0).TotalSeconds }
 }
 $p.Refresh()
 Screenshot 'screen.png'
@@ -60,8 +79,8 @@ if ($p.HasExited) {
     $ok = $false
     Note ("FAIL: LiteView exited after {0:N1} s with exit code 0x{1:X8}" -f ($p.ExitTime - $t0).TotalSeconds, $p.ExitCode)
 } else {
-    if ($null -eq $firstWindow) { $ok = $false; Note "FAIL: still running after $Seconds s but has no window" }
-    else { Note ("window after {0:N1} s: '{1}'" -f $firstWindow, $p.MainWindowTitle) }
+    if ($null -eq $firstWindow) { $ok = $false; Note "FAIL: still running after $Seconds s without its main window (top window: '$($p.MainWindowTitle)')" }
+    else { Note ("window after {0:N1} s: '{1}'" -f $firstWindow, $p.MainWindowTitle); WindowShot $p.MainWindowHandle 'window.png' }
     foreach ($c in Tree $p.Id) { Note ("  process {0} ({1}): {2:N0} MB" -f $c.Name, $c.ProcessId, ($c.WorkingSetSize / 1MB)) }
     # close it the normal way (runs the save-settings and stop-stream code), then make sure nothing is left
     [void]$p.CloseMainWindow()
@@ -82,6 +101,12 @@ try {
 } catch { Note "no Windows error events ($($_.Exception.Message))" }
 
 Get-ChildItem $app -File -Filter '*.log*' | Copy-Item -Destination $Out
+$log = Join-Path $app 'liteview.log'
+if (-not (Test-Path $log)) { $ok = $false; Note "FAIL: no liteview.log" }
+else {
+    $errors = @(Select-String -Path $log -Pattern ' ERROR ' -SimpleMatch | Select-Object -First 5)
+    if ($errors.Count -gt 0) { $ok = $false; Note "FAIL: errors in liteview.log:"; foreach ($e in $errors) { Note ("  " + $e.Line) } }
+}
 Get-ChildItem $app -File -Filter '*.ini' | Copy-Item -Destination $Out
 Note ("logs: " + ((Get-ChildItem $Out -File | Select-Object -ExpandProperty Name) -join ', '))
 Note ($(if ($ok) { 'PASS' } else { 'FAIL' }))

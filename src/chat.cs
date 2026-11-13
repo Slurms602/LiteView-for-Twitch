@@ -241,7 +241,7 @@ class Irc
                 await s.ConnectAsync(new Uri("wss://irc-ws.chat.twitch.tv:443"), c);
                 ws = s; connected = true; up.Restart();
                 await SendRaw(s, "CAP REQ :twitch.tv/tags twitch.tv/commands");
-                string login = Tw.Login, token = login != null ? Tw.Token : null;
+                string login, token; Tw.Session(out login, out token);   // login and token from the same moment
                 await SendRaw(s, token != null ? "PASS oauth:" + token : "PASS SCHMOOPIIE");
                 await SendRaw(s, "NICK " + (token != null ? login : "justinfan" + rnd.Next(10000, 99999)));
                 await SendRaw(s, "JOIN #" + chan);
@@ -650,8 +650,9 @@ class ChatPanel : Panel
     {
         // logged in, out or as someone else since the chat connected: reconnect as the current account
         if (channel != null && drain.Enabled && joinedAs != Tw.Login) { Reconnect(); return; }
-        input.Visible = emoteBtn.Visible = Tw.Token != null; loginLink.Visible = Tw.Token == null;
-        if (Tw.Token == null) picker.Visible = false;
+        bool can = Tw.Token != null && Tw.Login != null;   // a validated session (not a token kept while Twitch was unreachable)
+        input.Visible = emoteBtn.Visible = can; loginLink.Visible = !can;
+        if (!can) picker.Visible = false;
         else if (picker.Visible) { LoadTwitch(); RefreshPicker(); }
     }
 
@@ -1049,7 +1050,7 @@ class ChatPanel : Panel
         {
             e.SuppressKeyPress = true;
             string t = IrcProtocol.CleanOutgoing(input.Text);   // no CR/LF/control characters, at most 500
-            if (t.Length == 0 || channel == null || Tw.Token == null) return;
+            if (t.Length == 0 || channel == null || Tw.Token == null || Tw.Login == null) return;
             if (irc.Send("PRIVMSG #" + channel + " :" + t))
             {
                 pending.Enqueue(t);

@@ -38,6 +38,7 @@ partial class LiteView
     readonly System.Collections.Concurrent.BlockingCollection<KeyValuePair<int, string>> mpvOut =
         new System.Collections.Concurrent.BlockingCollection<KeyValuePair<int, string>>(256);
     int mpvPipeGen = -1, mpvDropped;
+    volatile bool mpvResync;   // commands were dropped: send the whole state again once mpv reads again
 
     void InitFork()
     {
@@ -53,8 +54,24 @@ partial class LiteView
 
     void QueueMpv(int g, string json)
     {
-        if (!mpvOut.TryAdd(new KeyValuePair<int, string>(g, json)) && Interlocked.Increment(ref mpvDropped) == 1)
-            Log.Warn("mpv is not reading its commands; dropping them");
+        if (mpvOut.TryAdd(new KeyValuePair<int, string>(g, json))) return;
+        mpvResync = true;
+        if (Interlocked.Increment(ref mpvDropped) == 1) Log.Warn("mpv is not reading its commands; dropping them and resending the state later");
+    }
+
+    // From OnTick: when commands were dropped and the queue has drained, send volume, mute and the observed
+    // properties again, and forget what was applied so ApplyEnhance sends the picture settings again.
+    void ResyncMpv()
+    {
+        if (!mpvResync || mpvOut.Count > 0 || mpvGen != gen) return;
+        mpvResync = false;
+        appliedPic = appliedVf = null;
+        SendMpv("{\"command\":[\"set_property\",\"volume\"," + volume + "]}");
+        SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}");
+        SendMpv("{\"command\":[\"observe_property\",1,\"volume\"]}");
+        SendMpv("{\"command\":[\"observe_property\",2,\"mute\"]}");
+        SendMpv("{\"command\":[\"observe_property\",3,\"height\"]}");
+        Log.Info("mpv: state sent again after dropped commands");
     }
 
     void MpvWriter()

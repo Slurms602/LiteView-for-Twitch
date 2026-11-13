@@ -88,8 +88,11 @@ $zip = Join-Path $root "dist\$name.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 tar.exe -a -c -f $zip -C (Join-Path $root 'dist') $name
 if ($LASTEXITCODE -ne 0) { Remove-Item $zip -ErrorAction SilentlyContinue; throw 'Creating the zip failed' }
-$listed = (tar.exe -tf $zip | Measure-Object).Count
-if ($LASTEXITCODE -ne 0 -or $listed -lt $manifest.Count) { throw "The zip looks incomplete ($listed entries for $($manifest.Count) files)" }
+$entries = New-Object 'System.Collections.Generic.HashSet[string]'
+foreach ($e in (tar.exe -tf $zip)) { [void]$entries.Add($e.Replace('\', '/')) }
+if ($LASTEXITCODE -ne 0) { throw 'The zip cannot be listed' }
+$absent = @($manifest | ForEach-Object { "$name/" + $_.Substring(66) } | Where-Object { -not $entries.Contains($_) })
+if ($absent.Count -gt 0) { throw "Files missing from the zip: $($absent[0..4] -join ', ')" }
 $h = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
 Set-Content (Join-Path $root "dist\$name.zip.sha256") "$h  $name.zip" -Encoding ascii
 Write-Host ("Built {0} ({1:N0} MB)`nSHA-256 {2}" -f $zip, ((Get-Item $zip).Length / 1MB), $h)

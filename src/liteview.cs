@@ -344,8 +344,10 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                 chatStarting = true;
                 try
                 {
-                    await cw.EnsureCoreWebView2Async(await Env());
-                    if (cw != chatWeb || cw.IsDisposed) return;   // native chat was chosen meanwhile
+                    var en = await Env();
+                    if (cw != chatWeb || cw.IsDisposed || !webChat || !watching) return;   // native chat chosen / left meanwhile
+                    await cw.EnsureCoreWebView2Async(en);
+                    if (cw != chatWeb || cw.IsDisposed) return;
                     Harden(cw.CoreWebView2, false);
                     cw.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; if (e.IsUserInitiated) Launcher.Open(e.Uri); };   // upstream: Process.Start(any URI)
                     chatReady = true;
@@ -445,6 +447,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     void OnTick()
     {
         if (!watching) { tick.Stop(); return; }
+        ResyncMpv();
         if ((DateTime.Now - lastResize).TotalMilliseconds > 600) ApplyEnhance(false);
         if (slPid == 0 || slProc == null) return;
         bool alive = false;

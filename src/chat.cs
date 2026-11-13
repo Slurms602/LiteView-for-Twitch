@@ -228,6 +228,8 @@ class ChatView : Control
 
     public void ToBottom() { if (scroll > 0) { scroll = 0; Invalidate(); } }
 
+    public void SetAnimInterval(int ms) { animTick.Interval = Math.Max(16, ms); }   // fork: Gaming Mode slows animated emotes
+
     // fork (chat text size, src/app/LiteView.Chat.cs): new fonts, then every message is laid out again
     public void SetTextSize(float pt)
     {

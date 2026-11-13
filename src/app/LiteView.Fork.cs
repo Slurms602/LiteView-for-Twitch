@@ -77,7 +77,7 @@ partial class LiteView
             Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPower;
             System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= OnNetwork;
         };
-        Log.Info("window ready; CPU mask " + (mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X")) + ", NVIDIA RTX " + HasNvidia);
+        Log.Info("window ready; CPU " + CpuChoice().Why + ", NVIDIA RTX " + HasNvidia);
     }
 
     void QueueMpv(int g, string json)
@@ -256,7 +256,7 @@ partial class LiteView
         if (!SetInformationJobObject(job, 9, ref lim, Marshal.SizeOf(typeof(JOBLIMITS)))) Log.Warn("job: kill-on-close could not be set");
         var si = new Native.STARTUPINFO(); si.cb = Marshal.SizeOf(si);
         Native.PROCESS_INFORMATION pi;
-        if (CreateProcessW(streamlink, new StringBuilder(cmdline), IntPtr.Zero, IntPtr.Zero, false, Native.CREATE_SUSPENDED | Native.BELOW_NORMAL, IntPtr.Zero, root, ref si, out pi))
+        if (CreateProcessW(streamlink, new StringBuilder(cmdline), IntPtr.Zero, IntPtr.Zero, false, Native.CREATE_SUSPENDED | ChildPriorityFlag, IntPtr.Zero, root, ref si, out pi))
         {
             if (mask != 0) Native.SetProcessAffinityMask(pi.hProcess, new UIntPtr(mask));
             if (!AssignProcessToJobObject(job, pi.hProcess)) Log.Warn("job: Streamlink could not be added");

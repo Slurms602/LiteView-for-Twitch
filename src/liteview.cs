@@ -42,7 +42,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
 
     readonly string root, tw, iniPath, streamlink, mpv, slLog;
     volatile string pipeName = "";   // a new random name per stream (see Watch)
-    readonly ulong mask = Native.NonCacheDieMask();
+    readonly ulong mask = CpuChoice().Mask;
 
     readonly Panel bar = new Panel(), body = new Panel(), video = new Panel(), chatBox = new Panel();
     WebView2 web, chatWeb = new WebView2();
@@ -495,7 +495,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     void ApplyEnhance(bool force)
     {
         if (!watching) return;
-        int pic = Math.Max(0, picture.SelectedIndex);
+        int pic = GamingPicture(Math.Max(0, picture.SelectedIndex));   // fork: Gaming Mode may lower it
         if (force || appliedPic != pic.ToString())
         {
             bool ultra = pic == 3;
@@ -514,7 +514,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             appliedPic = pic.ToString();
         }
         double s = videoH > 0 ? Math.Max(1.0, Math.Round((double)video.Height / videoH, 2)) : 1.0;
-        bool useRtx = rtx.Checked && HasNvidia;
+        bool useRtx = rtx.Checked && HasNvidia && !gamingActive;
         string vf = !useRtx ? "off" : pic >= 2 ? "1.05" : s > 1.04 ? s.ToString("0.00", CultureInfo.InvariantCulture) : "off";
         double prev, now;
         bool near = vf != "off" && double.TryParse(appliedVf, NumberStyles.Float, CultureInfo.InvariantCulture, out prev)
@@ -681,11 +681,11 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();
-        ulong m = Native.NonCacheDieMask();
+        ulong m = CpuChoice().Mask;   // fork: the CPU use setting (src/app/LiteView.Performance.cs)
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this
         {
             if (m != 0) self.ProcessorAffinity = new IntPtr((long)m);
-            self.PriorityClass = ProcessPriorityClass.BelowNormal;
+            self.PriorityClass = CpuChoice().Priority == CpuPriority.Normal ? ProcessPriorityClass.Normal : ProcessPriorityClass.BelowNormal;
         }
         Application.Run(new LiteView());
     }

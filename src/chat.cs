@@ -222,6 +222,7 @@ class ChatView : Control
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         BackColor = Bg;
         animTick.Tick += (s, e) => Animate();
+        Model().Attach();   // fork: UI Automation (src/app/ListAccessible.cs)
         spaceW = Txt.Width("x x", F) - Txt.Width("xx", F);
         textH = Txt.Height(F);
     }
@@ -231,11 +232,15 @@ class ChatView : Control
     public void SetAnimInterval(int ms) { animTick.Interval = Math.Max(16, ms); }   // fork: Gaming Mode slows animated emotes
 
     // fork: screen readers read the messages as text, emotes by name (UI-4, src/app/ListAccessible.cs)
-    protected override AccessibleObject CreateAccessibilityInstance()
+    ListModel a11y;
+    protected override AccessibleObject CreateAccessibilityInstance() { return new ListAccessible(Model()); }
+    ListModel Model()
     {
-        return new ListAccessible(this, () => "Chat messages", () => Msgs.Count,
-            i => (Msgs[i].Reply != null ? Msgs[i].Reply + ". " : "") + string.Join(" ", Msgs[i].P.Where(p => p.Kind != 2).Select(p => p.Kind == 1 ? (p.E.Name ?? "emote") : p.Text)) + (Msgs[i].Deleted ? " (deleted)" : ""),
-            i => Rectangle.Empty, () => -1, null);
+        return a11y ?? (a11y = new ListModel
+        {
+            Owner = this, Name = () => "Chat messages", Count = () => Msgs.Count, Selected = () => -1, Open = null,
+            Item = i => (Msgs[i].Reply != null ? Msgs[i].Reply + ". " : "") + string.Join(" ", Msgs[i].P.Where(p => p.Kind != 2).Select(p => p.Kind == 1 ? (p.E.Name ?? "emote") : p.Text)) + (Msgs[i].Deleted ? " (deleted)" : ""),
+        });
     }
 
     // fork (chat text size, src/app/LiteView.Chat.cs): new fonts, then every message is laid out again

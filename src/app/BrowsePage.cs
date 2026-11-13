@@ -78,6 +78,7 @@ class BrowsePage : Control
         searchDelay.Tick += (s, e) => { searchDelay.Stop(); DoSearch(); };
         avatarDelay.Tick += (s, e) => { avatarDelay.Stop(); FetchAvatarUrls(); };
         DarkMenuColors.Apply(menu); menu.ShowImageMargin = false;
+        InitAccessibility();
     }
 
     int S(int px) { return px * DeviceDpi / 96; }   // DPI-ready (the window is not DPI-aware yet: DeviceDpi is 96)
@@ -841,11 +842,20 @@ class BrowsePage : Control
 
     // ---------- screen readers (UI-4) ----------
 
-    protected override AccessibleObject CreateAccessibilityInstance()
+    ListModel a11y; UiaList uia;
+
+    void InitAccessibility()
     {
-        return new ListAccessible(this, () => { string m = Message(); return (query != null ? "Search results" : history ? "Recent searches" : "Following, " + TabName(tab)) + (m != null ? ". " + m : ""); },
-            () => Message() == null ? items.Count : 0, i => Describe(items[i]), ItemRect, () => sel, i => Open(items[i].Login));
+        a11y = new ListModel
+        {
+            Owner = this,
+            Name = () => { string m = Message(); return (query != null ? "Search results" : history ? "Recent searches" : "Following, " + TabName(tab)) + (m != null ? ". " + m : ""); },
+            Count = () => Message() == null ? items.Count : 0, Item = i => Describe(items[i]), Bounds = ItemRect, Selected = () => sel, Open = i => Open(items[i].Login),
+        };
+        uia = a11y.Attach();
     }
+
+    protected override AccessibleObject CreateAccessibilityInstance() { return new ListAccessible(a11y); }
 
     static string TabName(Tab t) { return t == Tab.Live ? "live channels" : t == Tab.Followed ? "all followed channels" : "recently watched"; }
 
@@ -865,6 +875,7 @@ class BrowsePage : Control
         lastAnnounced = sel;
         AccessibilityNotifyClients(AccessibleEvents.Focus, sel);
         AccessibilityNotifyClients(AccessibleEvents.Selection, sel);
+        uia.Selected(sel);
     }
 
     protected override void Dispose(bool disposing)

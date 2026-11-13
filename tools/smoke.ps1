@@ -97,8 +97,11 @@ if ($p.HasExited) {
         if ($A11y)
         {
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'a11y-dump.ps1') -ProcessId $p.Id -Out (Join-Path $Out 'a11y.txt') | Out-Null
-            if (-not (Select-String -Path (Join-Path $Out 'a11y.txt') -Pattern '^  - ' -Quiet)) { $ok = $false; Note "FAIL: screen readers see no list items (a11y.txt)" }
-            else { Note "screen reader view saved (a11y.txt)" }
+            $dump = Join-Path $Out 'a11y.txt'
+            $uia = Select-String -Path $dump -Pattern '^LIST .*\([1-9][0-9]* items\)' -Quiet         # Narrator
+            $msaa = Select-String -Path $dump -Pattern '^MSAA LIST .*\([1-9][0-9]* items\)' -Quiet   # NVDA, JAWS
+            if (-not ($uia -and $msaa)) { $ok = $false; Note "FAIL: screen readers see no list items (UI Automation: $uia, MSAA: $msaa; a11y.txt)" }
+            else { Note "screen readers see the lists (UI Automation and MSAA; a11y.txt)" }
         }
     }
     foreach ($c in Tree $p.Id) { Note ("  process {0} ({1}): {2:N0} MB" -f $c.Name, $c.ProcessId, ($c.WorkingSetSize / 1MB)) }

@@ -34,6 +34,7 @@ class FollowBar : Control
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         BackColor = Bg; Width = OpenW;
+        Model().Attach();   // fork: UI Automation
         refresh.Tick += (s, e) => { var f = FindForm(); if (f == null || f.WindowState != FormWindowState.Minimized) Reload(); };   // no polling while minimized
     }
 
@@ -210,10 +211,16 @@ class FollowBar : Control
     }
 
     // fork: screen readers (UI-4, src/app/ListAccessible.cs)
-    protected override AccessibleObject CreateAccessibilityInstance()
+    ListModel a11y;
+    protected override AccessibleObject CreateAccessibilityInstance() { return new ListAccessible(Model()); }
+    ListModel Model()
     {
-        return new ListAccessible(this, () => "Followed channels" + (live.Count == 0 && message != null ? ". " + message : ""), () => live.Count,
-            i => live[i].Name + ", " + Count(live[i].Viewers) + " viewers, " + live[i].Game + ". " + live[i].Title,
-            i => new Rectangle(0, HeadH + i * RowH - top, Width, RowH), () => live.FindIndex(x => x.Login == Current), i => { if (Pick != null) Pick(live[i].Login); });
+        return a11y ?? (a11y = new ListModel
+        {
+            Owner = this, Name = () => "Followed channels" + (live.Count == 0 && message != null ? ". " + message : ""), Count = () => live.Count,
+            Item = i => live[i].Name + ", " + Count(live[i].Viewers) + " viewers, " + live[i].Game + ". " + live[i].Title,
+            Bounds = i => new Rectangle(0, HeadH + i * RowH - top, Width, RowH), Selected = () => live.FindIndex(x => x.Login == Current),
+            Open = i => { if (Pick != null) Pick(live[i].Login); },
+        });
     }
 }

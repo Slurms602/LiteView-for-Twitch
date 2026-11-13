@@ -67,12 +67,48 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 16 | Gear → *Export diagnostics...* | Explorer opens with the file selected; the file has no token, no `oauth:`, no channel names |
 | 17 | Close LiteView while watching | No `mpv.exe` / `streamlinkw.exe` left; `liteview.ini` and `liteview.ini.bak` present; reopening restores window position |
 | 18 | GameFirst.exe with the shipped ini | `gamefirst.log` lists only mpv, streamlink, streamlinkw; Chrome is untouched |
-| 19 | Display scaling 100 % and 150 % | Same as upstream (DPI support is P2, not part of this milestone) |
+| 19 | Display scaling 100 % and 150 % | Same as upstream (DPI support is still open, UI-1) |
 | 20 | Gear → *Sign out of twitch.tv in LiteView*, then ◀ Following | The Following page shows Twitch logged out; chat login unchanged |
 | 21 | Sleep the PC for a few minutes while watching, wake it | Chat and the stream come back by themselves (at the live edge) |
 | 22 | `LiteView.exe <busy channel> --chat-stress=200` for 15 minutes | `stress:` lines in `liteview.log`; memory and GDI objects level off (send the log) |
 
+### P2 branch (native Following page and the rest)
+
+| # | Check | Expected |
+|---|---|---|
+| 23 | Start while logged in (*Log in with Twitch*) | LiteView's own Following page: live channels as cards with previews, avatars, uptime and viewers |
+| 24 | Click a card; ◀ Following | It plays; back on the page the scroll position is kept and *Recently watched* lists it |
+| 25 | Sort menu; right-click a channel > Add to favourites | Order changes; the favourite moves first with a ★ |
+| 26 | *All followed* tab | Every followed channel, live ones first, offline ones "Following since ..." |
+| 27 | Type in *Go to channel...* (e.g. part of a name) | Results after a short pause, live ones first; Enter still opens what you typed; click the empty box later: recent searches |
+| 28 | Arrow keys / Enter / F5 / Ctrl+F on the page | Selection moves, Enter watches, F5 refreshes, Ctrl+F focuses the search box |
+| 29 | Menu > Following page > Twitch website, then back | The website page appears; switching back closes the browser (no `msedgewebview2.exe` while browsing natively) |
+| 30 | Minimise for 5 minutes on the Following page | No requests while minimised (no `following page` errors); on restore it refreshes |
+| 31 | Open an offline channel, wait for the error, click the ⚠ status | Details with the Streamlink lines; *Try again* restarts; *Open log folder* works |
+| 32 | Fullscreen, then Win+Shift+Right (two monitors); Esc | It fills the other monitor; leaving fullscreen restores the window |
+| 33 | RTX box | Shows on an RTX card (your 5080); diagnostics say "NVIDIA RTX card: true" |
+| 34 | Keyboard shortcuts (menu > Keyboard shortcuts) while watching | Each one works; typing in chat is not affected |
+| 35 | Favourite a channel, menu > Notify me when a favourite goes live; wait for it to go live (or favourite one that is about to) | A Windows notification; clicking it opens the channel; none during quiet hours |
+| 36 | Settings > Export, change something, Import the file | LiteView restarts with the exported settings; the login is kept |
+| 37 | Chat gear: text sizes, timestamps, a highlight word, an ignored user; drag the chat's left edge | Each applies at once; the width is kept after a restart |
+| 38 | Performance > Gaming mode > Automatic; start a fullscreen game with a stream on the other monitor | After about 10 s the status says Gaming mode and the picture is lighter; 15 s after leaving the game it is back |
+| 39 | Performance > CPU use > Windows decides (restart) | `liteview.log` "window ready; CPU Windows decides"; Task Manager: LiteView, Streamlink and mpv at Normal priority |
+| 40 | Start GameFirst.exe, then `GameFirst.exe --stop` | `gamefirst.log`: "guard stopped (--stop): settings of N process(es) put back" |
+
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
+
+## UI fixture mode (screenshots without a Twitch account)
+
+`LITEVIEW_UI_FIXTURE=1` makes LiteView answer its own Twitch requests with made-up channels and generated pictures
+(`src/app/Fixture.cs`): no network for the Twitch API, no real login (the token file is not read or written), no
+Streamlink, anonymous chat, and the title says *UI fixture*. `LITEVIEW_UI_FIXTURE_SCENE` picks the screen: `live`,
+`followed`, `recent`, `history`, `search:<text>`, `problem`, `chat`. CI runs every scene with `tools/smoke.ps1` and
+uploads the screenshots (`smoke-<commit>` artifact), so UI changes can be looked at without a Windows PC:
+
+```powershell
+$env:LITEVIEW_UI_FIXTURE = '1'; $env:LITEVIEW_UI_FIXTURE_SCENE = 'followed'
+tools\smoke.ps1 -Dir dist\LiteView-Enhanced-0.1.0 -Out smoke\followed
+```
 
 ## Chat stress mode (Windows)
 

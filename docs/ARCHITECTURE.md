@@ -38,6 +38,8 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/app/LiteView.Performance.cs` | CPU use modes, Gaming mode | fork |
 | `src/app/LiteView.Screens.cs` | Fullscreen across monitors, RTX card detection | fork |
 | `src/app/ProblemPopup.cs`, `DarkMenu.cs` | Error details window, dark menus | fork |
+| `src/app/ListAccessible.cs` | Screen-reader access for the drawn lists: `ListModel`, MSAA (`ListAccessible`), UI Automation (`UiaList`) | fork |
+| `tests/FakeStreamlink/` | CI-only stand-in for Streamlink (never packaged) | fork |
 | `src/app/Fixture.cs` | Testing only: made-up Twitch answers for CI screenshots | fork |
 | `src/app/Launcher.cs` | The only place links are opened | fork |
 | `src/app/LoginDialog.cs` | Device-code login window (system browser) | fork |

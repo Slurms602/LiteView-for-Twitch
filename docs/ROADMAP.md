@@ -26,8 +26,8 @@ Windows pass and one green CI run.
 2. Register the fork's own Twitch application; switch the client id (SEC-16).
 3. Website sign-out (SEC-17): **implemented** (gear menu); needs the Windows check.
 4. Integration tests with fakes. **Done for Twitch login/API and the chat connection** (`TwitchClient`, `Irc` moved
-   into `src/core`). Still to do: fake Streamlink/mpv executables (exit codes, messages, a hung pipe), which need
-   the Win32 process code to run on a Windows CI runner.
+   into `src/core`). **Done for the stream path too**: `tests/FakeStreamlink` stands in for Streamlink on the Windows
+   runner (plays a generated video in the real mpv, waits like an offline channel, or fails), CI runs all three.
 5. Chat stress tool: **done** (`--chat-stress=N`, logs memory/handles/emote cache every 10 s). Still to do: run it on
    Windows and set the emote budget and any chat limits from the numbers (RES-7).
 6. Status/errors (UI-5): **implemented** (⚠ in the status line, details with Try again / Open log folder / Copy).
@@ -48,7 +48,8 @@ system DPI cannot). Planned as its own step.
 
 ## P3 - Playback and video excellence
 
-Done: fullscreen follows the monitor (UI-2), RTX option only with an RTX card (EXT-6).
+Done: fullscreen follows the monitor (UI-2), RTX option only with an RTX card (EXT-6), the quality box lists each
+stream's real variants (from Streamlink's log, no extra request).
 
 Quality list from the stream's real variants; persistent mpv vs. restart benchmark for channel switching;
 fullscreen across monitors (UI-2); preset review with objective comparisons (720p/1080p sources to 1080p/1440p/4K,
@@ -70,7 +71,8 @@ a settings window; theming (DUP-2).
 
 Done (P2 branch): live notifications for favourites with quiet hours (tray), settings export / import / reset,
 update check (opens the release page only) and a release workflow (draft release with the zip's SHA-256).
-Not done: accessibility (UI-4).
+Done: screen readers read the Following page, the followed column and the chat (UI Automation for Narrator, MSAA
+for NVDA / JAWS; CI checks both). Not done: the emote picker.
 
 Accessibility for the custom-drawn controls (UI-4); notifications for favourite channels with quiet hours;
 settings export/import/reset by category; safe update checking (no silent replacement, verified downloads);

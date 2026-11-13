@@ -23,6 +23,8 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Errors show as "⚠ ..." in the status line; click for the whole message with *Try again*, *Open log folder* and
   *Copy details*.
 - The RTX option only shows with an NVIDIA RTX card (it showed for any NVIDIA card).
+- The quality box lists what each stream really offers (1440p60 too, where a channel has it).
+- Screen readers (Narrator, NVDA, JAWS) can read the Following page, the followed channels column and the chat.
 
 ### Fixed
 

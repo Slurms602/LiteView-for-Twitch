@@ -39,8 +39,13 @@ does the same on your own PC without touching that folder.
 The race tests (log out during a refresh, stale validation) and the RECONNECT/backoff tests were checked to fail
 when the fix they guard is removed.
 
-**Not automated yet** (P1): fake Streamlink/mpv processes (process start, job object and pipe code are Win32 and
-need a Windows runner), UI tests, the chat stress test, long-run leak tests.
+CI also starts the packaged app on the Windows runner in several scenes with made-up data (see *UI fixture mode*),
+including the whole watch path with `tests/FakeStreamlink` standing in for Streamlink (the real mpv plays a generated
+video; offline and failing streams too), and reads the Following page, followed column and chat through UI
+Automation and MSAA (`tools/a11y-dump.ps1`): what Narrator and NVDA would read.
+
+**Not automated yet**: real Twitch playback, the chat stress test over long runs, long-run leak tests, display
+scaling.
 
 ## Manual pass on Windows (required for the P0 milestone)
 
@@ -94,6 +99,8 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 38 | Performance > Gaming mode > Automatic; start a fullscreen game with a stream on the other monitor | After about 10 s the status says Gaming mode and the picture is lighter; 15 s after leaving the game it is back |
 | 39 | Performance > CPU use > Windows decides (restart) | `liteview.log` "window ready; CPU Windows decides"; Task Manager: LiteView, Streamlink and mpv at Normal priority |
 | 40 | Start GameFirst.exe, then `GameFirst.exe --stop` | `gamefirst.log`: "guard stopped (--stop): settings of N process(es) put back" |
+| 41 | Quality box after a stream starts | Lists that stream's qualities (e.g. 1080p60, 720p60, 480p, 360p, 160p, Audio only) |
+| 42 | Narrator (Win+Ctrl+Enter) on the Following page; arrow keys | Each channel is read: name, live, viewers, game, title |
 
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
 
@@ -102,7 +109,8 @@ Report results (pass/fail, with `liteview.log` and the diagnostics file for fail
 `LITEVIEW_UI_FIXTURE=1` makes LiteView answer its own Twitch requests with made-up channels and generated pictures
 (`src/app/Fixture.cs`): no network for the Twitch API, no real login (the token file is not read or written), no
 Streamlink, anonymous chat, and the title says *UI fixture*. `LITEVIEW_UI_FIXTURE_SCENE` picks the screen: `live`,
-`followed`, `recent`, `history`, `search:<text>`, `problem`, `chat`. CI runs every scene with `tools/smoke.ps1` and
+`followed`, `recent`, `history`, `search:<text>`, `problem`, `chat`, and with `LITEVIEW_UI_FIXTURE_STREAMS=1`
+plus `smoke.ps1 -FakeStreamlink` also `watch`, `offline`, `fail`. CI runs every scene with `tools/smoke.ps1` and
 uploads the screenshots (`smoke-<commit>` artifact), so UI changes can be looked at without a Windows PC:
 
 ```powershell

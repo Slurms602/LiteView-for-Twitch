@@ -138,7 +138,7 @@ size-limited image download had no deadline for the body, so a stalled server co
 | UI-1 | Medium | Not DPI aware: fixed pixel sizes everywhere (`BarH = 40`, `ChatW = 340`, row heights, fonts in points but bounds in pixels). At 125-200 % Windows stretches the window (blurry). The README itself says "best at 100 %". Declaring DPI awareness without scaling the layout would make it tiny, so it is **not** declared yet. | Open (P2) |
 | UI-2 | Low | Fullscreen uses the screen the window is on at that moment; moving monitors or changing resolution while fullscreen is not handled. | Fixed (P2 branch), not yet checked on Windows |
 | UI-3 | Low | Chat width is fixed (340 px) except when maximized. | Fixed (P2 branch), not yet checked on Windows |
-| UI-4 | Medium | The custom-drawn controls (followed channels, chat, emote picker) expose nothing to screen readers and have little keyboard navigation. | Open (P5) |
+| UI-4 | Medium | The custom-drawn controls (followed channels, chat, emote picker) expose nothing to screen readers and have little keyboard navigation. | Fixed for the Following page, followed column and chat (UI Automation + MSAA, checked on CI); the emote picker is still drawn only |
 | UI-5 | Low | The status line is the only error surface; long Streamlink errors are cut off by the bar. | Fixed (P2 branch), not yet checked on Windows |
 
 ### 2.6 Duplication and dependencies

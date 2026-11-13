@@ -575,7 +575,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                                 {
                                     if (!double.TryParse(d.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out num)) continue;
                                     int v = (int)Math.Round(Math.Max(0, Math.Min(1000, num)));
-                                    Ui(g, () => { volume = v; UpdateMute(); });
+                                    Ui(g, () => { if (mpvResync) return; volume = v; UpdateMute(); });   // stale echo while commands were dropped
                                 }
                                 else if (line.Contains("\"name\":\"height\""))
                                 {
@@ -586,7 +586,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                                 else if (line.Contains("\"name\":\"mute\""))
                                 {
                                     bool m = d.Groups[1].Value == "true";
-                                    Ui(g, () => { muted = m; UpdateMute(); });
+                                    Ui(g, () => { if (mpvResync) return; muted = m; UpdateMute(); });
                                 }
                             }
                         }

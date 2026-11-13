@@ -455,6 +455,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     {
         if (!watching) { tick.Stop(); return; }
         ResyncMpv();
+        CheckVariants();   // fork: the quality box lists this stream's real variants
         if ((DateTime.Now - lastResize).TotalMilliseconds > 600) ApplyEnhance(false);
         if (slPid == 0 || slProc == null) return;
         bool alive = false;

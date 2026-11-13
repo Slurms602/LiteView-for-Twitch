@@ -296,6 +296,33 @@ partial class LiteView
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
+    // The quality box shows what this stream really offers (P3), read from Streamlink's "Available streams:" log line
+    // once per stream: no extra request to Twitch. The chosen quality stays selected even if this stream lacks it
+    // (Streamlink then plays the best one).
+    int variantsGen = -1, variantTicks;
+
+    void CheckVariants()
+    {
+        if (variantsGen == gen || slProc == null || ++variantTicks % 2 != 0) return;
+        if ((DateTime.Now - slStart).TotalSeconds > 60) { variantsGen = gen; return; }   // never printed: keep the list
+        try
+        {
+            if (!File.Exists(slLog)) return;
+            var found = Quality.Available(ReadShared(slLog));
+            if (found.Count == 0) return;
+            variantsGen = gen;
+            var choices = Quality.ChoicesFor(found);
+            string cur = (string)quality.SelectedItem ?? "Best";
+            if (!choices.Contains(cur)) choices.Add(cur);
+            if (choices.SequenceEqual(quality.Items.Cast<string>())) return;
+            quality.BeginUpdate();
+            quality.Items.Clear(); quality.Items.AddRange(choices.ToArray()); quality.SelectedItem = cur;
+            quality.EndUpdate();
+            Log.Info("stream " + gen + ": variants " + string.Join(" ", found));
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
     static IEnumerable<string> ReadShared(string path)
     {
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))

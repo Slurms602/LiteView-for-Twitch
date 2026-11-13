@@ -712,7 +712,7 @@ class BrowsePage : Control
         }
         int i = Message() == null ? ItemAt(e.Location) : -1;
         if (i < 0) return;
-        sel = i; Invalidate();
+        sel = i; Invalidate(); Announce();
         if (e.Button == MouseButtons.Left) Open(items[i].Login);
         else if (e.Button == MouseButtons.Right) ShowItemMenu(i, e.Location);
     }
@@ -759,6 +759,7 @@ class BrowsePage : Control
         if (r.Top < HeadH) scroll -= HeadH - r.Top + S(8);
         else if (r.Bottom > ClientSize.Height) scroll += r.Bottom - ClientSize.Height + S(8);
         ClampScroll(); Invalidate();
+        Announce();
     }
 
     void Open(string login)
@@ -836,6 +837,34 @@ class BrowsePage : Control
             menu.Items.Add(forget);
         }
         menu.Show(this, at);
+    }
+
+    // ---------- screen readers (UI-4) ----------
+
+    protected override AccessibleObject CreateAccessibilityInstance()
+    {
+        return new ListAccessible(this, () => { string m = Message(); return (query != null ? "Search results" : history ? "Recent searches" : "Following, " + TabName(tab)) + (m != null ? ". " + m : ""); },
+            () => Message() == null ? items.Count : 0, i => Describe(items[i]), ItemRect, () => sel, i => Open(items[i].Login));
+    }
+
+    static string TabName(Tab t) { return t == Tab.Live ? "live channels" : t == Tab.Followed ? "all followed channels" : "recently watched"; }
+
+    string Describe(Item it)
+    {
+        string s = it.Name + (Favourites.Contains(it.Login) ? ", favourite" : "");
+        if (!it.Live) return s + ", offline" + (it.Note.Length > 0 ? ", " + it.Note : "");
+        string up = Fmt.Uptime(it.Started, DateTimeOffset.UtcNow);
+        return s + ", live" + (it.Viewers > 0 ? ", " + Fmt.Viewers(it.Viewers) + " viewers" : "") + (up.Length > 0 ? ", for " + up : "")
+            + (it.Game.Length > 0 ? ", " + it.Game : "") + (it.Title.Length > 0 ? ". " + it.Title : "");
+    }
+
+    int lastAnnounced = -1;
+    void Announce()   // the selection moved: screen readers follow it
+    {
+        if (sel == lastAnnounced || sel < 0 || !IsHandleCreated) return;
+        lastAnnounced = sel;
+        AccessibilityNotifyClients(AccessibleEvents.Focus, sel);
+        AccessibilityNotifyClients(AccessibleEvents.Selection, sel);
     }
 
     protected override void Dispose(bool disposing)

@@ -230,6 +230,14 @@ class ChatView : Control
 
     public void SetAnimInterval(int ms) { animTick.Interval = Math.Max(16, ms); }   // fork: Gaming Mode slows animated emotes
 
+    // fork: screen readers read the messages as text, emotes by name (UI-4, src/app/ListAccessible.cs)
+    protected override AccessibleObject CreateAccessibilityInstance()
+    {
+        return new ListAccessible(this, () => "Chat messages", () => Msgs.Count,
+            i => (Msgs[i].Reply != null ? Msgs[i].Reply + ". " : "") + string.Join(" ", Msgs[i].P.Where(p => p.Kind != 2).Select(p => p.Kind == 1 ? (p.E.Name ?? "emote") : p.Text)) + (Msgs[i].Deleted ? " (deleted)" : ""),
+            i => Rectangle.Empty, () => -1, null);
+    }
+
     // fork (chat text size, src/app/LiteView.Chat.cs): new fonts, then every message is laid out again
     public void SetTextSize(float pt)
     {

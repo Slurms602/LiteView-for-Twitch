@@ -8,6 +8,7 @@ param(
     [string]$Out = 'smoke',
     [int]$Seconds = 30,
     [string[]]$AppArgs = @(),
+    [switch]$A11y,          # also save what screen readers see (tools/a11y-dump.ps1) as a11y.txt
     [hashtable]$Env = @{}   # e.g. @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'followed' } (made-up data, docs/TESTING.md)
 )
 $ErrorActionPreference = 'Stop'
@@ -84,7 +85,16 @@ if ($p.HasExited) {
     Note ("FAIL: LiteView exited after {0:N1} s with exit code 0x{1:X8}" -f ($p.ExitTime - $t0).TotalSeconds, $p.ExitCode)
 } else {
     if ($null -eq $firstWindow) { $ok = $false; Note "FAIL: still running after $Seconds s without its main window (top window: '$($p.MainWindowTitle)')" }
-    else { Note ("window after {0:N1} s: '{1}'" -f $firstWindow, $p.MainWindowTitle); WindowShot $p.MainWindowHandle 'window.png' }
+    else
+    {
+        Note ("window after {0:N1} s: '{1}'" -f $firstWindow, $p.MainWindowTitle); WindowShot $p.MainWindowHandle 'window.png'
+        if ($A11y)
+        {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'a11y-dump.ps1') -ProcessId $p.Id -Out (Join-Path $Out 'a11y.txt') | Out-Null
+            if (-not (Select-String -Path (Join-Path $Out 'a11y.txt') -Pattern '^  - ' -Quiet)) { $ok = $false; Note "FAIL: screen readers see no list items (a11y.txt)" }
+            else { Note "screen reader view saved (a11y.txt)" }
+        }
+    }
     foreach ($c in Tree $p.Id) { Note ("  process {0} ({1}): {2:N0} MB" -f $c.Name, $c.ProcessId, ($c.WorkingSetSize / 1MB)) }
     # close it the normal way (runs the save-settings and stop-stream code), then make sure nothing is left
     [void]$p.CloseMainWindow()

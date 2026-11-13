@@ -208,4 +208,12 @@ class FollowBar : Control
         top = Math.Max(0, Math.Min(Math.Max(0, live.Count * RowH - (Height - HeadH)), top - e.Delta / 120 * RowH));
         Invalidate();
     }
+
+    // fork: screen readers (UI-4, src/app/ListAccessible.cs)
+    protected override AccessibleObject CreateAccessibilityInstance()
+    {
+        return new ListAccessible(this, () => "Followed channels" + (live.Count == 0 && message != null ? ". " + message : ""), () => live.Count,
+            i => live[i].Name + ", " + Count(live[i].Viewers) + " viewers, " + live[i].Game + ". " + live[i].Title,
+            i => new Rectangle(0, HeadH + i * RowH - top, Width, RowH), () => live.FindIndex(x => x.Login == Current), i => { if (Pick != null) Pick(live[i].Login); });
+    }
 }

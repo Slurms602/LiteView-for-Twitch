@@ -8,6 +8,7 @@ using System.Drawing.Imaging;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using LiteViewCore;
 
 class FollowBar : Control
 {
@@ -33,7 +34,7 @@ class FollowBar : Control
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         BackColor = Bg; Width = OpenW;
-        refresh.Tick += (s, e) => Reload();
+        refresh.Tick += (s, e) => { var f = FindForm(); if (f == null || f.WindowState != FormWindowState.Minimized) Reload(); };   // no polling while minimized
     }
 
     public bool Collapsed { get { return collapsed; } set { collapsed = value; Width = value ? ClosedW : OpenW; Invalidate(); } }
@@ -74,7 +75,7 @@ class FollowBar : Control
 
     async Task LoadAvatars()
     {
-        var need = live.Where(x => x.Id != null && !avatars.ContainsKey(x.Id)).Select(x => x.Id).ToList();
+        var need = live.Where(x => ChannelName.IsNumericId(x.Id) && !avatars.ContainsKey(x.Id)).Select(x => x.Id).ToList();
         for (int i = 0; i < need.Count; i += 100)
         {
             var j = await Tw.Helix("users?id=" + string.Join("&id=", need.Skip(i).Take(100)));
@@ -83,7 +84,10 @@ class FollowBar : Control
             {
                 try
                 {
-                    var bytes = await Tw.Http.GetByteArrayAsync(kv.Value.Replace("300x300", "70x70"));
+                    string url = kv.Value.Replace("300x300", "70x70");
+                    if (!SafeUrl.IsAllowedImage(url)) return;
+                    var bytes = await Tw.GetBytes(url, 1024 * 1024);
+                    if (bytes == null || !ImageSniff.Acceptable(bytes)) return;   // PNG/GIF/JPEG of a sane size only
                     var bmp = await Task.Run(() => Round(bytes));
                     if (IsDisposed) return;
                     Bitmap old; if (avatars.TryGetValue(kv.Key, out old)) old.Dispose();

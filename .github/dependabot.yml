@@ -1,0 +1,11 @@
+# Weekly pull requests for outdated NuGet packages and GitHub Actions (pins stay exact; review before merging).
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5

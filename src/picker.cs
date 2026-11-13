@@ -101,6 +101,7 @@ class EmotePicker : Control
             if (i == hover) using (var b = new SolidBrush(HoverC)) g.FillRectangle(b, r.X + 1, r.Y + 1, r.Width - 2, r.Height - 2);
             Images.Need(c.E);
             if (c.E.State != 2) continue;
+            Images.Used(c.E);
             var f = c.E.Frames[0];
             float k = Math.Min(1f, Math.Min((Cw - 6f) / f.Width, (Ch - 6f) / f.Height));
             int w = (int)(f.Width * k), h = (int)(f.Height * k);

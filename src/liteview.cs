@@ -18,8 +18,9 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using LiteViewCore;
 
-class LiteView : Form
+partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
 {
     public struct RECT { public int L, T, R, B; }
     [DllImport("kernel32.dll")] static extern IntPtr CreateJobObject(IntPtr a, string name);
@@ -37,9 +38,10 @@ class LiteView : Form
         Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Accent = Color.FromArgb(145, 71, 255), Live = Color.FromArgb(235, 4, 0);
     const int BarH = 40, ChatW = 340;
     const string Home = "https://www.twitch.tv/directory/following/live";
-    static readonly string[] Qualities = { "Best", "1080p60", "720p60", "480p" };
+    static readonly string[] Qualities = Quality.Choices;
 
-    readonly string root, tw, iniPath, streamlink, mpv, slLog, pipeName = "liteview-mpv-" + Process.GetCurrentProcess().Id;
+    readonly string root, tw, iniPath, streamlink, mpv, slLog;
+    volatile string pipeName = "";   // a new random name per stream (see Watch)
     readonly ulong mask = Native.NonCacheDieMask();
 
     readonly Panel bar = new Panel(), body = new Panel(), video = new Panel(), chatBox = new Panel();
@@ -76,7 +78,7 @@ class LiteView : Form
         iniPath = Path.Combine(root, exe.ToLowerInvariant() + ".ini");
         Tw.Init(Path.Combine(root, "liteview.token"));
         ChatPanel.RecentPath = Path.Combine(root, "liteview.emotes");
-        streamlink = Directory.GetFiles(Path.Combine(tw, "streamlink"), "streamlinkw.exe", SearchOption.AllDirectories).FirstOrDefault();
+        try { streamlink = Directory.GetFiles(Path.Combine(tw, "streamlink"), "streamlinkw.exe", SearchOption.AllDirectories).FirstOrDefault(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         mpv = Path.Combine(tw, "mpv", "mpv.exe");
         slLog = Path.Combine(root, exe.ToLowerInvariant() == "liteview" ? "streamlink.log" : exe + "-streamlink.log");
 
@@ -94,7 +96,7 @@ class LiteView : Form
         SetCue(search, "Go to channel...");
         status.AutoSize = true; status.ForeColor = Dim; status.Location = new Point(250, 12);
         quality.DropDownStyle = ComboBoxStyle.DropDownList; quality.FlatStyle = FlatStyle.Flat; quality.BackColor = Hover; quality.ForeColor = Fg;
-        quality.Items.AddRange(Qualities); quality.Width = 86; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
+        quality.Items.AddRange(Qualities); quality.Width = 96; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
         quality.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
             TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused) Watch(channel); };
@@ -130,15 +132,17 @@ class LiteView : Form
         webItem.Click += (s, e) => SetWebChat(!webChat);
         logItem.Click += (s, e) => { if (Tw.Token == null) Login(); else { Tw.LogOut(); OnLogin(); } };
         nchat.Menu.Items.AddRange(new ToolStripItem[] { webItem, logItem });
+        AddForkMenuItems(nchat.Menu);
         nchat.Menu.Opening += (s, e) => { webItem.Checked = webChat; logItem.Text = Tw.Token == null ? "Log in with Twitch" : "Log out (" + (Tw.Login ?? "Twitch") + ")"; };
         body.Controls.AddRange(new Control[] { side, video, chatBox });
         body.Resize += (s, e) => Relayout();
         Controls.Add(body); Controls.Add(bar);
 
         tick.Interval = 500; tick.Tick += (s, e) => OnTick();
+        InitFork();
         hourly.Tick += (s, e) => CheckLogin(); hourly.Start();   // Twitch asks apps to re-check tokens hourly
         KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape && fullscreen) ToggleFullscreen(); else if (e.KeyCode == Keys.F11 && watching) ToggleFullscreen(); };
-        FormClosing += (s, e) => { SaveSettings(); StopStream(); nchat.Part(); };
+        FormClosing += (s, e) => { SaveSettings(); CancelRetry(); StopStream(); nchat.Part(); Log.Info("closing"); };
         Resize += (s, e) => OnMinimizeChange();
 
         LoadSettings();
@@ -233,7 +237,8 @@ class LiteView : Form
     {
         if (env == null)
         {
-            var opts = new CoreWebView2EnvironmentOptions(); opts.AreBrowserExtensionsEnabled = true;
+            // no browser extensions: the fork never copies or downloads them (docs/BASELINE_AUDIT.md SEC-1)
+            var opts = new CoreWebView2EnvironmentOptions(); opts.AreBrowserExtensionsEnabled = false;
             // darker, crisper web text (Edge's low-contrast text tuning off); every WebView2 on this profile uses the same options
             opts.AdditionalBrowserArguments = "--disable-features=LowTextContrast --text-contrast=200";
             env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(root, "webview"), opts);
@@ -259,98 +264,26 @@ class LiteView : Form
             await w.EnsureCoreWebView2Async(await Env());
             if (web != w) return;
             var core = w.CoreWebView2;
-            core.IsMuted = true;
-            core.Settings.IsStatusBarEnabled = false;
-            core.NewWindowRequested += (s, e) => { e.Handled = true; core.Navigate(e.Uri); };
-            core.WebMessageReceived += (s, e) => { string n = e.TryGetWebMessageAsString(); if (!string.IsNullOrEmpty(n)) BeginInvoke((Action)(() => Watch(n))); };
+            Harden(core, true);
+            core.NewWindowRequested += (s, e) => { e.Handled = true; if (SafeUrl.ForWebView(e.Uri) == SafeUrl.Nav.Allow) core.Navigate(e.Uri); else if (e.IsUserInitiated) Launcher.Open(e.Uri); };
+            core.WebMessageReceived += (s, e) => { string n = WebMessage.Watch(TryMessage(e), e.Source, webSecret); if (n != null) BeginInvoke((Action)(() => Watch(n))); };
             // A plain click on a channel (card, sidebar, search result) watches it here instead of opening the heavy page.
             await core.AddScriptToExecuteOnDocumentCreatedAsync(@"(function(){
-var R={directory:1,videos:1,settings:1,subscriptions:1,inventory:1,wallet:1,drops:1,search:1,downloads:1,jobs:1,p:1,store:1,turbo:1,prime:1,friends:1,messages:1,popout:1,moderator:1,u:1,login:1,signup:1,logout:1,team:1,bits:1,embed:1,following:1};
+var K='" + WebMessage.WatchPrefix + webSecret + @":',W=window.chrome&&window.chrome.webview,P=W&&W.postMessage.bind(W);if(!P)return;
+var R={directory:1,videos:1,settings:1,subscriptions:1,inventory:1,wallet:1,drops:1,search:1,downloads:1,jobs:1,p:1,store:1,turbo:1,prime:1,friends:1,messages:1,popout:1,moderator:1,u:1,login:1,signup:1,logout:1,team:1,bits:1,embed:1,following:1,activate:1};
 function ch(a){try{var u=new URL(a.getAttribute('href'),location.href);if(!/(^|\.)twitch\.tv$/.test(u.hostname))return null;
 var p=u.pathname.split('/').filter(function(x){return x;});if(p.length!==1)return null;var n=p[0].toLowerCase();
 if(R[n]||!/^[a-z0-9_]{2,25}$/.test(n))return null;return n;}catch(e){return null;}}
 document.addEventListener('click',function(e){if(e.button!==0||e.ctrlKey||e.shiftKey||e.metaKey||e.altKey)return;
 var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;var n=ch(a);if(!n)return;
-e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessage(n);},true);})();");
-            await SyncExtensions(core.Profile);
+e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             if (web != w) return;
             webReady = true;
             core.Navigate(Home);
         }
-        catch (Exception ex) { if (web == w) status.Text = "Following page unavailable: " + ex.Message; }
+        catch (Exception ex) { Log.Error("Following page", ex); if (web == w) status.Text = "Following page unavailable: " + ex.Message; }
     }
 
-    // 7TV alone also shows BetterTTV and FFZ emotes; a second emote extension doubles the chat work.
-    static readonly string[][] Exts = { new[] { "ammjkodgmmoknidbanneddgankgfejfh", "7TV" } };
-
-    // Copy the user's 7TV / BetterTTV from Chrome (extension files only) and load them for the
-    // Following page and the chat. A newer version in Chrome is picked up on the next start.
-    async System.Threading.Tasks.Task SyncExtensions(CoreWebView2Profile prof)
-    {
-        string chromeExt = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Google\Chrome\User Data\Default\Extensions");
-        var installed = await prof.GetBrowserExtensionsAsync();
-        foreach (var e in Exts)
-        {
-            try
-            {
-                string src = Path.Combine(chromeExt, e[0]);
-                if (!Directory.Exists(src))
-                {
-                    string store = Path.Combine(root, "extensions", e[1] + "-store");
-                    if (!Directory.Exists(store)) await System.Threading.Tasks.Task.Run(() => FromWebStore(e[0], store));
-                    if (Directory.Exists(store) && !installed.Any(x => x.Name.IndexOf(e[1], StringComparison.OrdinalIgnoreCase) >= 0))
-                        await prof.AddBrowserExtensionAsync(store);
-                    continue;
-                }
-                string ver = Directory.GetDirectories(src).OrderBy(d => { Version v; return Version.TryParse(Regex.Replace(Path.GetFileName(d), "_.*$", ""), out v) ? v : new Version(0, 0); }).Last();
-                string dst = Path.Combine(root, "extensions", e[1] + "-" + Path.GetFileName(ver));
-                bool fresh = !Directory.Exists(dst);
-                if (fresh)
-                {
-                    CopyDir(ver, dst);
-                    string md = Path.Combine(dst, "_metadata"); if (Directory.Exists(md)) Directory.Delete(md, true);
-                }
-                var have = installed.Where(x => x.Name.IndexOf(e[1], StringComparison.OrdinalIgnoreCase) >= 0).ToList();
-                if (fresh || have.Count == 0)
-                {
-                    foreach (var h in have) await h.RemoveAsync();
-                    await prof.AddBrowserExtensionAsync(dst);
-                    foreach (var old in Directory.GetDirectories(Path.Combine(root, "extensions"), e[1] + "-*"))
-                        if (!old.Equals(dst, StringComparison.OrdinalIgnoreCase)) try { Directory.Delete(old, true); } catch { }
-                }
-            }
-            catch (Exception ex) { status.Text = e[1] + ": " + ex.Message; }
-        }
-        foreach (var x in installed)   // drop extensions no longer on the list
-            if (!Exts.Any(e => x.Name.IndexOf(e[1], StringComparison.OrdinalIgnoreCase) >= 0)) try { await x.RemoveAsync(); } catch { }
-    }
-
-    // Download an extension package from the Chrome Web Store and unpack it (CRX3 = header + zip).
-    static void FromWebStore(string id, string dst)
-    {
-        string tmp = dst + ".crx";
-        try
-        {
-            System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
-            using (var wc = new System.Net.WebClient())
-                wc.DownloadFile("https://clients2.google.com/service/update2/crx?response=redirect&prodversion=157.0&acceptformat=crx2,crx3&x=id%3D" + id + "%26uc", tmp);
-            byte[] b = File.ReadAllBytes(tmp);
-            if (b.Length < 16 || b[0] != (byte)'C' || b[1] != (byte)'r' || b[2] != (byte)'2' || b[3] != (byte)'4') return;
-            int ver = BitConverter.ToInt32(b, 4), start = ver == 3 ? 12 + BitConverter.ToInt32(b, 8) : 16 + BitConverter.ToInt32(b, 8) + BitConverter.ToInt32(b, 12);
-            File.WriteAllBytes(tmp, b.Skip(start).ToArray());
-            System.IO.Compression.ZipFile.ExtractToDirectory(tmp, dst);
-            string md = Path.Combine(dst, "_metadata"); if (Directory.Exists(md)) Directory.Delete(md, true);
-        }
-        catch { try { if (Directory.Exists(dst)) Directory.Delete(dst, true); } catch { } }
-        finally { try { File.Delete(tmp); } catch { } }
-    }
-
-    static void CopyDir(string s, string d)
-    {
-        Directory.CreateDirectory(d);
-        foreach (var file in Directory.GetFiles(s)) File.Copy(file, Path.Combine(d, Path.GetFileName(file)), true);
-        foreach (var sub in Directory.GetDirectories(s)) CopyDir(sub, Path.Combine(d, Path.GetFileName(sub)));
-    }
     void Browse()
     {
         StopStream(); StopChat();
@@ -365,10 +298,17 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         status.Text = "";
     }
 
-    void Watch(string raw)
+    void Watch(string raw) { Watch(raw, false); }
+
+    void Watch(string raw, bool isRetry)
     {
-        string name = Regex.Replace(Regex.Replace((raw ?? "").Trim().ToLowerInvariant(), @"^.*twitch\.tv/", ""), "[^a-z0-9_]", "");
-        if (name.Length == 0) return;
+        string name = ChannelName.Normalize(raw);
+        if (name == null)
+        {
+            if (!string.IsNullOrWhiteSpace(raw)) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "That is not a Twitch channel name."; }
+            return;
+        }
+        if (!isRetry) CancelRetry();
         bool wasWatching = watching;
         channel = name; title.Text = name; search.Text = "";
         SetMode(true);
@@ -378,26 +318,9 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         else if (webReady) { hiddenAt = DateTime.Now; web.CoreWebView2.Navigate("about:blank"); }   // nothing runs behind the video
 
         StopStream();
-        string q = (string)quality.SelectedItem;
-        string qs = q == "Best" ? "best" : q == "1080p60" ? "1080p60,1080p,best" : q == "720p60" ? "720p60,720p,best" : "480p,best";
-        string args = string.Format("--player \"{0}\" --player-args \"--wid={1} --input-ipc-server={5}\" --twitch-low-latency --twitch-supported-codecs h264,h265,av1 --loglevel info --logfile \"{2}\" twitch.tv/{3} {4}",
-            mpv, video.Handle.ToInt64(), slLog, name, qs, pipeName);
-        try { File.Delete(slLog); } catch { }
-        job = CreateJobObject(IntPtr.Zero, null);
-        var lim = new JOBLIMITS { flags = 0x2000 };   // closing LiteView also ends its stream
-        SetInformationJobObject(job, 9, ref lim, Marshal.SizeOf(typeof(JOBLIMITS)));
-        var si = new Native.STARTUPINFO(); si.cb = Marshal.SizeOf(si);
-        Native.PROCESS_INFORMATION pi;
-        var cmd = new StringBuilder("\"" + streamlink + "\" " + args);
-        if (CreateProcessW(streamlink, cmd, IntPtr.Zero, IntPtr.Zero, false, Native.CREATE_SUSPENDED | Native.BELOW_NORMAL, IntPtr.Zero, root, ref si, out pi))
-        {
-            if (mask != 0) Native.SetProcessAffinityMask(pi.hProcess, new UIntPtr(mask));
-            AssignProcessToJobObject(job, pi.hProcess);
-            Native.ResumeThread(pi.hThread); Native.CloseHandle(pi.hThread); Native.CloseHandle(pi.hProcess);
-            slPid = pi.pid; slStart = DateTime.Now;
-            status.ForeColor = Dim; status.Text = "opening...";
-        }
-        else status.Text = "Could not start Streamlink.";
+        string missing = MissingPlayerFiles();
+        if (missing != null) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = missing; Log.Error(missing); }
+        else StartStreamProcess(name, (string)quality.SelectedItem);
 
         if (chatOn.Checked) StartChat();
         tick.Start();
@@ -412,24 +335,31 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         if (channel == null) return;
         nchat.Visible = !webChat; chatWeb.Visible = webChat;
         if (!webChat) { nchat.Join(channel); return; }
-        await Env();
-        chatUrl = "https://www.twitch.tv/popout/" + channel + "/chat?popout=&darkpopout";
-        if (!chatReady)
+        var cw = chatWeb;   // SetWebChat replaces the control: work on this one only, and check after every await
+        try
         {
-            if (chatStarting) return;
-            chatStarting = true;
-            try
+            if (!chatReady)
             {
-                await chatWeb.EnsureCoreWebView2Async(await Env());
-                chatWeb.CoreWebView2.IsMuted = true;
-                chatWeb.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                chatWeb.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; Process.Start(e.Uri); };
-                chatReady = true;
+                if (chatStarting) return;
+                chatStarting = true;
+                try
+                {
+                    var en = await Env();
+                    if (cw != chatWeb || cw.IsDisposed || !webChat || !watching) return;   // native chat chosen / left meanwhile
+                    await cw.EnsureCoreWebView2Async(en);
+                    if (cw != chatWeb || cw.IsDisposed) return;
+                    Harden(cw.CoreWebView2, false);
+                    cw.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; if (e.IsUserInitiated) Launcher.Open(e.Uri); };   // upstream: Process.Start(any URI)
+                    chatReady = true;
+                }
+                finally { chatStarting = false; }
             }
-            catch { chatStarting = false; return; }
-            chatStarting = false;
+            // still wanted? (chat hidden, back to Following, or native chat chosen while it started)
+            if (cw != chatWeb || !watching || !webChat || !chatOn.Checked || channel == null) return;
+            chatUrl = "https://www.twitch.tv/popout/" + channel + "/chat?popout=&darkpopout";
+            if (cw.Source == null || cw.Source.AbsoluteUri != chatUrl) cw.CoreWebView2.Navigate(chatUrl);
         }
-        if (chatWeb.Source == null || chatWeb.Source.AbsoluteUri != chatUrl) chatWeb.CoreWebView2.Navigate(chatUrl);
+        catch (Exception ex) { Log.Error("web chat", ex); }
     }
 
     void StopChat()
@@ -469,69 +399,62 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
         status.ForeColor = Dim; status.Text = Tw.Login != null ? "Logged in as " + Tw.Login : "";
     }
 
-    // Twitch login (Device Code Grant Flow): Twitch's own "activate" page in a small window - you are
-    // already logged in there, so it is one click on "Activate" and one on "Authorize".
+    // Twitch login (Device Code Grant Flow): Twitch's own "activate" page opens in the system browser,
+    // LiteView shows the code to check and waits for "Activate" + "Authorize" (src/app/LoginDialog.cs).
     async void Login()
     {
         if (loggingIn) return;
         loggingIn = true;
-        Form f = null;
+        LoginDialog f = null;
         try
         {
             var d = await Tw.StartDevice();
             if (d == null) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Could not reach Twitch."; return; }
-            string code = Tw.S(d, "device_code"), uri = Tw.S(d, "verification_uri");
+            string code = Tw.S(d, "device_code"), user = Tw.S(d, "user_code");
+            Uri page = SafeUrl.ActivationPage(Tw.S(d, "verification_uri"));
             int every = Math.Max(1, (int)Tw.N(d, "interval")); long life = Tw.N(d, "expires_in");
-            f = new Form { Text = "Log in with Twitch", ClientSize = new Size(520, 760), BackColor = Bg, ShowInTaskbar = false, Icon = Icon, StartPosition = FormStartPosition.Manual };
+            f = new LoginDialog(user, page) { Icon = Icon };
             f.Location = new Point(Left + Math.Max(0, (Width - f.Width) / 2), Top + Math.Max(0, (Height - f.Height) / 2));
-            f.HandleCreated += (s, e) => { int on = 1; DwmSetWindowAttribute(f.Handle, 20, ref on, 4); };
-            var wv = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Bg };
-            f.Controls.Add(wv); f.Show(this);
-            await wv.EnsureCoreWebView2Async(await Env());
-            wv.CoreWebView2.IsMuted = true;
-            wv.CoreWebView2.Navigate(uri);
+            f.Show(this);
+            Launcher.Open(page);
+            Log.Info("login: device code requested, browser opened");
             var end = DateTime.Now.AddSeconds(life > 0 ? life : 1800);
             while (!f.IsDisposed && DateTime.Now < end)
             {
                 await System.Threading.Tasks.Task.Delay(every * 1000);
                 if (f.IsDisposed) break;
                 string r = await Tw.PollDevice(code);
-                if (r == "ok") { f.Close(); OnLogin(); break; }
+                if (r == "ok") { Log.Info("login: signed in"); f.Close(); OnLogin(); break; }
                 if (r == "slow_down") every++;
-                else if (r != "authorization_pending") { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Twitch login: " + r; break; }
+                else if (r != "authorization_pending") { Log.Warn("login: " + r); status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Twitch login: " + r; break; }
             }
         }
-        catch (Exception ex) { status.Text = "Twitch login: " + ex.Message; }
+        catch (Exception ex) { Log.Error("login", ex); status.Text = "Twitch login: " + ex.Message; }
         finally
         {
             loggingIn = false;
             if (f != null && !f.IsDisposed) f.Close();
-            if (web == null && !chatReady) env = null;
         }
     }
     void StopStream()
     {
+        streamOn.Reset();   // the mpv pipe thread goes idle
         if (job != IntPtr.Zero) { TerminateJobObject(job, 0); Native.CloseHandle(job); job = IntPtr.Zero; }
         slPid = 0;
+        if (slProc != null) { slProc.Dispose(); slProc = null; }
     }
 
     void OnTick()
     {
         if (!watching) { tick.Stop(); return; }
+        ResyncMpv();
         if ((DateTime.Now - lastResize).TotalMilliseconds > 600) ApplyEnhance(false);
-        if (slPid == 0) return;
+        if (slPid == 0 || slProc == null) return;
         bool alive = false;
-        try { alive = !Process.GetProcessById(slPid).HasExited; } catch { }
-        if (alive && Process.GetProcessesByName("mpv").Length > 0) { status.Text = ""; return; }
-        if (!alive)
-        {
-            string err = "";
-            try { err = File.ReadAllLines(slLog).LastOrDefault(l => l.Contains("error:")) ?? ""; } catch { }
-            err = Regex.Replace(err, @"^.*error:\s*", "");
-            status.ForeColor = Color.FromArgb(255, 140, 140);
-            status.Text = err.Length > 0 ? err : "offline";
-            slPid = 0;
-        }
+        try { alive = !slProc.HasExited; } catch { }
+        // playing = OUR mpv answered on this stream's pipe (upstream looked for any mpv.exe on the PC)
+        if (alive) { if (mpvGen == gen) { if (!played) { played = true; Log.Info("stream " + gen + ": playing"); } status.Text = ""; } else OpeningStatus(); return; }
+        OnStreamExited();
     }
 
     void ToggleFullscreen()
@@ -606,71 +529,80 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
     }
     void UpdateMute() { muteBtn.Text = muted || volume == 0 ? "\uE74F" : "\uE767"; volBar.Value = Math.Min(100, volume); volBar.Invalidate(); }
 
-    void SendMpv(string json)
-    {
-        lock (pipeLock)
-        {
-            try { if (mpvPipe != null && mpvPipe.IsConnected) { var b = Encoding.UTF8.GetBytes(json + "\n"); mpvPipe.Write(b, 0, b.Length); mpvPipe.Flush(); } }
-            catch { }
-        }
-    }
+    // Queued for the mpv writer thread (src/app/LiteView.Fork.cs): a stalled mpv can no longer block the UI.
+    void SendMpv(string json) { QueueMpv(gen, json); }
 
     // mpv's IPC pipe: set our volume/mute when a stream starts; hear double-click / Esc / F
-    // on the video and volume changes from the mouse wheel.
+    // on the video and volume changes from the mouse wheel. The thread sleeps while nothing plays,
+    // and every callback carries the stream's generation so a dying stream cannot touch the new one.
     void PipeLoop()
     {
         while (true)
         {
+            streamOn.WaitOne();
+            int g = gen; string name = pipeName;
+            if (name.Length == 0) { Thread.Sleep(200); continue; }
             try
             {
-                using (var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
+                using (var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous))
                 {
                     pipe.Connect(1000);
-                    lock (pipeLock) mpvPipe = pipe;
+                    if (g != gen) continue;
+                    lock (pipeLock) { mpvPipe = pipe; mpvPipeGen = g; }
                     SendMpv("{\"command\":[\"set_property\",\"volume\"," + volume + "]}");
                     SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}");
                     SendMpv("{\"command\":[\"observe_property\",1,\"volume\"]}");
                     SendMpv("{\"command\":[\"observe_property\",2,\"mute\"]}");
                     SendMpv("{\"command\":[\"observe_property\",3,\"height\"]}");
-                    BeginInvoke((Action)(() => { appliedPic = appliedVf = null; videoH = 0; }));
+                    Ui(g, () => { appliedPic = appliedVf = null; videoH = 0; mpvGen = g; });
                     using (var rd = new StreamReader(pipe))
                     {
                         string line;
                         while ((line = rd.ReadLine()) != null)
                         {
+                            if (line.Length > 65536) continue;
                             if (line.Contains("client-message"))
                             {
-                                if (line.Contains("fs-toggle")) BeginInvoke((Action)ToggleFullscreen);
-                                else if (line.Contains("fs-exit")) BeginInvoke((Action)(() => { if (fullscreen) ToggleFullscreen(); }));
+                                if (line.Contains("fs-toggle")) Ui(g, ToggleFullscreen);
+                                else if (line.Contains("fs-exit")) Ui(g, () => { if (fullscreen) ToggleFullscreen(); });
                             }
                             else if (line.Contains("property-change"))
                             {
                                 var d = Regex.Match(line, "\"data\":([0-9.]+|true|false)");
                                 if (!d.Success) continue;
+                                double num;
                                 if (line.Contains("\"name\":\"volume\""))
                                 {
-                                    int v = (int)Math.Round(double.Parse(d.Groups[1].Value, CultureInfo.InvariantCulture));
-                                    BeginInvoke((Action)(() => { volume = v; UpdateMute(); }));
+                                    if (!double.TryParse(d.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out num)) continue;
+                                    int v = (int)Math.Round(Math.Max(0, Math.Min(1000, num)));
+                                    Ui(g, () => { if (mpvResync) return; volume = v; UpdateMute(); });   // stale echo while commands were dropped
                                 }
                                 else if (line.Contains("\"name\":\"height\""))
                                 {
-                                    int hh = (int)double.Parse(d.Groups[1].Value, CultureInfo.InvariantCulture);
-                                    BeginInvoke((Action)(() => { videoH = hh; ApplyEnhance(false); }));
+                                    if (!double.TryParse(d.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out num)) continue;
+                                    int hh = (int)Math.Max(0, Math.Min(100000, num));
+                                    Ui(g, () => { videoH = hh; ApplyEnhance(false); });
                                 }
                                 else if (line.Contains("\"name\":\"mute\""))
                                 {
                                     bool m = d.Groups[1].Value == "true";
-                                    BeginInvoke((Action)(() => { muted = m; UpdateMute(); }));
+                                    Ui(g, () => { if (mpvResync) return; muted = m; UpdateMute(); });
                                 }
                             }
                         }
                     }
                 }
             }
-            catch { Thread.Sleep(1000); }
+            catch { Thread.Sleep(500); }   // mpv not up yet (Streamlink is still opening the stream), or it ended
             finally { lock (pipeLock) mpvPipe = null; }
         }
     }
+
+    void Ui(int g, Action a)
+    {
+        try { if (!IsDisposed && IsHandleCreated) BeginInvoke((Action)(() => { if (g == gen) a(); })); } catch (InvalidOperationException) { }
+    }
+
     void OnMinimizeChange()
     {
         if (!webReady || watching) return;
@@ -679,7 +611,10 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
 
     void LoadSettings()
     {
-        var ini = Native.ReadIni(iniPath);
+        settingsLoading = true;   // the controls' change events below must not save a half-loaded state
+        bool fromBackup;
+        var ini = IniStore.Read(iniPath, out fromBackup);
+        if (fromBackup) Log.Warn("settings: " + Path.GetFileName(iniPath) + " was unreadable, used the last good copy");
         int q = Array.IndexOf(Qualities, Native.Get(ini, "quality", "Best")); quality.SelectedIndex = q < 0 ? 0 : q;
         chatOn.Checked = Native.Get(ini, "chat", "1") == "1";
         int.TryParse(Native.Get(ini, "volume", "70"), out volume); volume = Math.Max(0, Math.Min(100, volume));
@@ -702,17 +637,21 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
             Bounds = new Rectangle(wa.Left + (wa.Width - 1296) / 2, wa.Top + (wa.Height - 760) / 2, 1296, 760);
         }
         if (Native.Get(ini, "max", "0") == "1") WindowState = FormWindowState.Maximized;
+        settingsLoading = false;
     }
 
     void SaveSettings()
     {
+        if (settingsLoading) return;
         var b = fullscreen ? normalBounds : WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         try
         {
-            File.WriteAllLines(iniPath, new[] { "# LiteView for Twitch (saved automatically)", "quality=" + quality.SelectedItem, "chat=" + (chatOn.Checked ? "1" : "0"), "volume=" + volume, "muted=" + (muted ? "1" : "0"), "picture=" + ((string)picture.SelectedItem ?? "Picture: Enhance").Replace("Picture: ", ""), "rtx=" + (rtx.Checked ? "1" : "0"), "chatmode=" + (webChat ? "web" : "native"), "sidebar=" + (side.Collapsed ? "closed" : "open"),
-                "x=" + b.X, "y=" + b.Y, "w=" + b.Width, "h=" + b.Height, "max=" + (WindowState == FormWindowState.Maximized ? "1" : "0") });
+            // written atomically, the previous file kept as liteview.ini.bak (upstream: File.WriteAllLines)
+            IniStore.Write(iniPath, "LiteView for Twitch (saved automatically)", new[] { "quality=" + quality.SelectedItem, "chat=" + (chatOn.Checked ? "1" : "0"), "volume=" + volume, "muted=" + (muted ? "1" : "0"), "picture=" + ((string)picture.SelectedItem ?? "Picture: Enhance").Replace("Picture: ", ""), "rtx=" + (rtx.Checked ? "1" : "0"), "chatmode=" + (webChat ? "web" : "native"), "sidebar=" + (side.Collapsed ? "closed" : "open"),
+                "x=" + b.X, "y=" + b.Y, "w=" + b.Width, "h=" + b.Height, "max=" + (WindowState == FormWindowState.Maximized ? "1" : "0") }
+                .Select(l => { int i = l.IndexOf('='); return new KeyValuePair<string, string>(l.Substring(0, i), l.Substring(i + 1)); }));
         }
-        catch { }
+        catch (Exception ex) { Log.Error("saving settings", ex); }
     }
 
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
@@ -730,14 +669,16 @@ e.preventDefault();e.stopImmediatePropagation();window.chrome.webview.postMessag
     [STAThread]
     static void Main(string[] args)
     {
+        Application.EnableVisualStyles();
+        CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         if (args.Length > 0) startChannel = args[0];
+        StartLogging();
         ulong m = Native.NonCacheDieMask();
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this
         {
             if (m != 0) self.ProcessorAffinity = new IntPtr((long)m);
             self.PriorityClass = ProcessPriorityClass.BelowNormal;
         }
-        Application.EnableVisualStyles();
         Application.Run(new LiteView());
     }
 }

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- GameFirst.exe: the optional, separate background helper (src/guard.cs). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- explicit, so restore is the same on every OS (on Windows the SDK adds win-x64 by itself, on Linux not) -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>GameFirst</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../guard.cs;../common.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../core/LiteView.Core.csproj" />
+  </ItemGroup>
+</Project>

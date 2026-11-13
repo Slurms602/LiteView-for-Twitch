@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- LiteView.exe. The upstream sources stay in src/ (same paths as upstream, so upstream
+       changes merge cleanly); this project lists them explicitly. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- explicit, so restore is the same on every OS (on Windows the SDK adds win-x64 by itself, on Linux not) -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>LiteView</AssemblyName>
+    <RootNamespace>LiteView</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../liteview.cs;../common.cs;../helix.cs;../chat.cs;../sidebar.cs;../picker.cs" />
+    <Compile Include="*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Security" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="UpstreamBase" Value="$(UpstreamBase)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../core/LiteView.Core.csproj" />
+  </ItemGroup>
+</Project>

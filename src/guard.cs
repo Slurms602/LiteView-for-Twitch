@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using LiteViewCore;
 
 static class Guard
 {
@@ -28,12 +29,16 @@ static class Guard
 
             var ini = Native.ReadIni(Path.Combine(root, "gamefirst.ini"));
             string aff = Native.Get(ini, "affinity", "auto").ToLowerInvariant();
-            ulong mask = aff == "auto" ? Native.NonCacheDieMask() : aff == "all" ? 0 : Convert.ToUInt64(aff.Replace("0x", ""), 16);
+            ulong mask = 0;
+            if (aff == "auto") mask = Native.NonCacheDieMask();
+            else if (aff != "all" && !ulong.TryParse(aff.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out mask))
+            { Log("affinity=" + aff + " is not auto, all or a hex mask: no pinning"); mask = 0; }   // upstream crashed here
             bool below = Native.Get(ini, "priority", "belownormal").ToLowerInvariant() != "normal";
             bool gpuLow = Native.Get(ini, "gpupriority", "belownormal").ToLowerInvariant() != "normal";
-            int every = Math.Max(1, int.Parse(Native.Get(ini, "interval", "4"))) * 1000;
+            int every = IniStore.GetInt(ini, "interval", 4, 1, 3600) * 1000;   // upstream: int.Parse, crashed on a typo
             var apps = new List<string>();
-            foreach (var a in Native.Get(ini, "apps", "chrome,mpv,chatterino,streamlink,streamlinkw").Split(','))
+            // Default: only LiteView's own player processes. Chrome, Discord etc. are changed only when listed in gamefirst.ini.
+            foreach (var a in Native.Get(ini, "apps", "mpv,streamlink,streamlinkw").Split(','))
                 if (a.Trim().Length > 0) apps.Add(a.Trim().Replace(".exe", ""));
 
             using (var self = Process.GetCurrentProcess())

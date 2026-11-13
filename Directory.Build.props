@@ -1,0 +1,25 @@
+<Project>
+  <!-- Shared by every project. Versions of NuGet packages live in Directory.Packages.props. -->
+  <PropertyGroup>
+    <Product>LiteView Enhanced</Product>
+    <Company>LiteView Enhanced contributors</Company>
+    <Copyright>Copyright (c) 2026 Deezy; fork changes (c) 2026 LiteView Enhanced contributors. MIT licence.</Copyright>
+    <Version>0.1.0</Version>
+    <!-- the upstream release this fork is based on (shown in diagnostics) -->
+    <UpstreamBase>1.2.0 (46e76df)</UpstreamBase>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- no PDB paths of the build machine in release binaries -->
+    <PathMap Condition="'$(Configuration)' == 'Release'">$(MSBuildThisFileDirectory)=/_/</PathMap>
+  </PropertyGroup>
+</Project>

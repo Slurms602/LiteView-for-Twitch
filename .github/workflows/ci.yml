@@ -1,0 +1,68 @@
+# Build, test and package check on every push and pull request. Nothing is published from here.
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  CI: "true"
+
+jobs:
+  test-linux:
+    # the pure-logic tests (src/core) run on any OS; the WinForms app is compiled against .NET Framework reference assemblies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
+        with:
+          global-json-file: global.json
+      - run: dotnet restore LiteView.sln --locked-mode
+      - run: dotnet build LiteView.sln -c Release --no-restore -warnaserror
+      - run: dotnet test LiteView.sln -c Release --no-build --logger "trx;LogFileName=tests.trx"
+      - name: No credentials or tokens in the source
+        run: |
+          if git grep -nIE '(oauth:[a-z0-9]{20,}|refresh_token=[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' -- . ':!tests/**'; then
+            echo "::error::possible secret in the repository"; exit 1
+          fi
+
+  build-windows:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Vulnerable packages
+        run: dotnet list LiteView.sln package --vulnerable --include-transitive
+      - name: Build, test and package (portable folder, no zip)
+        shell: pwsh
+        run: ./build.ps1 -Version 0.0.0-ci -NoZip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: LiteView-Enhanced-ci-${{ github.sha }}
+          path: dist/LiteView-Enhanced-0.0.0-ci/
+          retention-days: 7
+      - name: Start the app (window appears, closes cleanly)
+        shell: pwsh
+        run: ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke
+      - name: Screenshot and logs of the start
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: smoke-${{ github.sha }}
+          path: smoke/
+          if-no-files-found: ignore
+          retention-days: 7

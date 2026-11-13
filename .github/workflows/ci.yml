@@ -60,7 +60,7 @@ jobs:
         run: |
           $dir = 'dist/LiteView-Enhanced-0.0.0-ci'; $failed = 0
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix') {
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'problem') {
             ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-')) -Seconds 12 -Env @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
             if ($LASTEXITCODE) { $failed++ }
           }

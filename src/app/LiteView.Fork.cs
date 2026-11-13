@@ -67,7 +67,8 @@ partial class LiteView
             retry.Stop();
             if (watching && retryGen == gen && channel != null && slProc == null) Watch(channel, true);
         };
-        status.Click += (s, e) => { if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
+        InitProblems();
+        status.Click += (s, e) => { if (problemTitle != null) ShowProblemDetails(); else if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPower;
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetwork;
         FormClosed += (s, e) =>
@@ -245,10 +246,10 @@ partial class LiteView
                 PipeName = pipeName, WindowHandle = video.Handle.ToInt64(),
             });
         }
-        catch (ArgumentException ex) { status.Text = "Cannot play this channel."; Log.Error("stream command", ex); return; }
+        catch (ArgumentException ex) { ShowProblem("Cannot play this channel", ex.Message, null); Log.Error("stream command", ex); return; }
         try { File.Delete(slLog); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         job = CreateJobObject(IntPtr.Zero, null);
-        if (job == IntPtr.Zero) { status.Text = "Could not start Streamlink."; Log.Error("CreateJobObject failed"); return; }
+        if (job == IntPtr.Zero) { ShowProblem("Could not start Streamlink", "Windows refused to create a job object (error " + Marshal.GetLastWin32Error() + ").", () => Watch(channel)); Log.Error("CreateJobObject failed"); return; }
         var lim = new JOBLIMITS { flags = 0x2000 };   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: closing LiteView also ends its stream
         if (!SetInformationJobObject(job, 9, ref lim, Marshal.SizeOf(typeof(JOBLIMITS)))) Log.Warn("job: kill-on-close could not be set");
         var si = new Native.STARTUPINFO(); si.cb = Marshal.SizeOf(si);
@@ -269,7 +270,7 @@ partial class LiteView
         else
         {
             int err = Marshal.GetLastWin32Error();
-            status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Could not start Streamlink.";
+            ShowProblem("Could not start Streamlink", "Windows error " + err + " starting\n" + streamlink + "\n\nAn antivirus quarantine or a damaged unzip can cause this: unzip LiteView again.", () => Watch(channel));
             Log.Error("stream " + g + ": CreateProcess failed, error " + err);
             canRetry = true;
         }
@@ -313,32 +314,108 @@ partial class LiteView
         Log.Warn("stream " + gen + ": Streamlink exited (code " + code + ", after " + (int)ran.TotalSeconds + " s, " + end + ")" + (err.Length > 0 ? ": " + Redact.ForSharing(err) : ""));
         bool wasPlaying = played;
         StopStream();   // also ends an mpv left behind if Streamlink died
-        status.ForeColor = Color.FromArgb(255, 140, 140);
-        status.Text = StreamOutcome.Describe(end, err);
         if (wasPlaying) playBackoff.Ended(ran);
-        ScheduleRetry(end);
+        ScheduleRetry(end, StreamOutcome.Describe(end, err), err);
     }
 
     // Offline: look again every minute. Errors: retry with growing waits (2 s ... 60 s, with jitter),
     // and after MaxQuickRetries failures in a row stop and let the user click the status to try again.
-    void ScheduleRetry(StreamEnd end)
+    void ScheduleRetry(StreamEnd end, string summary, string err)
     {
         canRetry = channel != null;
-        if (!watching || channel == null || end == StreamEnd.Fatal) { if (canRetry) status.Text += "  -  click to try again"; return; }
+        string ch = channel;
+        Action again = ch != null ? () => { if (channel == ch) Watch(ch); } : (Action)null;
+        if (!watching || channel == null || end == StreamEnd.Fatal) { ShowProblem(summary, StreamDetail(err), again); return; }
         TimeSpan wait;
         if (end == StreamEnd.Offline) wait = TimeSpan.FromSeconds(60);
         else
         {
-            if (playBackoff.Attempt >= MaxQuickRetries) { status.Text += "  -  click to try again"; Log.Warn("stream: giving up after " + MaxQuickRetries + " quick retries"); return; }
+            if (playBackoff.Attempt >= MaxQuickRetries)
+            {
+                Log.Warn("stream: giving up after " + MaxQuickRetries + " quick retries");
+                ShowProblem(summary + "  -  stopped retrying", StreamDetail(err) + "\n\nLiteView tried " + MaxQuickRetries + " times in a row.", again);
+                return;
+            }
             wait = playBackoff.Next();
         }
         retryGen = gen;
         retry.Interval = (int)Math.Max(500, Math.Min(int.MaxValue, wait.TotalMilliseconds));
         retry.Start();
-        status.Text += "  -  trying again in " + Math.Max(1, (int)Math.Round(wait.TotalSeconds)) + " s";
+        string next = "  -  trying again in " + Math.Max(1, (int)Math.Round(wait.TotalSeconds)) + " s";
+        if (end == StreamEnd.Offline) { status.ForeColor = Dim; status.Text = summary + next; }   // not an error
+        else ShowProblem(summary + next, StreamDetail(err), again);
     }
 
     void CancelRetry() { retry.Stop(); canRetry = false; playBackoff.Reset(); }
+
+    // ---------- problems (UI-5) ----------
+    // An error shows as "⚠ summary" in the status line (shortened to fit); a click opens the whole message with
+    // Try again / Open log folder / Copy details (src/app/ProblemPopup.cs). Any other status text ends it.
+
+    static readonly Color ErrorC = Color.FromArgb(255, 140, 140);
+    static readonly string WarnSign = ((char)0x26A0).ToString();
+    string problemTitle, problemDetail; Action problemRetry; bool settingProblem;
+    readonly ToolTip statusTip = new ToolTip();
+
+    void InitProblems()
+    {
+        status.AutoSize = false; status.AutoEllipsis = true; status.Height = 20;
+        status.TextChanged += (s, e) =>
+        {
+            if (settingProblem) return;
+            problemTitle = null; problemRetry = null; status.Cursor = Cursors.Default; statusTip.SetToolTip(status, null);
+            FitStatus();
+        };
+    }
+
+    void ShowProblem(string summary, string detail, Action retry)
+    {
+        problemTitle = summary; problemDetail = detail; problemRetry = retry;
+        settingProblem = true;
+        try { status.ForeColor = ErrorC; status.Text = WarnSign + " " + summary; }
+        finally { settingProblem = false; }
+        status.Cursor = Cursors.Hand;
+        statusTip.SetToolTip(status, "Click for details");
+        FitStatus();
+    }
+
+    void ShowProblemDetails()
+    {
+        if (problemTitle == null) return;
+        var r = problemRetry;
+        new ProblemPopup(problemTitle, problemDetail, r, OpenLogFolder) { Icon = Icon }.ShowBelow(status, this);
+    }
+
+    // the status line gets the room between what is on its left and the controls on the right
+    void FitStatus()
+    {
+        int right = bar.Width - 6;
+        foreach (Control c in bar.Controls) if (c.Visible && c != status && c.Left > status.Left && c.Left < right) right = c.Left;
+        status.Width = Math.Max(0, right - status.Left - 10);
+    }
+
+    void OpenLogFolder()
+    {
+        try { using (Process.Start("explorer.exe", WinArgs.Quote(root))) { } } catch (Exception ex) { Log.Error("open folder", ex); }
+    }
+
+    // the end of streamlink.log, without credentials or channel names, for the details of a stream problem
+    string StreamDetail(string err)
+    {
+        var sb = new StringBuilder();
+        if (err.Length > 0) sb.Append(Redact.ForSharing(err)).Append("\n\n");
+        try
+        {
+            if (File.Exists(slLog))
+            {
+                var tail = ReadShared(slLog).Where(l => l.Trim().Length > 0).Reverse().Take(12).Reverse().ToList();
+                if (tail.Count > 0) { sb.Append("Last lines of streamlink.log:\n"); foreach (var l in tail) sb.Append(Redact.ForSharing(l)).Append('\n'); }
+            }
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+        if (sb.Length == 0) sb.Append("Streamlink wrote no error. See liteview.log.");
+        return sb.ToString().TrimEnd();
+    }
 
     // ---------- diagnostics ----------
 
@@ -347,7 +424,7 @@ partial class LiteView
         var diag = new ToolStripMenuItem("Export diagnostics...");
         diag.Click += (s, e) => ExportDiagnostics();
         var logs = new ToolStripMenuItem("Open log folder");
-        logs.Click += (s, e) => { try { using (Process.Start("explorer.exe", WinArgs.Quote(root))) { } } catch (Exception ex) { Log.Error("open folder", ex); } };
+        logs.Click += (s, e) => OpenLogFolder();
         var site = new ToolStripMenuItem("Sign out of twitch.tv in LiteView");
         site.Click += (s, e) => SignOutOfWebsite();
         menu.Items.Add(new ToolStripSeparator());
@@ -436,7 +513,7 @@ partial class LiteView
             status.Text = "Diagnostics saved: " + Path.GetFileName(path);
             using (Process.Start("explorer.exe", "/select," + WinArgs.Quote(path))) { }
         }
-        catch (Exception ex) { Log.Error("diagnostics", ex); status.Text = "Could not save diagnostics: " + ex.Message; }
+        catch (Exception ex) { Log.Error("diagnostics", ex); ShowProblem("Could not save diagnostics", ex.Message, ExportDiagnostics); }
     }
 
     static string ImagesStats() { return Images.Stats(); }

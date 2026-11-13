@@ -28,6 +28,9 @@ namespace LiteViewCore
         public DateTimeOffset? Started, Followed;
     }
 
+    /// <summary>users: a channel's display name and picture.</summary>
+    public sealed class UserInfo { public string Login = "", Name = "", Avatar = ""; }
+
     public enum SortOrder { Viewers, Name, Newest, Longest }
 
     public static class HelixData
@@ -82,15 +85,15 @@ namespace LiteViewCore
 
         public static string? Cursor(object? json) { return Json.S(Json.V(json, "pagination"), "cursor"); }
 
-        /// <summary>users?login=...: channel login → profile picture URL (the 70x70 size), allowed image hosts only.</summary>
-        public static Dictionary<string, string> Avatars(object? json)
+        /// <summary>users?login=...: channel login → display name and profile picture URL (70x70; "" when not an allowed image).</summary>
+        public static Dictionary<string, UserInfo> Users(object? json)
         {
-            var d = new Dictionary<string, string>(StringComparer.Ordinal);
+            var d = new Dictionary<string, UserInfo>(StringComparer.Ordinal);
             foreach (var u in Json.A(json, "data"))
             {
                 string? login = Json.S(u, "login");
-                string url = Avatar(Json.S(u, "profile_image_url"));
-                if (ChannelName.IsValidLogin(login) && url.Length > 0) d[login!] = url;
+                if (!ChannelName.IsValidLogin(login)) continue;
+                d[login!] = new UserInfo { Login = login!, Name = Or(Text(Json.S(u, "display_name")), login!), Avatar = Avatar(Json.S(u, "profile_image_url")) };
             }
             return d;
         }
@@ -349,15 +352,15 @@ namespace LiteViewCore
             return new KeyValuePair<FeedState, List<ChannelInfo>>(FeedState.Ok, Distinct(list, c => c.Login));
         }
 
-        /// <summary>Profile pictures by channel login, 100 per request.</summary>
-        public async Task<Dictionary<string, string>> Avatars(IEnumerable<string> logins)
+        /// <summary>Display names and profile pictures by channel login, 100 per request.</summary>
+        public async Task<Dictionary<string, UserInfo>> Users(IEnumerable<string> logins)
         {
-            var all = new Dictionary<string, string>(StringComparer.Ordinal);
+            var all = new Dictionary<string, UserInfo>(StringComparer.Ordinal);
             var want = logins.Where(ChannelName.IsValidLogin).Distinct().ToList();
             for (int i = 0; i < want.Count; i += 100)
             {
                 var j = await helix("users?login=" + string.Join("&login=", want.Skip(i).Take(100))).ConfigureAwait(false);
-                foreach (var kv in HelixData.Avatars(j)) all[kv.Key] = kv.Value;
+                foreach (var kv in HelixData.Users(j)) all[kv.Key] = kv.Value;
             }
             return all;
         }

@@ -1,7 +1,7 @@
 // LITEVIEW_UI_FIXTURE=1 (testing only): made-up Twitch answers and generated pictures, with no network and no real
 // login, so CI can take screenshots of the logged-in pages (tools/smoke.ps1). The real token file is not read or
 // written, the window title says "UI fixture", and LITEVIEW_UI_FIXTURE_SCENE picks what is shown after start:
-// live (default), followed, recent, history, or search:<text>.
+// live (default), followed, recent, history, search:<text>, or problem (the details of src/app/ProblemPopup.cs).
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -20,6 +20,7 @@ using LiteViewCore;
 static class Fixture
 {
     public static readonly bool On = Environment.GetEnvironmentVariable("LITEVIEW_UI_FIXTURE") == "1";
+    public static string SceneName { get { return Environment.GetEnvironmentVariable("LITEVIEW_UI_FIXTURE_SCENE") ?? "live"; } }
 
     static readonly string[] Live =
     {
@@ -47,7 +48,7 @@ static class Fixture
     {
         form.Text += "  -  UI fixture (made-up data)";
         Log.Warn("UI fixture mode: made-up Twitch data, no network");
-        string scene = Environment.GetEnvironmentVariable("LITEVIEW_UI_FIXTURE_SCENE") ?? "live";
+        string scene = SceneName;
         if (scene == "followed") page.SetTab(BrowsePage.Tab.Followed);
         else if (scene == "recent") { foreach (var l in new[] { "jazz_nights", "apex_andy", "pixelforge" }) page.Watched(l); page.SetTab(BrowsePage.Tab.Recent); }
         else if (scene == "history") { foreach (var l in new[] { "chessmaster_k", "osu_oli" }) page.Searched(l); page.ShowHistory(); }
@@ -81,7 +82,7 @@ static class Fixture
                 if (path.EndsWith("/channels/followed", StringComparison.Ordinal))
                     return Json("{\"data\":[" + string.Join(",", Live.Concat(Offline).Select((l, i) => "{\"broadcaster_id\":\"" + (2000 + i) + "\",\"broadcaster_login\":\"" + l + "\",\"broadcaster_name\":\"" + Display(l) + "\",\"followed_at\":\"" + DateTime.UtcNow.AddDays(-40 * i - 3).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) + "\"}")) + "],\"pagination\":{}}");
                 if (path.EndsWith("/users", StringComparison.Ordinal))
-                    return Json("{\"data\":[" + string.Join(",", Values(q, "login").Select(l => "{\"login\":\"" + l + "\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/jtv_user_pictures/fixture-" + l + "-profile_image-300x300.png\"}")) + "]}");
+                    return Json("{\"data\":[" + string.Join(",", Values(q, "login").Select(l => "{\"login\":\"" + l + "\",\"display_name\":\"" + Display(l) + "\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/jtv_user_pictures/fixture-" + l + "-profile_image-300x300.png\"}")) + "]}");
                 if (path.EndsWith("/search/channels", StringComparison.Ordinal))
                 {
                     string text = (Values(q, "query").FirstOrDefault() ?? "").ToLowerInvariant();

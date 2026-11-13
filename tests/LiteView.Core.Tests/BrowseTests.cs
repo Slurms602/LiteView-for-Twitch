@@ -63,8 +63,12 @@ public class HelixDataTests
         Assert.Equal("", HelixData.Thumb(null, 320, 180));
         Assert.Equal("https://static-cdn.jtvnw.net/jtv_user_pictures/a-profile_image-70x70.png", HelixData.Avatar("https://static-cdn.jtvnw.net/jtv_user_pictures/a-profile_image-300x300.png"));
         Assert.Equal("", HelixData.Avatar("https://evil.example/a-300x300.png"));
-        var av = HelixData.Avatars(Json.Parse("{\"data\":[{\"login\":\"aa1\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/a-300x300.png\"},{\"login\":\"bb1\",\"profile_image_url\":\"javascript:alert(1)\"},{\"login\":\"Not Valid\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/b.png\"}]}"));
-        Assert.Equal(new[] { "aa1" }, av.Keys);
+        var us = HelixData.Users(Json.Parse("{\"data\":[{\"login\":\"aa1\",\"display_name\":\"Aa1\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/a-300x300.png\"},{\"login\":\"bb1\",\"profile_image_url\":\"javascript:alert(1)\"},{\"login\":\"Not Valid\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/b.png\"}]}"));
+        Assert.Equal(new[] { "aa1", "bb1" }, us.Keys);
+        Assert.Equal("Aa1", us["aa1"].Name);
+        Assert.Equal("https://static-cdn.jtvnw.net/a-70x70.png", us["aa1"].Avatar);
+        Assert.Equal("bb1", us["bb1"].Name);            // no display name: the login
+        Assert.Equal("", us["bb1"].Avatar);             // not an image URL: no picture
     }
 }
 
@@ -247,10 +251,10 @@ public class FollowingTests
     }
 
     [Fact]
-    public async Task AvatarsAreFetchedAHundredAtATime()
+    public async Task UsersAreFetchedAHundredAtATime()
     {
         answers["users?login="] = "{\"data\":[]}";
-        await Make().Avatars(Enumerable.Range(1, 250).Select(i => "user" + i).Concat(new[] { "user1", "bad name" }));
+        await Make().Users(Enumerable.Range(1, 250).Select(i => "user" + i).Concat(new[] { "user1", "bad name" }));
         Assert.Equal(3, asked.Count);
         Assert.Equal(100, asked[0].Split(new[] { "login=" }, StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("bad", asked[2]);

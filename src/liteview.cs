@@ -172,6 +172,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
             x -= c.Width + 6;
             c.Location = new Point(x, (BarH - c.Height) / 2);
         }
+        FitStatus();
     }
 
     void SetMode(bool watch)
@@ -284,7 +285,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             webReady = true;
             core.Navigate(Home);
         }
-        catch (Exception ex) { Log.Error("Following page", ex); if (web == w) status.Text = "Following page unavailable: " + ex.Message; }
+        catch (Exception ex) { Log.Error("Following page", ex); if (web == w) ShowProblem("Following page unavailable", ex.Message + "\n\nThe Twitch website page needs the Microsoft Edge WebView2 Runtime. LiteView's own Following page does not (menu at the top right > Following page).", null); }
     }
 
     void Browse()
@@ -323,7 +324,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
 
         StopStream();
         string missing = MissingPlayerFiles();
-        if (missing != null) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = missing; Log.Error(missing); }
+        if (missing != null) { ShowProblem(missing, missing + "\n\nLiteView plays streams with the Streamlink and mpv copies in its twitch folder. An antivirus may have removed a file: unzip LiteView again into a new folder.", null); Log.Error(missing); }
         else StartStreamProcess(name, (string)quality.SelectedItem);
 
         if (chatOn.Checked) StartChat();
@@ -415,7 +416,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         try
         {
             var d = await Tw.StartDevice();
-            if (d == null) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Could not reach Twitch."; return; }
+            if (d == null) { ShowProblem("Could not reach Twitch to log in", "Twitch's login service did not answer. Check the internet connection (a VPN can also be the cause) and try again.", Login); return; }
             string code = Tw.S(d, "device_code"), user = Tw.S(d, "user_code");
             Uri page = SafeUrl.ActivationPage(Tw.S(d, "verification_uri"));
             int every = Math.Max(1, (int)Tw.N(d, "interval")); long life = Tw.N(d, "expires_in");
@@ -432,10 +433,10 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                 string r = await Tw.PollDevice(code);
                 if (r == "ok") { Log.Info("login: signed in"); f.Close(); OnLogin(); break; }
                 if (r == "slow_down") every++;
-                else if (r != "authorization_pending") { Log.Warn("login: " + r); status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Twitch login: " + r; break; }
+                else if (r != "authorization_pending") { Log.Warn("login: " + r); ShowProblem("Twitch login did not finish", "Twitch answered: " + r + "\n\nThe code may have expired or been denied. Try again.", Login); break; }
             }
         }
-        catch (Exception ex) { Log.Error("login", ex); status.Text = "Twitch login: " + ex.Message; }
+        catch (Exception ex) { Log.Error("login", ex); ShowProblem("Twitch login failed", ex.Message, Login); }
         finally
         {
             loggingIn = false;

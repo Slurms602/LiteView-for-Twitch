@@ -54,7 +54,15 @@ partial class LiteView
 
         if (!nativeBrowse) InitWeb();
         Shown += (s, e) => { if (startChannel == null && openLast && browse.Recent.Count > 0) Watch(browse.Recent.Items[0]); };
-        if (Fixture.On) Shown += (s, e) => Fixture.Scene(this, browse, search);
+        if (Fixture.On) Shown += (s, e) =>
+        {
+            Fixture.Scene(this, browse, search);
+            if (Fixture.SceneName != "problem") return;
+            ShowProblem("Could not open the stream: Unable to open URL: https://usher.ttvnw.net/api/channel/hls/x.m3u8  -  trying again in 4 s",
+                "error: Unable to open URL: https://usher.ttvnw.net/api/channel/hls/<channel>.m3u8 (HTTPSConnectionPool(host='usher.ttvnw.net', port=443): Read timed out.)\n\n" +
+                "Last lines of streamlink.log:\n[cli][info] Found matching plugin twitch for URL twitch.tv/<channel>\n[cli][error] Unable to open URL (made-up example)", () => { });
+            ShowProblemDetails();
+        };
     }
 
     // SetMode: browsing (true) or watching (false)

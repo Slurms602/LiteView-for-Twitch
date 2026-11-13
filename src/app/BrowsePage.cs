@@ -61,6 +61,7 @@ class BrowsePage : Control
     List<Item> items = new List<Item>();
     readonly Dictionary<string, Pic> thumbs = new Dictionary<string, Pic>(), avatars = new Dictionary<string, Pic>();
     readonly Dictionary<string, string> avatarUrl = new Dictionary<string, string>();   // login -> url ("" = none known)
+    readonly Dictionary<string, string> names = new Dictionary<string, string>();       // login -> display name, from users
     readonly HashSet<string> avatarWanted = new HashSet<string>();
     bool running; long clock;
 
@@ -269,11 +270,11 @@ class BrowsePage : Control
         Invalidate();
     }
 
-    static Item Row(string login, string name, Dictionary<string, LiveStream> liveBy)
+    Item Row(string login, string name, Dictionary<string, LiveStream> liveBy)
     {
-        LiveStream s;
+        LiveStream s; string known;
         if (liveBy.TryGetValue(login, out s)) return new Item { Login = login, Name = s.Name, Live = true, Game = s.Game, Title = s.Title, Viewers = s.Viewers, Started = s.Started };
-        return new Item { Login = login, Name = name ?? login };
+        return new Item { Login = login, Name = name ?? (names.TryGetValue(login, out known) ? known : login) };
     }
 
     void DoLayout()
@@ -501,7 +502,7 @@ class BrowsePage : Control
         DrawAvatar(g, it.Login, new Rectangle(r.X + S(8), r.Y + (r.Height - az) / 2, az, az));
         int tx = r.X + az + S(20);
         string right = it.Live ? (it.Viewers > 0 ? Fmt.Viewers(it.Viewers) + " viewers" : "") : "Offline";
-        int rw = Txt.Width(right, FText) + (it.Live ? S(52) : S(10));
+        int rw = S(150);   // a fixed column: LIVE badges line up
         bool fav = Favourites.Contains(it.Login);
         int nameW = Math.Max(0, Math.Min(Txt.Width(it.Name, FTitle) + 2, r.Width - (tx - r.X) - rw - S(40)));
         Txt.In(g, it.Name, FTitle, Fg, new Rectangle(tx, r.Y + S(8), nameW, S(20)), false);
@@ -580,8 +581,9 @@ class BrowsePage : Control
         foreach (var l in want) avatarUrl[l] = "";   // asked once; a channel without a picture is not asked again
         try
         {
-            var found = await feed.Avatars(want);
-            foreach (var kv in found) avatarUrl[kv.Key] = kv.Value;
+            var found = await feed.Users(want);
+            foreach (var kv in found) { avatarUrl[kv.Key] = kv.Value.Avatar; names[kv.Key] = kv.Value.Name; }
+            if (found.Count > 0 && !IsDisposed) Rebuild();   // display names for channels known only by login
         }
         catch (Exception ex) { Log.Warn("avatars: " + ex.GetType().Name); }
         if (!IsDisposed) Invalidate();

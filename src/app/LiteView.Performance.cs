@@ -14,6 +14,7 @@ using LiteViewCore;
 partial class LiteView
 {
     static CpuPlan cpuPlan;
+    static ulong cpuUnpin;   // the full mask, when this process started pinned (Application.Restart passes affinity on)
 
     // read before the window exists (Main sets the process's affinity and priority; Streamlink and mpv inherit them)
     static CpuPlan CpuChoice()
@@ -31,11 +32,18 @@ partial class LiteView
         using (var self = Process.GetCurrentProcess())
         {
             UIntPtr pm, sm;
-            if (Native.GetProcessAffinityMask(self.Handle, out pm, out sm) && pm.ToUInt64() != 0) system = pm.ToUInt64();
+            if (Native.GetProcessAffinityMask(self.Handle, out pm, out sm) && sm.ToUInt64() != 0)
+            {
+                system = sm.ToUInt64();   // every processor (pm is only what we were started with)
+                if (pm.ToUInt64() != system && Environment.ProcessorCount <= 64) cpuUnpin = system;
+            }
         }
         cpuPlan = Scheduling.Plan(Native.Get(d, "cpu", "auto"), Native.Get(d, "cpumask", ""), Native.NonCacheDieMask(), system);
         return cpuPlan;
     }
+
+    /// <summary>Main: the affinity to set; with no pinning planned, undo pinning this process inherited (0 = leave it).</summary>
+    static ulong CpuAffinity() { ulong m = CpuChoice().Mask; return m != 0 ? m : cpuUnpin; }
 
     static uint ChildPriorityFlag { get { return CpuChoice().Priority == CpuPriority.Normal ? 0u : Native.BELOW_NORMAL; } }
 
@@ -58,6 +66,18 @@ partial class LiteView
         t = t.Trim();
         if (Scheduling.ParseMask(t) == 0) { MessageBox.Show(this, "'" + t + "' is not a hexadecimal mask.", "Custom cores"); return; }
         SetCpuMode("custom", t);
+    }
+
+    // ---------- quality box ----------
+
+    bool qualityRebuild;   // the variants list is being replaced: not the user choosing another quality
+
+    // LoadSettings: the saved choice, also a variant such as 360p that is not in the fixed list
+    void SelectQuality(string saved)
+    {
+        int q = quality.Items.IndexOf(saved);
+        if (q < 0 && Quality.IsVariant(saved)) q = quality.Items.Add(saved);
+        quality.SelectedIndex = q < 0 ? 0 : q;
     }
 
     // ---------- Gaming Mode ----------

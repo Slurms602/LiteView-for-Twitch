@@ -315,9 +315,14 @@ partial class LiteView
             string cur = (string)quality.SelectedItem ?? "Best";
             if (!choices.Contains(cur)) choices.Add(cur);
             if (choices.SequenceEqual(quality.Items.Cast<string>())) return;
-            quality.BeginUpdate();
-            quality.Items.Clear(); quality.Items.AddRange(choices.ToArray()); quality.SelectedItem = cur;
-            quality.EndUpdate();
+            qualityRebuild = true;
+            try
+            {
+                quality.BeginUpdate();
+                quality.Items.Clear(); quality.Items.AddRange(choices.ToArray()); quality.SelectedItem = cur;
+                quality.EndUpdate();
+            }
+            finally { qualityRebuild = false; }
             Log.Info("stream " + gen + ": variants " + string.Join(" ", found));
         }
         catch (IOException) { } catch (UnauthorizedAccessException) { }

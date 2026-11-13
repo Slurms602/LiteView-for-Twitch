@@ -99,7 +99,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         quality.Items.AddRange(Qualities); quality.Width = 96; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
         quality.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
-            TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused) Watch(channel); };
+            TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused && !qualityRebuild) Watch(channel); };
         chatOn.Text = "Chat"; chatOn.ForeColor = Dim; chatOn.AutoSize = true; chatOn.ContextMenuStrip = nchat.Menu; chatOn.CheckedChanged += (s, e) => { if (watching) { if (chatOn.Checked) StartChat(); else StopChat(); Relayout(); FitWindow(); } };
         Flat(fsBtn, "⛶"); fsBtn.Width = 34; fsBtn.Click += (s, e) => ToggleFullscreen();
         Flat(muteBtn, "\uE767"); muteBtn.Font = new Font("Segoe MDL2 Assets", 11f); muteBtn.Width = 34;
@@ -623,7 +623,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         bool fromBackup;
         var ini = IniStore.Read(iniPath, out fromBackup);
         if (fromBackup) Log.Warn("settings: " + Path.GetFileName(iniPath) + " was unreadable, used the last good copy");
-        int q = Array.IndexOf(Qualities, Native.Get(ini, "quality", "Best")); quality.SelectedIndex = q < 0 ? 0 : q;
+        SelectQuality(Native.Get(ini, "quality", "Best"));   // fork: also a saved variant (360p...)
         chatOn.Checked = Native.Get(ini, "chat", "1") == "1";
         int.TryParse(Native.Get(ini, "volume", "70"), out volume); volume = Math.Max(0, Math.Min(100, volume));
         muted = Native.Get(ini, "muted", "0") == "1"; UpdateMute();
@@ -682,7 +682,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();
-        ulong m = CpuChoice().Mask;   // fork: the CPU use setting (src/app/LiteView.Performance.cs)
+        ulong m = CpuAffinity();   // fork: the CPU use setting (src/app/LiteView.Performance.cs)
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this
         {
             if (m != 0) self.ProcessorAffinity = new IntPtr((long)m);

@@ -12,9 +12,10 @@ namespace LiteViewCore
     {
         public const int MaxWords = 50, MaxWordLength = 40, MaxIgnored = 500;
         static readonly char[] WordSeparators = { ',', '\n', '\r' }, NameSeparators = { ',', ' ', '\n', '\r', '\t', ';' };
-        HashSet<string> ignored = new HashSet<string>(StringComparer.Ordinal);
-        Regex? words;
-        List<string> wordList = new List<string>();
+        // replaced whole (never changed in place) by the UI thread, read by the chat thread: volatile, read once
+        volatile HashSet<string> ignored = new HashSet<string>(StringComparer.Ordinal);
+        volatile Regex? words;
+        volatile List<string> wordList = new List<string>();
 
         public IReadOnlyCollection<string> Ignored { get { return ignored; } }
         public IReadOnlyList<string> Words { get { return wordList; } }
@@ -51,8 +52,9 @@ namespace LiteViewCore
 
         public bool Highlights(string? text)
         {
-            if (words == null || string.IsNullOrEmpty(text)) return false;
-            try { return words.IsMatch(text); }
+            var w = words;
+            if (w == null || string.IsNullOrEmpty(text)) return false;
+            try { return w.IsMatch(text); }
             catch (RegexMatchTimeoutException) { return false; }
         }
 

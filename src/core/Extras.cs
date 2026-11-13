@@ -30,9 +30,9 @@ namespace LiteViewCore
         public static bool TryParse(string? s, out int from, out int to)
         {
             from = to = 0;
-            var m = Regex.Match(s ?? "", @"^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$");
-            if (!m.Success) return false;
-            from = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture); to = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+            var m = Regex.Match(s ?? "", @"^\s*([0-9]{1,2})\s*-\s*([0-9]{1,2})\s*$");   // [0-9]: \d also matches other scripts' digits
+            if (!m.Success || !int.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out from)
+                || !int.TryParse(m.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out to)) { from = to = 0; return false; }
             return from >= 0 && from < 24 && to >= 0 && to < 24 && from != to;
         }
 
@@ -72,10 +72,12 @@ namespace LiteViewCore
         /// <summary>"v1.2.3" / "1.2.3" / "1.2.3-ci+abc" → 1.2.3; null when it is not a version.</summary>
         public static Version? Parse(string? s)
         {
-            var m = Regex.Match(s ?? "", @"^\s*v?(\d{1,5})\.(\d{1,5})(?:\.(\d{1,5}))?");
-            if (!m.Success) return null;
-            return new Version(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture),
-                m.Groups[3].Success ? int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture) : 0);
+            var m = Regex.Match(s ?? "", @"^\s*v?([0-9]{1,5})\.([0-9]{1,5})(?:\.([0-9]{1,5}))?");
+            int a, b, c = 0;
+            if (!m.Success || !int.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out a)
+                || !int.TryParse(m.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out b)
+                || m.Groups[3].Success && !int.TryParse(m.Groups[3].Value, NumberStyles.None, CultureInfo.InvariantCulture, out c)) return null;
+            return new Version(a, b, c);
         }
 
         /// <summary>True when the release tag is a newer version than this build. A pre-release tag ("v1.3.0-beta") is never offered.</summary>

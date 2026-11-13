@@ -55,6 +55,9 @@ namespace LiteViewCore
             return "best";
         }
 
+        /// <summary>A variant name such as 360p or 1440p60 (what the quality box may hold besides the fixed choices).</summary>
+        public static bool IsVariant(string? s) { return s != null && Variant.IsMatch(s); }
+
         // only these names ever reach the command line
         static readonly System.Text.RegularExpressions.Regex Variant = new System.Text.RegularExpressions.Regex(@"^([1-9][0-9]{2,3})p([1-9][0-9]{1,2})?$");
 

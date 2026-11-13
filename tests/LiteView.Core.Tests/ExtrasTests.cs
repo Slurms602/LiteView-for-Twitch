@@ -44,3 +44,22 @@ public class ExtrasTests
     [InlineData("nightly", "0.1.0", false)] [InlineData("v0.2.0", "dev", false)] [InlineData(null, "0.1.0", false)]
     public void ReleaseIsNewer(string? tag, string current, bool newer) { Assert.Equal(newer, Versions.IsNewer(tag, current)); }
 }
+
+public class ReviewRegressionTests
+{
+    [Fact]
+    public void OtherScriptsDigitsAreNotNumbers()
+    {
+        Assert.False(QuietHours.IsQuiet("١-٢", new DateTime(2026, 1, 1, 1, 30, 0)));   // Arabic-Indic digits: not a crash, not quiet
+        int f, t; Assert.False(QuietHours.TryParse("١-٢", out f, out t));
+        Assert.Null(Versions.Parse("v١.٢.٣"));
+        Assert.False(Versions.IsNewer("v٩.0.0", "0.1.0"));
+    }
+
+    [Fact]
+    public void QualityVariantNames()
+    {
+        Assert.True(Quality.IsVariant("360p")); Assert.True(Quality.IsVariant("1440p60"));
+        Assert.False(Quality.IsVariant("Best")); Assert.False(Quality.IsVariant("360p,best")); Assert.False(Quality.IsVariant(null));
+    }
+}

@@ -39,7 +39,7 @@ class BrowsePage : Control
     readonly Following feed = new Following(q => Tw.Helix(q));
     readonly System.Windows.Forms.Timer liveTimer = new System.Windows.Forms.Timer { Interval = 60000 }, searchDelay = new System.Windows.Forms.Timer { Interval = 250 },
         avatarDelay = new System.Windows.Forms.Timer { Interval = 120 };
-    readonly Latest searchGuard = new Latest(), liveGuard = new Latest();
+    readonly Latest searchGuard = new Latest(), liveGuard = new Latest(), followedGuard = new Latest();
     readonly TimedCache<string, List<ChannelInfo>> searchCache = new TimedCache<string, List<ChannelInfo>>(50, TimeSpan.FromMinutes(2));
     readonly ToolTip tip = new ToolTip();
     readonly ContextMenuStrip menu = new ContextMenuStrip();
@@ -104,6 +104,9 @@ class BrowsePage : Control
     /// <summary>Logged in or out: everything that depends on the account is fetched again.</summary>
     public void LoginChanged()
     {
+        // answers still on their way belong to the old account: drop them, and let new requests start now
+        liveGuard.Next(); followedGuard.Next(); loadingLive = loadingFollowed = false;
+        followedLive = new List<LiveStream>(); otherLive = new List<LiveStream>();
         followed = null; followedAt = DateTime.MinValue; liveLoaded = false; searchCache.Clear();
         if (running) { ReloadLive(); if (tab == Tab.Followed) ReloadFollowed(); if (query != null) DoSearch(); }
         Rebuild();
@@ -152,17 +155,18 @@ class BrowsePage : Control
     async void ReloadFollowed()
     {
         if (loadingFollowed || Tw.Token == null) { Rebuild(); return; }
+        int t = followedGuard.Next();
         loadingFollowed = true; Invalidate();
         try
         {
             if (Tw.UserId == null) await Tw.Validate();
             var r = await feed.Followed(Tw.UserId);
-            if (IsDisposed) return;
+            if (!followedGuard.IsCurrent(t) || IsDisposed) return;   // logged out or in as someone else meanwhile
             followedFailed = r.Key == FeedState.Unreachable;
             if (r.Key == FeedState.Ok) { followed = r.Value; followedAt = DateTime.UtcNow; }
         }
         catch (Exception ex) { Log.Error("followed channels", ex); }
-        finally { loadingFollowed = false; Rebuild(); }
+        finally { if (followedGuard.IsCurrent(t)) loadingFollowed = false; Rebuild(); }
     }
 
     /// <summary>Text of the top bar's search box. Search starts after a short pause in typing.</summary>

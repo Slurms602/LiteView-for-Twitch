@@ -36,13 +36,13 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
 
     static readonly Color Bg = Color.FromArgb(14, 14, 16), Bar = Color.FromArgb(24, 24, 27), Hover = Color.FromArgb(38, 38, 44),
         Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Accent = Color.FromArgb(145, 71, 255), Live = Color.FromArgb(235, 4, 0);
-    const int BarH = 40, ChatW = 340;
+    const int BarH = 40;   // fork: ChatW is a setting (src/app/LiteView.Chat.cs)
     const string Home = "https://www.twitch.tv/directory/following/live";
     static readonly string[] Qualities = Quality.Choices;
 
     readonly string root, tw, iniPath, streamlink, mpv, slLog;
     volatile string pipeName = "";   // a new random name per stream (see Watch)
-    readonly ulong mask = Native.NonCacheDieMask();
+    readonly ulong mask = CpuChoice().Mask;
 
     readonly Panel bar = new Panel(), body = new Panel(), video = new Panel(), chatBox = new Panel();
     WebView2 web, chatWeb = new WebView2();
@@ -57,7 +57,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     readonly CheckBox chatOn = new CheckBox(), rtx = new CheckBox();
     readonly ComboBox picture = new ComboBox();
     static readonly string[] Pictures = { "Picture: Off", "Picture: Enhance", "Picture: High", "Picture: Ultra" };
-    static readonly bool HasNvidia = File.Exists(Path.Combine(Environment.SystemDirectory, "nvapi64.dll"));
+    static readonly bool HasNvidia = HasRtxCard();   // fork: an NVIDIA RTX card, not only an NVIDIA driver (src/app/LiteView.Screens.cs)
     int videoH; string appliedPic, appliedVf; DateTime lastResize = DateTime.MinValue;
     readonly Button muteBtn = new Button();
     readonly VolumeBar volBar = new VolumeBar();
@@ -99,7 +99,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         quality.Items.AddRange(Qualities); quality.Width = 96; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
         quality.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
-            TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused) Watch(channel); };
+            TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused && !qualityRebuild) Watch(channel); };
         chatOn.Text = "Chat"; chatOn.ForeColor = Dim; chatOn.AutoSize = true; chatOn.ContextMenuStrip = nchat.Menu; chatOn.CheckedChanged += (s, e) => { if (watching) { if (chatOn.Checked) StartChat(); else StopChat(); Relayout(); FitWindow(); } };
         Flat(fsBtn, "⛶"); fsBtn.Width = 34; fsBtn.Click += (s, e) => ToggleFullscreen();
         Flat(muteBtn, "\uE767"); muteBtn.Font = new Font("Segoe MDL2 Assets", 11f); muteBtn.Width = 34;
@@ -147,7 +147,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
 
         LoadSettings();
         SetMode(false);
-        InitWeb();
+        InitBrowse();   // LiteView's Following page, or the Twitch website page (src/app/LiteView.Browse.cs)
         CheckLogin();
         Shown += (s, e) => { if (startChannel != null) Watch(startChannel); };
         new Thread(PipeLoop) { IsBackground = true, Priority = ThreadPriority.BelowNormal }.Start();
@@ -167,11 +167,12 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     void LayoutBar()
     {
         int x = bar.Width - 6;
-        foreach (Control c in new Control[] { fsBtn, volBar, muteBtn, rtx, picture, chatOn, quality })
+        foreach (Control c in new Control[] { menuBtn, fsBtn, volBar, muteBtn, rtx, picture, chatOn, quality })
         {
             x -= c.Width + 6;
             c.Location = new Point(x, (BarH - c.Height) / 2);
         }
+        FitStatus();
     }
 
     void SetMode(bool watch)
@@ -181,6 +182,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         search.Visible = !watch;
         status.Location = new Point(watch ? title.Right + 14 : search.Right + 14, 12);
         if (web != null) web.Visible = !watch;
+        ShowBrowse(!watch);
         video.Visible = watch; chatBox.Visible = watch && chatOn.Checked; side.Visible = watch;
         side.Run(watch);
         Relayout(); LayoutBar();
@@ -283,7 +285,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             webReady = true;
             core.Navigate(Home);
         }
-        catch (Exception ex) { Log.Error("Following page", ex); if (web == w) status.Text = "Following page unavailable: " + ex.Message; }
+        catch (Exception ex) { Log.Error("Following page", ex); if (web == w) ShowProblem("Following page unavailable", ex.Message + "\n\nThe Twitch website page needs the Microsoft Edge WebView2 Runtime. LiteView's own Following page does not (menu at the top right > Following page).", null); }
     }
 
     void Browse()
@@ -291,6 +293,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         StopStream(); StopChat();
         if (fullscreen) ToggleFullscreen();
         SetMode(false);
+        if (BrowseNative()) return;
         if (web == null) InitWeb();
         else if (webReady)
         {
@@ -321,11 +324,12 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
 
         StopStream();
         string missing = MissingPlayerFiles();
-        if (missing != null) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = missing; Log.Error(missing); }
+        if (missing != null) { ShowProblem(missing, missing + "\n\nLiteView plays streams with the Streamlink and mpv copies in its twitch folder. An antivirus may have removed a file: unzip LiteView again into a new folder.", null); Log.Error(missing); }
         else StartStreamProcess(name, (string)quality.SelectedItem);
 
         if (chatOn.Checked) StartChat();
         tick.Start();
+        browse.Watched(name);
         SaveSettings();
     }
 
@@ -398,6 +402,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         nchat.UpdateLogin();
         if (watching && !webChat && chatOn.Checked) nchat.Reconnect();
         side.Reload();
+        browse.LoginChanged();
         status.ForeColor = Dim; status.Text = Tw.Login != null ? "Logged in as " + Tw.Login : "";
     }
 
@@ -411,7 +416,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         try
         {
             var d = await Tw.StartDevice();
-            if (d == null) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Could not reach Twitch."; return; }
+            if (d == null) { ShowProblem("Could not reach Twitch to log in", "Twitch's login service did not answer. Check the internet connection (a VPN can also be the cause) and try again.", Login); return; }
             string code = Tw.S(d, "device_code"), user = Tw.S(d, "user_code");
             Uri page = SafeUrl.ActivationPage(Tw.S(d, "verification_uri"));
             int every = Math.Max(1, (int)Tw.N(d, "interval")); long life = Tw.N(d, "expires_in");
@@ -428,10 +433,10 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                 string r = await Tw.PollDevice(code);
                 if (r == "ok") { Log.Info("login: signed in"); f.Close(); OnLogin(); break; }
                 if (r == "slow_down") every++;
-                else if (r != "authorization_pending") { Log.Warn("login: " + r); status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Twitch login: " + r; break; }
+                else if (r != "authorization_pending") { Log.Warn("login: " + r); ShowProblem("Twitch login did not finish", "Twitch answered: " + r + "\n\nThe code may have expired or been denied. Try again.", Login); break; }
             }
         }
-        catch (Exception ex) { Log.Error("login", ex); status.Text = "Twitch login: " + ex.Message; }
+        catch (Exception ex) { Log.Error("login", ex); ShowProblem("Twitch login failed", ex.Message, Login); }
         finally
         {
             loggingIn = false;
@@ -450,6 +455,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     {
         if (!watching) { tick.Stop(); return; }
         ResyncMpv();
+        CheckVariants();   // fork: the quality box lists this stream's real variants
         if ((DateTime.Now - lastResize).TotalMilliseconds > 600) ApplyEnhance(false);
         if (slPid == 0 || slProc == null) return;
         bool alive = false;
@@ -472,7 +478,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         else
         {
             fullscreen = false; bar.Visible = true;
-            FormBorderStyle = FormBorderStyle.Sizable; Bounds = normalBounds; WindowState = normalState;
+            FormBorderStyle = FormBorderStyle.Sizable; Bounds = RestoreTarget(normalBounds); WindowState = normalState;
         }
         Relayout();
     }
@@ -490,7 +496,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     void ApplyEnhance(bool force)
     {
         if (!watching) return;
-        int pic = Math.Max(0, picture.SelectedIndex);
+        int pic = GamingPicture(Math.Max(0, picture.SelectedIndex));   // fork: Gaming Mode may lower it
         if (force || appliedPic != pic.ToString())
         {
             bool ultra = pic == 3;
@@ -509,7 +515,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             appliedPic = pic.ToString();
         }
         double s = videoH > 0 ? Math.Max(1.0, Math.Round((double)video.Height / videoH, 2)) : 1.0;
-        bool useRtx = rtx.Checked && HasNvidia;
+        bool useRtx = rtx.Checked && HasNvidia && !gamingActive;
         string vf = !useRtx ? "off" : pic >= 2 ? "1.05" : s > 1.04 ? s.ToString("0.00", CultureInfo.InvariantCulture) : "off";
         double prev, now;
         bool near = vf != "off" && double.TryParse(appliedVf, NumberStyles.Float, CultureInfo.InvariantCulture, out prev)
@@ -617,7 +623,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         bool fromBackup;
         var ini = IniStore.Read(iniPath, out fromBackup);
         if (fromBackup) Log.Warn("settings: " + Path.GetFileName(iniPath) + " was unreadable, used the last good copy");
-        int q = Array.IndexOf(Qualities, Native.Get(ini, "quality", "Best")); quality.SelectedIndex = q < 0 ? 0 : q;
+        SelectQuality(Native.Get(ini, "quality", "Best"));   // fork: also a saved variant (360p...)
         chatOn.Checked = Native.Get(ini, "chat", "1") == "1";
         int.TryParse(Native.Get(ini, "volume", "70"), out volume); volume = Math.Max(0, Math.Min(100, volume));
         muted = Native.Get(ini, "muted", "0") == "1"; UpdateMute();
@@ -639,6 +645,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             Bounds = new Rectangle(wa.Left + (wa.Width - 1296) / 2, wa.Top + (wa.Height - 760) / 2, 1296, 760);
         }
         if (Native.Get(ini, "max", "0") == "1") WindowState = FormWindowState.Maximized;
+        LoadForkSettings(ini);
         settingsLoading = false;
     }
 
@@ -651,7 +658,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             // written atomically, the previous file kept as liteview.ini.bak (upstream: File.WriteAllLines)
             IniStore.Write(iniPath, "LiteView for Twitch (saved automatically)", new[] { "quality=" + quality.SelectedItem, "chat=" + (chatOn.Checked ? "1" : "0"), "volume=" + volume, "muted=" + (muted ? "1" : "0"), "picture=" + ((string)picture.SelectedItem ?? "Picture: Enhance").Replace("Picture: ", ""), "rtx=" + (rtx.Checked ? "1" : "0"), "chatmode=" + (webChat ? "web" : "native"), "sidebar=" + (side.Collapsed ? "closed" : "open"),
                 "x=" + b.X, "y=" + b.Y, "w=" + b.Width, "h=" + b.Height, "max=" + (WindowState == FormWindowState.Maximized ? "1" : "0") }
-                .Select(l => { int i = l.IndexOf('='); return new KeyValuePair<string, string>(l.Substring(0, i), l.Substring(i + 1)); }));
+                .Select(l => { int i = l.IndexOf('='); return new KeyValuePair<string, string>(l.Substring(0, i), l.Substring(i + 1)); }).Concat(ForkSettings()));
         }
         catch (Exception ex) { Log.Error("saving settings", ex); }
     }
@@ -675,11 +682,11 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();
-        ulong m = Native.NonCacheDieMask();
+        ulong m = CpuAffinity();   // fork: the CPU use setting (src/app/LiteView.Performance.cs)
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this
         {
             if (m != 0) self.ProcessorAffinity = new IntPtr((long)m);
-            self.PriorityClass = ProcessPriorityClass.BelowNormal;
+            self.PriorityClass = CpuChoice().Priority == CpuPriority.Normal ? ProcessPriorityClass.Normal : ProcessPriorityClass.BelowNormal;
         }
         Application.Run(new LiteView());
     }
@@ -700,7 +707,7 @@ class VolumeBar : Control
         using (var p = new Pen(Fill, 4)) g.DrawLine(p, x0, y, xv, y);
         using (var b = new SolidBrush(Knob)) g.FillEllipse(b, xv - 6, y - 6, 12, 12);
     }
-    void Set(int v) { v = Math.Max(0, Math.Min(100, v)); if (v == Value) return; Value = v; Invalidate(); if (Changed != null) Changed(v); }
+    public void Set(int v) { v = Math.Max(0, Math.Min(100, v)); if (v == Value) return; Value = v; Invalidate(); if (Changed != null) Changed(v); }
     protected override void OnMouseDown(MouseEventArgs e) { Capture = true; Set((e.X - 7) * 100 / Math.Max(1, Width - 14)); }
     protected override void OnMouseMove(MouseEventArgs e) { if (e.Button == MouseButtons.Left) Set((e.X - 7) * 100 / Math.Max(1, Width - 14)); }
     protected override void OnMouseWheel(MouseEventArgs e) { Set(Value + (e.Delta > 0 ? 5 : -5)); }

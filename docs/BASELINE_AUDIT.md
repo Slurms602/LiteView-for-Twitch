@@ -123,12 +123,12 @@ size-limited image download had no deadline for the body, so a stalled server co
 
 | ID | Finding | Where | Status |
 |---|---|---|---|
-| EXT-1 | The Following page depends on Twitch's website markup and URL patterns (the click script intercepts `<a href>` with one path segment). A Twitch redesign can break browsing silently. | `liteview.cs` 267-274 | Open, replaced by native browsing in P2 |
+| EXT-1 | The Following page depends on Twitch's website markup and URL patterns (the click script intercepts `<a href>` with one path segment). A Twitch redesign can break browsing silently. | `liteview.cs` 267-274 | Mitigated: LiteView's own Following page (Helix) is the default; the website page is a fallback |
 | EXT-2 | Web chat uses Twitch's popout URL `popout/<ch>/chat?popout=&darkpopout` (not a documented API). | `liteview.cs` 416 | Open |
 | EXT-3 | BetterTTV zero-width emotes are a hard-coded name list. | `chat.cs` 727 | Open |
 | EXT-4 | 7TV API v3 (`7tv.io/v3`). Hypothesis: 7TV may retire v3 in favour of its v4 API. | `chat.cs` 662, 679 | Open, watch |
 | EXT-5 | Stream status comes from parsing Streamlink's log text (`error:` lines). Wording changes in Streamlink would change the messages; the classifier's tests pin today's strings. | `liteview.cs` 529; now `StreamOutcome` | Open (inherent) |
-| EXT-6 | "NVIDIA present" = `nvapi64.dll` exists. Also true for non-RTX NVIDIA cards, where the RTX box does nothing. | `liteview.cs` 58 | Open |
+| EXT-6 | "NVIDIA present" = `nvapi64.dll` exists. Also true for non-RTX NVIDIA cards, where the RTX box does nothing. | `liteview.cs` 58 | Fixed (P2 branch), not yet checked on Windows |
 | EXT-7 | Anonymous chat uses Twitch's documented `justinfan` convention; IRC itself is supported by Twitch for chat clients. | `chat.cs` 189-190 | OK |
 
 ### 2.5 UI, DPI, layout
@@ -136,10 +136,10 @@ size-limited image download had no deadline for the body, so a stalled server co
 | ID | Sev. | Finding | Status |
 |---|---|---|---|
 | UI-1 | Medium | Not DPI aware: fixed pixel sizes everywhere (`BarH = 40`, `ChatW = 340`, row heights, fonts in points but bounds in pixels). At 125-200 % Windows stretches the window (blurry). The README itself says "best at 100 %". Declaring DPI awareness without scaling the layout would make it tiny, so it is **not** declared yet. | Open (P2) |
-| UI-2 | Low | Fullscreen uses the screen the window is on at that moment; moving monitors or changing resolution while fullscreen is not handled. | Open (P3) |
-| UI-3 | Low | Chat width is fixed (340 px) except when maximized. | Open (P4) |
-| UI-4 | Medium | The custom-drawn controls (followed channels, chat, emote picker) expose nothing to screen readers and have little keyboard navigation. | Open (P5) |
-| UI-5 | Low | The status line is the only error surface; long Streamlink errors are cut off by the bar. | Open (P1) |
+| UI-2 | Low | Fullscreen uses the screen the window is on at that moment; moving monitors or changing resolution while fullscreen is not handled. | Fixed (P2 branch), not yet checked on Windows |
+| UI-3 | Low | Chat width is fixed (340 px) except when maximized. | Fixed (P2 branch), not yet checked on Windows |
+| UI-4 | Medium | The custom-drawn controls (followed channels, chat, emote picker) expose nothing to screen readers and have little keyboard navigation. | Fixed for the Following page, followed column and chat (UI Automation + MSAA, checked on CI); the emote picker is still drawn only |
+| UI-5 | Low | The status line is the only error surface; long Streamlink errors are cut off by the bar. | Fixed (P2 branch), not yet checked on Windows |
 
 ### 2.6 Duplication and dependencies
 

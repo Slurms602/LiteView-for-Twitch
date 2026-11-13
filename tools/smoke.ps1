@@ -7,7 +7,10 @@ param(
     [Parameter(Mandatory = $true)] [string]$Dir,
     [string]$Out = 'smoke',
     [int]$Seconds = 30,
-    [string[]]$AppArgs = @()
+    [string[]]$AppArgs = @(),
+    [switch]$A11y,
+    [string]$FakeStreamlink,   # CI: replace Streamlink in the copy with tests/FakeStreamlink (no Twitch needed)          # also save what screen readers see (tools/a11y-dump.ps1) as a11y.txt
+    [hashtable]$Env = @{}   # e.g. @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'followed' } (made-up data, docs/TESTING.md)
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -16,6 +19,11 @@ $Out = (New-Item -ItemType Directory -Force $Out).FullName
 $src = (Resolve-Path $Dir).Path
 $app = Join-Path ([IO.Path]::GetTempPath()) ('liteview-smoke-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 Copy-Item $src $app -Recurse
+if ($FakeStreamlink)
+{
+    $sl = Get-ChildItem (Join-Path $app 'twitch\streamlink') -Recurse -Filter streamlinkw.exe | Select-Object -First 1
+    Copy-Item $FakeStreamlink $sl.FullName -Force
+}
 $exe = Join-Path $app 'LiteView.exe'
 $report = New-Object System.Collections.Generic.List[string]
 function Note([string]$s) { $report.Add($s); Write-Host $s }
@@ -58,10 +66,13 @@ function Tree([int]$id) {   # the process and everything it started (WebView2, S
 }
 
 $t0 = Get-Date
-Note "smoke: $exe $($AppArgs -join ' ')"
+Note "smoke: $exe $($AppArgs -join ' ') $(($Env.Keys | ForEach-Object { "$_=$($Env[$_])" }) -join ' ')"
 $start = @{ FilePath = $exe; WorkingDirectory = $app; PassThru = $true }
 if ($AppArgs.Count -gt 0) { $start.ArgumentList = $AppArgs }   # Start-Process refuses an empty list
-$p = Start-Process @start
+$saved = @{}
+foreach ($k in $Env.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, [string]$Env[$k]) }
+try { $p = Start-Process @start }
+finally { foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
 $null = $p.Handle   # keeps the exit code readable after the process ends
 $firstWindow = $null
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
@@ -80,7 +91,19 @@ if ($p.HasExited) {
     Note ("FAIL: LiteView exited after {0:N1} s with exit code 0x{1:X8}" -f ($p.ExitTime - $t0).TotalSeconds, $p.ExitCode)
 } else {
     if ($null -eq $firstWindow) { $ok = $false; Note "FAIL: still running after $Seconds s without its main window (top window: '$($p.MainWindowTitle)')" }
-    else { Note ("window after {0:N1} s: '{1}'" -f $firstWindow, $p.MainWindowTitle); WindowShot $p.MainWindowHandle 'window.png' }
+    else
+    {
+        Note ("window after {0:N1} s: '{1}'" -f $firstWindow, $p.MainWindowTitle); WindowShot $p.MainWindowHandle 'window.png'
+        if ($A11y)
+        {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'a11y-dump.ps1') -ProcessId $p.Id -Out (Join-Path $Out 'a11y.txt') | Out-Null
+            $dump = Join-Path $Out 'a11y.txt'
+            $uia = Select-String -Path $dump -Pattern '^LIST .*\([1-9][0-9]* items\)' -Quiet         # Narrator
+            $msaa = Select-String -Path $dump -Pattern '^MSAA LIST .*\([1-9][0-9]* items\)' -Quiet   # NVDA, JAWS
+            if (-not ($uia -and $msaa)) { $ok = $false; Note "FAIL: screen readers see no list items (UI Automation: $uia, MSAA: $msaa; a11y.txt)" }
+            else { Note "screen readers see the lists (UI Automation and MSAA; a11y.txt)" }
+        }
+    }
     foreach ($c in Tree $p.Id) { Note ("  process {0} ({1}): {2:N0} MB" -f $c.Name, $c.ProcessId, ($c.WorkingSetSize / 1MB)) }
     # close it the normal way (runs the save-settings and stop-stream code), then make sure nothing is left
     [void]$p.CloseMainWindow()

@@ -31,6 +31,16 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/common.cs` | `Native`: Win32 P/Invokes, CPU-die mask, ini helpers | upstream, delegates to core |
 | `src/guard.cs` | GameFirst.exe | upstream, small edits |
 | `src/app/LiteView.Fork.cs` | The fork's additions to the main window (same partial class): WebView2 hardening, stream start/exit/retry, diagnostics, logging, crash handling | fork |
+| `src/app/LiteView.Browse.cs` | Wiring of the native Following page, the top-right app menu, the fork's settings keys | fork |
+| `src/app/BrowsePage.cs` | Native Following page control (cards, lists, search, images within a budget) | fork |
+| `src/app/LiteView.Extras.cs` | Keyboard shortcuts, favourite go-live notifications, settings export/import/reset, update check | fork |
+| `src/app/LiteView.Chat.cs` | Chat preferences (`ChatPrefs`), chat width handle, the list dialog | fork |
+| `src/app/LiteView.Performance.cs` | CPU use modes, Gaming mode | fork |
+| `src/app/LiteView.Screens.cs` | Fullscreen across monitors, RTX card detection | fork |
+| `src/app/ProblemPopup.cs`, `DarkMenu.cs` | Error details window, dark menus | fork |
+| `src/app/ListAccessible.cs` | Screen-reader access for the drawn lists: `ListModel`, MSAA (`ListAccessible`), UI Automation (`UiaList`) | fork |
+| `tests/FakeStreamlink/` | CI-only stand-in for Streamlink (never packaged) | fork |
+| `src/app/Fixture.cs` | Testing only: made-up Twitch answers for CI screenshots | fork |
 | `src/app/Launcher.cs` | The only place links are opened | fork |
 | `src/app/LoginDialog.cs` | Device-code login window (system browser) | fork |
 | `src/core/` | `LiteView.Core.dll`: pure logic, no UI, no network, built for `net48` and `net10.0` | fork |
@@ -62,6 +72,13 @@ fork-only half is `src/app/LiteView.Fork.cs`.
 | `Storage.cs` | `AtomicFile` (temp + replace, optional `.bak`), `IniStore` (parse, read with last-known-good fallback, write) |
 | `Log.cs` | `Redact` (credential and channel removal), `Log` (levels, rotation, tail) |
 | `Limits.cs` | `Bounded` (size-limited stream reads), `CpuTopology` (L3 parsing and the pinning decision), `Diagnostics` (report text) |
+| `Browse.cs` | Following page data: Helix records, text clean-up, image URLs, sorting, formats, `ChannelList`, `TimedCache`, `Latest`, `Following` (the Helix calls with paging limits) |
+| `Display.cs` | `Box`, RTX card names, where a window goes after fullscreen |
+| `Extras.cs` | `LiveWatch`, `QuietHours`, `SettingsImport`, `Versions` |
+| `ChatFilter.cs` | Ignored users, highlight words, timestamps |
+| `Performance.cs` | `Scheduling` (CPU use modes), `GameDetect`, `GamingSwitch` |
+| `GuardLedger.cs` | What GameFirst changed, for `--stop` |
+| `ChatStress.cs` | Synthetic chat for the stress mode |
 
 ## Threads and ownership
 

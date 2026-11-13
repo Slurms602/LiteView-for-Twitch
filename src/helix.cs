@@ -30,7 +30,7 @@ static class Tw
         Http.Timeout = TimeSpan.FromSeconds(20);
         Http.MaxResponseContentBufferSize = Bounded.MaxJsonBytes;   // upstream: the 2 GB default
         Http.DefaultRequestHeaders.UserAgent.ParseAdd("LiteView-Enhanced/" + typeof(Tw).Assembly.GetName().Version);
-        api = new TwitchClient(ClientId, Http, new DpapiTokenFile(tokenFile));
+        api = Fixture.On ? Fixture.Client(ClientId) : new TwitchClient(ClientId, Http, new DpapiTokenFile(tokenFile));   // Fixture: testing only (src/app/Fixture.cs)
         api.Load();
     }
 
@@ -39,7 +39,7 @@ static class Tw
     public static string UserId { get { var a = api; return a != null ? a.UserId : null; } }
     public static string[] Granted { get { var a = api; return a != null ? a.Granted : new string[0]; } }   // scopes of the current token
     public static bool Has(string scope) { var a = api; return a != null && a.Has(scope); }
-    public static void Session(out string login, out string token) { var a = api; if (a != null) a.Session(out login, out token); else login = token = null; }
+    public static void Session(out string login, out string token) { var a = api; if (a != null && !Fixture.On) a.Session(out login, out token); else login = token = null; }   // fixture: anonymous chat
 
     public static void LogOut() { var a = api; if (a != null) a.LogOut(); }
     public static Task<bool> Validate() { return Api.Validate(); }

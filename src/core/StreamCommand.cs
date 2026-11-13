@@ -1,5 +1,6 @@
 // Building the Streamlink command line, and reading what its exit means.
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -48,8 +49,47 @@ namespace LiteViewCore
                 case "720p60": return "720p60,720p,best";
                 case "480p": return "480p,best";
                 case "Audio only": return "audio_only,audio,worst";
-                default: return "best";
             }
+            var m = choice == null ? null : Variant.Match(choice);   // a variant this stream offers, e.g. 1440p60 or 360p
+            if (m != null && m.Success) return choice + (m.Groups[2].Success ? "," + m.Groups[1].Value + "p" : "") + ",best";
+            return "best";
+        }
+
+        /// <summary>A variant name such as 360p or 1440p60 (what the quality box may hold besides the fixed choices).</summary>
+        public static bool IsVariant(string? s) { return s != null && Variant.IsMatch(s); }
+
+        // only these names ever reach the command line
+        static readonly System.Text.RegularExpressions.Regex Variant = new System.Text.RegularExpressions.Regex(@"^([1-9][0-9]{2,3})p([1-9][0-9]{1,2})?$");
+
+        /// <summary>
+        /// The stream's variants from Streamlink's log line "Available streams: audio_only, 160p (worst), 360p, 720p60,
+        /// 1080p60 (best)" (the last one in the log); only well-formed names (NNNp, NNNpFF, audio_only).
+        /// </summary>
+        public static List<string> Available(IEnumerable<string> logLines)
+        {
+            string? last = null;
+            foreach (var l in logLines) if (l.IndexOf("Available streams:", StringComparison.Ordinal) >= 0) last = l;
+            var list = new List<string>();
+            if (last == null) return list;
+            foreach (var part in last.Substring(last.IndexOf("Available streams:", StringComparison.Ordinal) + 18).Split(','))
+            {
+                string n = part.Replace("(worst)", "").Replace("(best)", "").Trim();
+                if ((n == "audio_only" || Variant.IsMatch(n)) && !list.Contains(n)) list.Add(n);
+            }
+            return list;
+        }
+
+        /// <summary>The quality box for a stream: Best, its video variants from high to low, Audio only when it has one.</summary>
+        public static List<string> ChoicesFor(IList<string> available)
+        {
+            var video = available.Select(n => new { n, m = Variant.Match(n) }).Where(x => x.m.Success)
+                .OrderByDescending(x => int.Parse(x.m.Groups[1].Value, CultureInfo.InvariantCulture))
+                .ThenByDescending(x => x.m.Groups[2].Success ? int.Parse(x.m.Groups[2].Value, CultureInfo.InvariantCulture) : 30)
+                .Select(x => x.n);
+            var list = new List<string> { "Best" };
+            list.AddRange(video);
+            if (available.Contains("audio_only")) list.Add("Audio only");
+            return list;
         }
     }
 

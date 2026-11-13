@@ -55,9 +55,21 @@ jobs:
           name: LiteView-Enhanced-ci-${{ github.sha }}
           path: dist/LiteView-Enhanced-0.0.0-ci/
           retention-days: 7
-      - name: Start the app (window appears, closes cleanly)
+      - name: Start the app (window appears, closes cleanly), then each page with made-up data
         shell: pwsh
-        run: ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke
+        run: |
+          $dir = 'dist/LiteView-Enhanced-0.0.0-ci'; $failed = 0
+          dotnet build tests/FakeStreamlink -c Release --no-restore -o fake
+          $fake = (Resolve-Path fake/streamlinkw.exe).Path
+          ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'problem', 'chat', 'watch', 'offline', 'fail') {
+            $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
+            $more = @{ A11y = $scene -in 'live', 'followed', 'chat' }   # also check what screen readers see
+            if ($scene -in 'watch', 'offline', 'fail') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
+            ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-')) -Env $vars @more
+            if ($LASTEXITCODE) { $failed++ }
+          }
+          exit $failed
       - name: Screenshot and logs of the start
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

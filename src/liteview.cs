@@ -669,6 +669,8 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     [STAThread]
     static void Main(string[] args)
     {
+        Application.EnableVisualStyles();
+        CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         if (args.Length > 0) startChannel = args[0];
         StartLogging();
         ulong m = Native.NonCacheDieMask();
@@ -677,8 +679,6 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             if (m != 0) self.ProcessorAffinity = new IntPtr((long)m);
             self.PriorityClass = ProcessPriorityClass.BelowNormal;
         }
-        Application.EnableVisualStyles();
-        CatchCrashes();
         Application.Run(new LiteView());
     }
 }

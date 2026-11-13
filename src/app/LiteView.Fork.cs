@@ -49,6 +49,13 @@ partial class LiteView
             if (watching && retryGen == gen && channel != null && slProc == null) Watch(channel, true);
         };
         status.Click += (s, e) => { if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPower;
+        System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetwork;
+        FormClosed += (s, e) =>
+        {
+            Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPower;
+            System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= OnNetwork;
+        };
         Log.Info("window ready; CPU mask " + (mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X")) + ", NVIDIA " + HasNvidia);
     }
 
@@ -84,6 +91,38 @@ partial class LiteView
             try { var b = Encoding.UTF8.GetBytes(item.Value + "\n"); p.Write(b, 0, b.Length); p.Flush(); }
             catch (Exception) { }   // the pipe broke (mpv ended): PipeLoop notices and reconnects
         }
+    }
+
+    // ---------- sleep / resume and network changes ----------
+
+    void Later(Action a) { try { if (!IsDisposed && IsHandleCreated) BeginInvoke(a); } catch (InvalidOperationException) { } }
+
+    void OnPower(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume) Later(AfterResume);
+    }
+
+    // After sleep the stream is minutes behind (or its connections are dead) and the chat socket may be half-open:
+    // check the login, then start chat and the stream again at the live edge.
+    void AfterResume()
+    {
+        Log.Info("resumed from sleep");
+        CheckLogin();
+        if (!watching || channel == null) return;
+        if (chatOn.Checked && !webChat) nchat.Reconnect();
+        Watch(channel, true);
+    }
+
+    void OnNetwork(object sender, System.Net.NetworkInformation.NetworkAvailabilityEventArgs e)
+    {
+        if (!e.IsAvailable) { Log.Info("network: no connection"); return; }
+        Later(() =>
+        {
+            Log.Info("network: connected again");
+            if (!watching || channel == null) return;
+            if (chatOn.Checked && !webChat) nchat.Reconnect();
+            if (slProc == null && canRetry) Watch(channel);   // a stream that gave up or is waiting to retry: now
+        });
     }
 
     // ---------- embedded browser ----------

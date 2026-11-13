@@ -61,6 +61,9 @@ namespace LiteViewCore
         public event Action<string>? Line;
         public event Action<string>? Status;
         public Uri Server = TwitchServer;
+        /// <summary>Twitch sends PING about every 5 minutes. Quiet this long: we PING; no answer within PongTimeout: reconnect.
+        /// (After sleep or a network change a dead socket can otherwise stay unnoticed for a long time.)</summary>
+        public TimeSpan IdleTimeout = TimeSpan.FromMinutes(6), PongTimeout = TimeSpan.FromSeconds(20);
 
         readonly SessionSource session;
         readonly Func<IIrcTransport> newTransport;
@@ -138,6 +141,7 @@ namespace LiteViewCore
             while (!c.IsCancellationRequested)
             {
                 var s = newTransport(); TimeSpan upAt = TimeSpan.Zero; bool connected = false;
+                Task<string?>? pending = null;
                 try
                 {
                     await s.ConnectAsync(Server, c).ConfigureAwait(false);
@@ -151,10 +155,27 @@ namespace LiteViewCore
                     await SendRaw(s, token != null ? "PASS oauth:" + token : "PASS SCHMOOPIIE").ConfigureAwait(false);
                     await SendRaw(s, "NICK " + (token != null ? login : "justinfan" + anon)).ConfigureAwait(false);
                     await SendRaw(s, "JOIN #" + chan).ConfigureAwait(false);
-                    bool again = false;
+                    bool again = false, pinged = false;
                     while (s.IsOpen && !again)
                     {
-                        string? text = await s.ReceiveAsync(c).ConfigureAwait(false);   // one WebSocket message is never buffered past 1 MB
+                        // one receive stays pending while the idle timer runs (cancelling a WebSocket receive would abort it)
+                        pending ??= s.ReceiveAsync(c);   // one WebSocket message is never buffered past 1 MB
+                        using (var t = CancellationTokenSource.CreateLinkedTokenSource(c))
+                        {
+                            var timer = Task.Delay(pinged ? PongTimeout : IdleTimeout, t.Token);
+                            var first = await Task.WhenAny(pending, timer).ConfigureAwait(false);
+                            t.Cancel();
+                            if (first != pending)
+                            {
+                                if (c.IsCancellationRequested) break;
+                                if (pinged) { Log.Info("chat: the server stopped answering, reconnecting"); break; }
+                                pinged = true;
+                                await SendRaw(s, "PING :tmi.twitch.tv").ConfigureAwait(false);
+                                continue;
+                            }
+                        }
+                        string? text = await pending.ConfigureAwait(false);
+                        pending = null; pinged = false;
                         if (text == null) break;
                         foreach (var line in IrcProtocol.Lines(text))
                         {
@@ -169,7 +190,13 @@ namespace LiteViewCore
                 catch (OperationCanceledException) { }
                 catch (TooLargeException) { Log.Warn("chat: oversized message from the server, reconnecting"); }
                 catch (Exception ex) { if (!c.IsCancellationRequested) Log.Info("chat: connection ended: " + ex.GetType().Name); }
-                finally { lock (life) { if (cur == s) cur = null; } try { s.Dispose(); } catch (Exception) { } }
+                finally
+                {
+                    lock (life) { if (cur == s) cur = null; }
+                    try { s.Dispose(); } catch (Exception) { }
+                    // a receive left pending fails once the socket is gone: observe it so it is not reported as unobserved
+                    if (pending != null) _ = pending.ContinueWith(x => x.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                }
                 if (c.IsCancellationRequested) break;
                 if (connected) backoff.Ended(clock() - upAt);
                 var wait = backoff.Next();

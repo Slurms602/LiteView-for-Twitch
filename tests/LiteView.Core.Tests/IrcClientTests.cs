@@ -226,3 +226,40 @@ public class IrcLifecycleTests
         Assert.False(irc.Send("PRIVMSG #second :after stop"));
     }
 }
+
+public class IrcLivenessTests
+{
+    [Fact]
+    public async Task ASilentServerIsPingedThenDropped()
+    {
+        var conns = new List<FakeConn>();
+        var irc = new Irc((out string? l, out string? t) => { l = null; t = null; },
+            () => { var c = new FakeConn(); lock (conns) conns.Add(c); return c; }, (d, ct) => Task.CompletedTask)
+        { IdleTimeout = TimeSpan.FromMilliseconds(150), PongTimeout = TimeSpan.FromMilliseconds(150) };
+        irc.Start("chan");
+        FakeConn c1; while (true) { lock (conns) if (conns.Count >= 1) { c1 = conns[0]; break; } await Task.Delay(5); }
+        await c1.Joined.Task;
+        // the server says nothing: after IdleTimeout we PING, after PongTimeout we reconnect
+        for (int i = 0; i < 400; i++) { lock (conns) if (conns.Count >= 2) break; await Task.Delay(10); }
+        Assert.Contains("PING :tmi.twitch.tv", c1.SentLines());
+        lock (conns) Assert.True(conns.Count >= 2, "did not reconnect");
+        irc.Stop();
+    }
+
+    [Fact]
+    public async Task AnAnswerKeepsTheConnection()
+    {
+        var conns = new List<FakeConn>();
+        var irc = new Irc((out string? l, out string? t) => { l = null; t = null; },
+            () => { var c = new FakeConn(); lock (conns) conns.Add(c); return c; }, (d, ct) => Task.CompletedTask)
+        { IdleTimeout = TimeSpan.FromMilliseconds(150), PongTimeout = TimeSpan.FromMilliseconds(400) };
+        irc.Start("chan");
+        FakeConn c1; while (true) { lock (conns) if (conns.Count >= 1) { c1 = conns[0]; break; } await Task.Delay(5); }
+        await c1.Joined.Task;
+        for (int i = 0; i < 200 && !c1.SentLines().Contains("PING :tmi.twitch.tv"); i++) await Task.Delay(5);
+        await c1.In.Writer.WriteAsync(":tmi.twitch.tv PONG tmi.twitch.tv :tmi.twitch.tv");   // the server answers
+        await Task.Delay(250);
+        lock (conns) Assert.Single(conns);
+        irc.Stop();
+    }
+}

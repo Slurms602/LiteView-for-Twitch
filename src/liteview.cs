@@ -147,7 +147,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
 
         LoadSettings();
         SetMode(false);
-        InitWeb();
+        InitBrowse();   // LiteView's Following page, or the Twitch website page (src/app/LiteView.Browse.cs)
         CheckLogin();
         Shown += (s, e) => { if (startChannel != null) Watch(startChannel); };
         new Thread(PipeLoop) { IsBackground = true, Priority = ThreadPriority.BelowNormal }.Start();
@@ -167,7 +167,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     void LayoutBar()
     {
         int x = bar.Width - 6;
-        foreach (Control c in new Control[] { fsBtn, volBar, muteBtn, rtx, picture, chatOn, quality })
+        foreach (Control c in new Control[] { menuBtn, fsBtn, volBar, muteBtn, rtx, picture, chatOn, quality })
         {
             x -= c.Width + 6;
             c.Location = new Point(x, (BarH - c.Height) / 2);
@@ -181,6 +181,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         search.Visible = !watch;
         status.Location = new Point(watch ? title.Right + 14 : search.Right + 14, 12);
         if (web != null) web.Visible = !watch;
+        ShowBrowse(!watch);
         video.Visible = watch; chatBox.Visible = watch && chatOn.Checked; side.Visible = watch;
         side.Run(watch);
         Relayout(); LayoutBar();
@@ -291,6 +292,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         StopStream(); StopChat();
         if (fullscreen) ToggleFullscreen();
         SetMode(false);
+        if (BrowseNative()) return;
         if (web == null) InitWeb();
         else if (webReady)
         {
@@ -326,6 +328,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
 
         if (chatOn.Checked) StartChat();
         tick.Start();
+        browse.Watched(name);
         SaveSettings();
     }
 
@@ -398,6 +401,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         nchat.UpdateLogin();
         if (watching && !webChat && chatOn.Checked) nchat.Reconnect();
         side.Reload();
+        browse.LoginChanged();
         status.ForeColor = Dim; status.Text = Tw.Login != null ? "Logged in as " + Tw.Login : "";
     }
 
@@ -639,6 +643,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             Bounds = new Rectangle(wa.Left + (wa.Width - 1296) / 2, wa.Top + (wa.Height - 760) / 2, 1296, 760);
         }
         if (Native.Get(ini, "max", "0") == "1") WindowState = FormWindowState.Maximized;
+        LoadForkSettings(ini);
         settingsLoading = false;
     }
 
@@ -651,7 +656,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             // written atomically, the previous file kept as liteview.ini.bak (upstream: File.WriteAllLines)
             IniStore.Write(iniPath, "LiteView for Twitch (saved automatically)", new[] { "quality=" + quality.SelectedItem, "chat=" + (chatOn.Checked ? "1" : "0"), "volume=" + volume, "muted=" + (muted ? "1" : "0"), "picture=" + ((string)picture.SelectedItem ?? "Picture: Enhance").Replace("Picture: ", ""), "rtx=" + (rtx.Checked ? "1" : "0"), "chatmode=" + (webChat ? "web" : "native"), "sidebar=" + (side.Collapsed ? "closed" : "open"),
                 "x=" + b.X, "y=" + b.Y, "w=" + b.Width, "h=" + b.Height, "max=" + (WindowState == FormWindowState.Maximized ? "1" : "0") }
-                .Select(l => { int i = l.IndexOf('='); return new KeyValuePair<string, string>(l.Substring(0, i), l.Substring(i + 1)); }));
+                .Select(l => { int i = l.IndexOf('='); return new KeyValuePair<string, string>(l.Substring(0, i), l.Substring(i + 1)); }).Concat(ForkSettings()));
         }
         catch (Exception ex) { Log.Error("saving settings", ex); }
     }

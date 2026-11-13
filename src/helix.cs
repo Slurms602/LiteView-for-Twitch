@@ -30,7 +30,7 @@ static class Tw
         Http.Timeout = TimeSpan.FromSeconds(20);
         Http.MaxResponseContentBufferSize = Bounded.MaxJsonBytes;   // upstream: the 2 GB default
         Http.DefaultRequestHeaders.UserAgent.ParseAdd("LiteView-Enhanced/" + typeof(Tw).Assembly.GetName().Version);
-        api = new TwitchClient(ClientId, Http, new DpapiTokenFile(tokenFile));
+        api = Fixture.On ? Fixture.Client(ClientId) : new TwitchClient(ClientId, Http, new DpapiTokenFile(tokenFile));   // Fixture: testing only (src/app/Fixture.cs)
         api.Load();
     }
 

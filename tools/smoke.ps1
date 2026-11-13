@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory = $true)] [string]$Dir,
     [string]$Out = 'smoke',
     [int]$Seconds = 30,
-    [string[]]$AppArgs = @()
+    [string[]]$AppArgs = @(),
+    [hashtable]$Env = @{}   # e.g. @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'followed' } (made-up data, docs/TESTING.md)
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -58,10 +59,13 @@ function Tree([int]$id) {   # the process and everything it started (WebView2, S
 }
 
 $t0 = Get-Date
-Note "smoke: $exe $($AppArgs -join ' ')"
+Note "smoke: $exe $($AppArgs -join ' ') $(($Env.Keys | ForEach-Object { "$_=$($Env[$_])" }) -join ' ')"
 $start = @{ FilePath = $exe; WorkingDirectory = $app; PassThru = $true }
 if ($AppArgs.Count -gt 0) { $start.ArgumentList = $AppArgs }   # Start-Process refuses an empty list
-$p = Start-Process @start
+$saved = @{}
+foreach ($k in $Env.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, [string]$Env[$k]) }
+try { $p = Start-Process @start }
+finally { foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
 $null = $p.Handle   # keeps the exit code readable after the process ends
 $firstWindow = $null
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {

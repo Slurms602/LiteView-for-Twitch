@@ -6,7 +6,7 @@
 dotnet test LiteView.sln -c Release
 ```
 
-175 unit tests (xUnit, `tests/LiteView.Core.Tests`) cover the pure logic in `src/core`. They run on any OS and need
+176 unit tests (xUnit, `tests/LiteView.Core.Tests`) cover the pure logic in `src/core`. They run on any OS and need
 no network, credentials or Twitch account.
 
 | Area | Test class | What it checks |
@@ -47,8 +47,8 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 7 | Send messages, Tab completion, ↑ history, emote picker | As upstream |
 | 8 | Busy 7TV channel for 30 minutes, switching channels a few times | No missing emotes that stay missing; *Export diagnostics* → "Emote image cache" stays ≤ 128 MB decoded |
 | 9 | Switch channels quickly 10 times | Each stream plays; volume/mute/fullscreen work on the last one; no stray `mpv.exe`/`streamlinkw.exe` in Task Manager afterwards |
-| 10 | Unplug the network for 20 s while watching, then reconnect | Status shows an error and "trying again in N s"; playback returns without clicking |
-| 11 | Open an offline channel | "Offline - trying again in 60 s"; it starts by itself when the channel goes live |
+| 10 | Unplug the network for 20 s while watching, then reconnect | Status shows an error and "trying again in N s"; playback returns without clicking; you stay logged in |
+| 11 | Open an offline channel | Within a few seconds: "Offline - it starts by itself when the channel goes live"; it does start when the channel goes live. Send `streamlink.log` from this test: it confirms the log format the status relies on |
 | 12 | Rename `twitch\mpv\mpv.exe`, open a stream | "mpv is missing..." message; rename it back |
 | 13 | Quality: each choice including *Audio only* | Plays; audio only shows a black video area |
 | 14 | Picture presets Off/Enhance/High/Ultra, RTX on/off | As upstream |

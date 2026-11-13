@@ -19,8 +19,10 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 
 - A chat message ending in "RECONNECT" no longer disconnects your chat.
 - Typing or pasting a channel URL such as `twitch.tv/name/videos` opens `name`, not `namevideos`.
-- When a stream drops, LiteView tries again by itself (quickly at first, then more slowly), and checks an offline
-  channel every minute. After repeated failures it stops; click the status text to try again.
+- When a stream drops, LiteView tries again by itself (quickly at first, then more slowly). An offline channel shows
+  "Offline" and starts by itself when it goes live. After repeated failures it stops; click the status text to try again.
+- A short network or Twitch outage no longer logs you out; chat keeps working after the hourly token refresh.
+- A frozen video player can no longer freeze the whole window.
 - The "playing" check no longer gets confused by another mpv window on your PC.
 - Settings are saved safely (a crash while saving cannot wipe them; the previous file is kept as `liteview.ini.bak`),
   and no longer briefly reset to defaults while LiteView starts.
@@ -35,5 +37,5 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 
 ### For developers
 
-- SDK-style projects (`LiteView.sln`), 175 unit tests, GitHub Actions CI, pinned packages with lock files,
+- SDK-style projects (`LiteView.sln`), 176 unit tests, GitHub Actions CI, pinned packages with lock files,
   `tools/upstream.sh` for taking upstream changes. See `docs/`.

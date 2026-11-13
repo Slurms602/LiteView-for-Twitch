@@ -88,6 +88,25 @@ Severity: **High**: exploitable or likely to hurt users. **Medium**: real defect
 | REL-14 | Low | Helix 429 (rate limit) is treated as a failure. | `helix.cs` 128-147 | Waits for `Ratelimit-Reset` (≤10 s) once. | - | Fixed |
 | REL-15 | Low | CPU topology ignores processor groups: on CPUs with more than 64 threads a group-1 mask would be applied to group 0. | `common.cs` 200-222 | No pinning when any L3 is outside group 0, or the result has fewer than 2 threads. | `TopologyTests` | Fixed |
 
+### 2.2b Found by the independent review (Codex, 2026-11-13)
+
+The spec's reviewer role was run with the Codex CLI on the P0 diff (read-only). It reported 10 findings. Each was
+checked against the code and accepted; all are fixed in commit `462bc02`. Those that already existed upstream:
+
+| ID | Sev. | Finding | Evidence (baseline) | Fix | Status |
+|---|---|---|---|---|---|
+| REL-16 | High | A stalled mpv can freeze the UI: `SendMpv` writes to the pipe synchronously, under a lock, from the UI thread. | `liteview.cs` 609-616 | Bounded command queue + one writer thread; commands for an older stream are dropped | Fixed, unverified |
+| REL-17 | Medium | A refresh that fails only because Twitch did not answer (network, 5xx) deletes the login. | `helix.cs` 104-106, 122 | Only 400/401 log out; otherwise the refresh token is kept for a later retry | Fixed |
+| REL-18 | Medium | A refresh or validation answer arriving after log out restores the credentials (`Take` is unconditional). | `helix.cs` 113-126 | Credential changes under one lock with a generation number; stale answers discarded | Fixed |
+| REL-19 | Medium | Native chat reconnects with the token it joined with, even after the hourly refresh replaced it. | `chat.cs` 145-150, 644 | Login and token read for every connection attempt; reconnect when the account changes | Fixed |
+| REL-20 | Medium | Web-chat start-up does not check, after its awaits, that it is still wanted; switching to native chat meanwhile leaves `chatReady` pointing at a disposed control. The first `await Env()` is outside the error handling. | `liteview.cs` 410-433 | Re-checks after each await, works on one captured control | Fixed, unverified |
+| REL-21 | Medium | **Streamlink's error text never reaches the log file** in 8.6.3: the final `error: ...` message goes to the console only, and `streamlinkw.exe` has none (confirmed in `streamlink_cli/main.py` of 8.6.3), so upstream always fell back to "offline". | `liteview.cs` 529 | Errors read from the real `[name][error]` log lines; offline channels use Streamlink's `--retry-streams 30` and the status says "Offline - it starts by itself when the channel goes live" | Fixed (log format from the source; real logs still to be captured on Windows) |
+| BLD-1 | Low | `build.ps1` ignores `tar.exe` failures, so a broken unpack could still be packaged. | `build.ps1` 59-60, 66 | Exit codes and the player executables checked; the zip's entry count checked | Fixed |
+
+Found in this fork's own new code before any release (fixed in the same commit): decoded emotes that loaded off
+screen were never counted in the frame budget; freed *static* emotes could stay blank when scrolled back to; the new
+size-limited image download had no deadline for the body, so a stalled server could hold all four download slots.
+
 ### 2.3 Resources (CPU, memory, wake-ups)
 
 | ID | Sev. | Finding | Evidence | Fix | Tests | Status |
@@ -135,7 +154,7 @@ Severity: **High**: exploitable or likely to hurt users. **Medium**: real defect
 
 | ID | Finding | Status |
 |---|---|---|
-| DIAG-1 | No automated tests at all. | 175 unit tests for the extracted logic (`tests/`). UI and integration tests: Open (P1) |
+| DIAG-1 | No automated tests at all. | 176 unit tests for the extracted logic (`tests/`). UI and integration tests: Open (P1) |
 | DIAG-2 | No application log; only `streamlink.log`. | `liteview.log`, rotating, redacted |
 | DIAG-3 | No diagnostics export. | Chat gear menu → *Export diagnostics...* |
 | DIAG-4 | Many `catch { }` blocks hide failures (token load, settings save, emote loads, chat). | The important ones now log; the rest are deliberate (logging must not break drawing) |

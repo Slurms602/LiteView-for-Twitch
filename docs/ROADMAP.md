@@ -13,7 +13,7 @@ checked on Windows. "Implemented" means written, compiled and unit-tested where 
 | Upstream tracking workflow | Done: `docs/UPSTREAM.md`, `tools/upstream.sh` (tested against a simulated upstream) |
 | Security hardening (SEC-1 … SEC-21) | Implemented, unit-tested where the logic allows; **needs the Windows pass** in `TESTING.md` |
 | Confirmed reliability fixes (REL-1 … REL-15) | Implemented; same |
-| Basic tests | Done: 175 unit tests, CI on Linux and Windows (CI not yet run: no GitHub fork yet) |
+| Basic tests | Done: 176 unit tests, CI on Linux and Windows (CI not yet run: no GitHub fork yet) |
 | Diagnostics | Implemented: log, crash log, *Export diagnostics...* |
 | Architecture docs | Done |
 

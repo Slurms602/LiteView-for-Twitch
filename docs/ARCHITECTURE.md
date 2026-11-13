@@ -65,7 +65,8 @@ fork-only half is `src/app/LiteView.Fork.cs`.
 | Thread | Owns / does | Talks to the UI by |
 |---|---|---|
 | UI thread | All controls, settings, the stream (`job`, `slProc`, `gen`), the emote frame budget, all drawing of frames | - |
-| mpv pipe thread (`PipeLoop`, background, Below Normal) | The pipe client. Sleeps on `streamOn` while nothing plays | `Ui(gen, action)`: `BeginInvoke`, dropped if the generation changed |
+| mpv pipe thread (`PipeLoop`, background, Below Normal) | Connects to and reads the pipe. Sleeps on `streamOn` while nothing plays | `Ui(gen, action)`: `BeginInvoke`, dropped if the generation changed |
+| mpv writer thread (`MpvWriter`, background) | Writes queued commands to the current pipe (queue of 256, tagged with the stream generation) | the UI only enqueues (`SendMpv`), so it never waits on mpv |
 | IRC task (`Irc.Loop`) | The WebSocket, PING/PONG, reconnect backoff | `ConcurrentQueue<Msg>` drained by a 100 ms UI timer |
 | Image tasks (≤ 4 at once) | Download + decode one emote; set `Frames`, then `State = 2` | `Images.Loaded` → `BeginInvoke` |
 | Emote-list / badge tasks | Build dictionaries, then swap the reference (`third`, `badges`) | volatile reference swap + `BeginInvoke` |
@@ -87,8 +88,10 @@ Watch(channel)  ──► StopStream (TerminateJobObject, streamOn.Reset)
                     gen++, new pipe name, StreamCommand.Build (validated, quoted)
                     CreateProcess suspended → affinity → job → own Process handle → resume → streamOn.Set
 OnTick (500 ms) ──► alive + mpv connected for this gen → "playing"
+                    alive, no player yet → every 2 s read the log: "Waiting for streams" → "Offline - it starts by itself"
+                                           (Streamlink's --retry-streams 30 checks again), else the last [error] line
                     exited → StreamOutcome: Offline | Failed | Ended | Fatal → status text
-                           → retry: Offline every 60 s; Failed/Ended backoff 2 s…60 s (±jitter), 8 at most;
+                           → retry: Failed/Ended backoff 2 s…60 s (±jitter), 8 at most; Offline 60 s;
                              Fatal or too many → "click to try again"
 ```
 

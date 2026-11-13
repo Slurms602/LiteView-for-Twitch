@@ -32,6 +32,8 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 
 ### Added
 
+- Gear menu: **Sign out of twitch.tv in LiteView** (the website login used by the Following page and web chat;
+  *Log out* still ends only the chat login).
 - `liteview.log` (rotated at 1 MB, 3 kept; no tokens, no chat), and crash logging.
 - Chat gear menu: **Export diagnostics...** (a report without credentials or channel names) and **Open log folder**.
 

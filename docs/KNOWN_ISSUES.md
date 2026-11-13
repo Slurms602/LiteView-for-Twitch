@@ -14,7 +14,6 @@ Verified or clearly visible in the code. Finding ids are from `BASELINE_AUDIT.md
 | Issue | Detail | Plan |
 |---|---|---|
 | DPI scaling (UI-1) | Fixed pixel layout; best at 100 % display scaling, blurry when Windows scales it | P2 |
-| Logout keeps the website session (SEC-17) | The Twitch website stays logged in inside the `webview` folder | P1 |
 | Web chat has no 7TV emotes | Extensions are no longer loaded (security). The native chat shows 7TV, BTTV and FFZ emotes | By design |
 | Following page depends on Twitch's website markup (EXT-1) | A Twitch redesign can break clicking channels | Native browsing, P2 |
 | RTX box shows on any NVIDIA GPU (EXT-6) | Detection is "NVIDIA driver installed" | P3 |

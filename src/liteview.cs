@@ -278,6 +278,8 @@ document.addEventListener('click',function(e){if(e.button!==0||e.ctrlKey||e.shif
 var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;var n=ch(a);if(!n)return;
 e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             if (web != w) return;
+            await ApplyPendingSignOut(core);
+            if (web != w) return;
             webReady = true;
             core.Navigate(Home);
         }

@@ -43,7 +43,9 @@ What LiteView Enhanced trusts, what it does not, and how each boundary is protec
 - **Never logged**: every log line passes through `Redact.Secretsless` (`oauth:…`, `Bearer …`,
   `access_token`, `refresh_token`, `device_code`, `user_code`, `client_secret`, `Authorization`/`Client-Id`
   headers). Diagnostics exports also hide channel names and redact private settings keys.
-- **Open**: the client id is upstream's (SEC-16); logging out does not clear the WebView2 website session (SEC-17).
+- **Website session**: the Following page and web chat keep Twitch's own website login in the `webview` folder.
+  *Log out* ends the chat/API login only; gear menu → *Sign out of twitch.tv in LiteView* clears the website session.
+- **Open**: the client id is upstream's (SEC-16).
 
 ## Not done / residual risks
 

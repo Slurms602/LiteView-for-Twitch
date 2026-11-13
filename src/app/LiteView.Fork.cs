@@ -347,9 +347,42 @@ partial class LiteView
         diag.Click += (s, e) => ExportDiagnostics();
         var logs = new ToolStripMenuItem("Open log folder");
         logs.Click += (s, e) => { try { using (Process.Start("explorer.exe", WinArgs.Quote(root))) { } } catch (Exception ex) { Log.Error("open folder", ex); } };
+        var site = new ToolStripMenuItem("Sign out of twitch.tv in LiteView");
+        site.Click += (s, e) => SignOutOfWebsite();
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(site);
         menu.Items.Add(diag);
         menu.Items.Add(logs);
+    }
+
+    // The Following page and the web chat keep their own Twitch website login (cookies in the webview folder).
+    // "Log out" only ends the chat/API login (SEC-17), so this clears the website session too.
+    bool signOutPending;
+
+    async void SignOutOfWebsite()
+    {
+        if (MessageBox.Show(this, "Sign out of the Twitch website inside LiteView (the Following page and the web chat)?\n\n"
+            + "Your chat login is separate: use Log out for that.", "LiteView", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+        signOutPending = true;
+        if (web != null && webReady)
+        {
+            try { await ApplyPendingSignOut(web.CoreWebView2); web.CoreWebView2.Navigate(Home); }
+            catch (Exception ex) { Log.Error("website sign-out", ex); }
+        }
+        else { status.ForeColor = Dim; status.Text = "Signed out of twitch.tv; it applies when the Following page opens"; }
+    }
+
+    async System.Threading.Tasks.Task ApplyPendingSignOut(CoreWebView2 core)
+    {
+        if (!signOutPending) return;
+        try
+        {
+            await core.Profile.ClearBrowsingDataAsync();   // cookies, storage, cache of the LiteView profile only
+            signOutPending = false;
+            Log.Info("signed out of the Twitch website (WebView2 profile data cleared)");
+            status.ForeColor = Dim; status.Text = "Signed out of twitch.tv in LiteView";
+        }
+        catch (Exception ex) { Log.Error("website sign-out", ex); }
     }
 
     [DllImport("user32.dll")] static extern uint GetGuiResources(IntPtr process, uint flags);

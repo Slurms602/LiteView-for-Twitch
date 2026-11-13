@@ -24,7 +24,7 @@ Windows pass and one green CI run.
 
 1. **Windows validation of P0** (`TESTING.md` manual list) and fixes from it.
 2. Register the fork's own Twitch application; switch the client id (SEC-16).
-3. Log out also clears the WebView2 Twitch session, optionally (SEC-17).
+3. Website sign-out (SEC-17): **implemented** (gear menu); needs the Windows check.
 4. Integration tests with fakes. **Done for Twitch login/API and the chat connection** (`TwitchClient`, `Irc` moved
    into `src/core`). Still to do: fake Streamlink/mpv executables (exit codes, messages, a hung pipe), which need
    the Win32 process code to run on a Windows CI runner.

@@ -63,6 +63,9 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 17 | Close LiteView while watching | No `mpv.exe` / `streamlinkw.exe` left; `liteview.ini` and `liteview.ini.bak` present; reopening restores window position |
 | 18 | GameFirst.exe with the shipped ini | `gamefirst.log` lists only mpv, streamlink, streamlinkw; Chrome is untouched |
 | 19 | Display scaling 100 % and 150 % | Same as upstream (DPI support is P2, not part of this milestone) |
+| 20 | Gear → *Sign out of twitch.tv in LiteView*, then ◀ Following | The Following page shows Twitch logged out; chat login unchanged |
+| 21 | Sleep the PC for a few minutes while watching, wake it | Chat and the stream come back by themselves (at the live edge) |
+| 22 | `LiteView.exe <busy channel> --chat-stress=200` for 15 minutes | `stress:` lines in `liteview.log`; memory and GDI objects level off (send the log) |
 
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
 

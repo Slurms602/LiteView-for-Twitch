@@ -1,0 +1,43 @@
+# A tag vX.Y.Z builds the release zip on Windows and attaches it with its SHA-256 to a DRAFT release.
+# Nothing is published by itself: read the draft, then press Publish on GitHub. The app's update check
+# (menu > Check for updates) only sees published releases and only opens the release page.
+name: release
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Build, test and package
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $v = $env:TAG.TrimStart('v')
+          ./build.ps1 -Version $v
+          ./tools/smoke.ps1 -Dir "dist/LiteView-Enhanced-$v" -Out smoke
+      - name: Draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $v = $env:TAG.TrimStart('v'); $name = "LiteView-Enhanced-$v"
+          $notes = "Built by the release workflow from $env:TAG ($env:GITHUB_SHA).`n`nSHA-256 of the zip: $((Get-Content "dist/$name.zip.sha256").Split(' ')[0])`n`nSee CHANGELOG.md for what changed. Check the download with: Get-FileHash $name.zip -Algorithm SHA256"
+          gh release create $env:TAG "dist/$name.zip" "dist/$name.zip.sha256" --draft --title "LiteView Enhanced $v" --notes $notes

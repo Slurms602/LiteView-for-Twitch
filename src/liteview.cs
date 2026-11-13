@@ -706,7 +706,7 @@ class VolumeBar : Control
         using (var p = new Pen(Fill, 4)) g.DrawLine(p, x0, y, xv, y);
         using (var b = new SolidBrush(Knob)) g.FillEllipse(b, xv - 6, y - 6, 12, 12);
     }
-    void Set(int v) { v = Math.Max(0, Math.Min(100, v)); if (v == Value) return; Value = v; Invalidate(); if (Changed != null) Changed(v); }
+    public void Set(int v) { v = Math.Max(0, Math.Min(100, v)); if (v == Value) return; Value = v; Invalidate(); if (Changed != null) Changed(v); }
     protected override void OnMouseDown(MouseEventArgs e) { Capture = true; Set((e.X - 7) * 100 / Math.Max(1, Width - 14)); }
     protected override void OnMouseMove(MouseEventArgs e) { if (e.Button == MouseButtons.Left) Set((e.X - 7) * 100 / Math.Max(1, Width - 14)); }
     protected override void OnMouseWheel(MouseEventArgs e) { Set(Value + (e.Delta > 0 ? 5 : -5)); }

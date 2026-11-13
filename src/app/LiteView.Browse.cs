@@ -53,6 +53,7 @@ partial class LiteView
         LayoutBar();
 
         if (!nativeBrowse) InitWeb();
+        InitKeys(); InitNotify(); InitUpdates();   // src/app/LiteView.Extras.cs
         Shown += (s, e) => { if (startChannel == null && openLast && browse.Recent.Count > 0) Watch(browse.Recent.Items[0]); };
         if (Fixture.On) Shown += (s, e) =>
         {
@@ -113,7 +114,38 @@ partial class LiteView
         var clear = new ToolStripMenuItem("Clear watched channels and searches") { Enabled = browse.Recent.Count + browse.Searches.Count > 0 };
         clear.Click += (s, e) => browse.ClearHistory();
 
-        appMenu.Items.AddRange(new ToolStripItem[] { login, new ToolStripSeparator(), page, last, new ToolStripSeparator(), rec, srch, clear });
+        var live = Toggle("Notify me when a favourite goes live", notify, v => { notify = v; ApplyNotify(); });
+        live.ToolTipText = "Favourites: right-click a channel on the Following page. Checked every 2 minutes, also while minimised.";
+        var quietMenu = new ToolStripMenuItem("Quiet hours") { Enabled = notify };
+        foreach (var q in new[] { "", "22-8", "23-8", "0-8", "23-10" })
+        {
+            string v = q;
+            int f, t;
+            var it = new ToolStripMenuItem(v.Length == 0 ? "None" : QuietHours.TryParse(v, out f, out t) ? f + ":00 to " + t + ":00" : v) { Checked = quiet == v };
+            it.Click += (s, e) => { quiet = v; SaveSettings(); };
+            quietMenu.DropDownItems.Add(it);
+        }
+        DarkMenuColors.Apply(quietMenu.DropDown);
+
+        var settings = new ToolStripMenuItem("Settings");
+        settings.DropDownItems.Add("Export settings...", null, (s, e) => ExportSettings());
+        settings.DropDownItems.Add("Import settings...", null, (s, e) => ImportSettings());
+        settings.DropDownItems.Add(new ToolStripSeparator());
+        settings.DropDownItems.Add("Reset favourites, watched channels and searches...", null, (s, e) => ResetLists());
+        settings.DropDownItems.Add("Reset window size and position", null, (s, e) => ResetWindow());
+        settings.DropDownItems.Add("Reset all settings...", null, (s, e) => ResetAll());
+        DarkMenuColors.Apply(settings.DropDown);
+
+        var upd = new ToolStripMenuItem("Check for updates...");
+        upd.Click += (s, e) => CheckForUpdates(true);
+        var autoUpd = Toggle("Check for updates once a day", autoUpdates, v => autoUpdates = v);
+        autoUpd.ToolTipText = "Asks GitHub for the latest release of this fork. Nothing is downloaded or installed by itself.";
+        var keys = new ToolStripMenuItem("Keyboard shortcuts");
+        keys.Click += (s, e) => MessageBox.Show(this, Shortcuts, "Keyboard shortcuts");
+
+        appMenu.ShowItemToolTips = true;
+        appMenu.Items.AddRange(new ToolStripItem[] { login, new ToolStripSeparator(), page, last, new ToolStripSeparator(), live, quietMenu,
+            new ToolStripSeparator(), rec, srch, clear, new ToolStripSeparator(), settings, upd, autoUpd, keys });
         AddForkMenuItems(appMenu);
     }
 
@@ -137,6 +169,10 @@ partial class LiteView
         yield return Kv("keepsearches", browse.RememberSearches ? "1" : "0");
         yield return Kv("searches", browse.RememberSearches ? browse.Searches.Save() : "");
         yield return Kv("openlast", openLast ? "1" : "0");
+        yield return Kv("notify", notify ? "1" : "0");
+        yield return Kv("quiet", quiet);
+        yield return Kv("updates", autoUpdates ? "1" : "0");
+        yield return Kv("updatechecked", updateChecked);
     }
 
     void LoadForkSettings(Dictionary<string, string> ini)
@@ -151,6 +187,11 @@ partial class LiteView
         browse.Recent.Load(browse.RememberRecent ? Native.Get(ini, "recent", "") : "");
         browse.Searches.Load(browse.RememberSearches ? Native.Get(ini, "searches", "") : "");
         openLast = Native.Get(ini, "openlast", "0") == "1";
+        notify = Native.Get(ini, "notify", "0") == "1";
+        int qf, qt; string q = Native.Get(ini, "quiet", "");
+        quiet = QuietHours.TryParse(q, out qf, out qt) ? q : "";
+        autoUpdates = Native.Get(ini, "updates", "0") == "1";
+        updateChecked = Native.Get(ini, "updatechecked", "");
     }
 
     static KeyValuePair<string, string> Kv(string k, string v) { return new KeyValuePair<string, string>(k, v); }

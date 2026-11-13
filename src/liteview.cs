@@ -335,23 +335,29 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         if (channel == null) return;
         nchat.Visible = !webChat; chatWeb.Visible = webChat;
         if (!webChat) { nchat.Join(channel); return; }
-        await Env();
-        chatUrl = "https://www.twitch.tv/popout/" + channel + "/chat?popout=&darkpopout";
-        if (!chatReady)
+        var cw = chatWeb;   // SetWebChat replaces the control: work on this one only, and check after every await
+        try
         {
-            if (chatStarting) return;
-            chatStarting = true;
-            try
+            if (!chatReady)
             {
-                await chatWeb.EnsureCoreWebView2Async(await Env());
-                Harden(chatWeb.CoreWebView2, false);
-                chatWeb.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; if (e.IsUserInitiated) Launcher.Open(e.Uri); };   // upstream: Process.Start(any URI)
-                chatReady = true;
+                if (chatStarting) return;
+                chatStarting = true;
+                try
+                {
+                    await cw.EnsureCoreWebView2Async(await Env());
+                    if (cw != chatWeb || cw.IsDisposed) return;   // native chat was chosen meanwhile
+                    Harden(cw.CoreWebView2, false);
+                    cw.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; if (e.IsUserInitiated) Launcher.Open(e.Uri); };   // upstream: Process.Start(any URI)
+                    chatReady = true;
+                }
+                finally { chatStarting = false; }
             }
-            catch (Exception ex) { Log.Error("web chat", ex); chatStarting = false; return; }
-            chatStarting = false;
+            // still wanted? (chat hidden, back to Following, or native chat chosen while it started)
+            if (cw != chatWeb || !watching || !webChat || !chatOn.Checked || channel == null) return;
+            chatUrl = "https://www.twitch.tv/popout/" + channel + "/chat?popout=&darkpopout";
+            if (cw.Source == null || cw.Source.AbsoluteUri != chatUrl) cw.CoreWebView2.Navigate(chatUrl);
         }
-        if (chatWeb.Source == null || chatWeb.Source.AbsoluteUri != chatUrl) chatWeb.CoreWebView2.Navigate(chatUrl);
+        catch (Exception ex) { Log.Error("web chat", ex); }
     }
 
     void StopChat()
@@ -444,7 +450,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         bool alive = false;
         try { alive = !slProc.HasExited; } catch { }
         // playing = OUR mpv answered on this stream's pipe (upstream looked for any mpv.exe on the PC)
-        if (alive) { if (mpvGen == gen) { if (!played) { played = true; Log.Info("stream " + gen + ": playing"); } status.Text = ""; } return; }
+        if (alive) { if (mpvGen == gen) { if (!played) { played = true; Log.Info("stream " + gen + ": playing"); } status.Text = ""; } else OpeningStatus(); return; }
         OnStreamExited();
     }
 
@@ -520,14 +526,8 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     }
     void UpdateMute() { muteBtn.Text = muted || volume == 0 ? "\uE74F" : "\uE767"; volBar.Value = Math.Min(100, volume); volBar.Invalidate(); }
 
-    void SendMpv(string json)
-    {
-        lock (pipeLock)
-        {
-            try { if (mpvPipe != null && mpvPipe.IsConnected) { var b = Encoding.UTF8.GetBytes(json + "\n"); mpvPipe.Write(b, 0, b.Length); mpvPipe.Flush(); } }
-            catch { }
-        }
-    }
+    // Queued for the mpv writer thread (src/app/LiteView.Fork.cs): a stalled mpv can no longer block the UI.
+    void SendMpv(string json) { QueueMpv(gen, json); }
 
     // mpv's IPC pipe: set our volume/mute when a stream starts; hear double-click / Esc / F
     // on the video and volume changes from the mouse wheel. The thread sleeps while nothing plays,
@@ -545,7 +545,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                 {
                     pipe.Connect(1000);
                     if (g != gen) continue;
-                    lock (pipeLock) mpvPipe = pipe;
+                    lock (pipeLock) { mpvPipe = pipe; mpvPipeGen = g; }
                     SendMpv("{\"command\":[\"set_property\",\"volume\"," + volume + "]}");
                     SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}");
                     SendMpv("{\"command\":[\"observe_property\",1,\"volume\"]}");

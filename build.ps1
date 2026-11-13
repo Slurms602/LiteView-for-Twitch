@@ -65,7 +65,11 @@ Copy-Item "$bin\LiteView.exe", "$bin\LiteView.exe.config", "$bin\LiteView.Core.d
 
 # Programs and settings
 tar.exe -xf (Join-Path $cache 'streamlink.zip') -C "$out\twitch\streamlink"
+if ($LASTEXITCODE -ne 0) { throw 'Unpacking Streamlink failed' }
 tar.exe -xf (Join-Path $cache 'mpv.zip') -C "$out\twitch\mpv"
+if ($LASTEXITCODE -ne 0) { throw 'Unpacking mpv failed' }
+if (-not (Get-ChildItem "$out\twitch\streamlink" -Recurse -Filter streamlinkw.exe)) { throw 'streamlinkw.exe missing after unpacking' }
+if (-not (Test-Path "$out\twitch\mpv\mpv.exe")) { throw 'mpv.exe missing after unpacking' }
 Copy-Item "$root\config\mpv" "$out\twitch\mpv\portable_config" -Recurse
 Set-Content "$out\twitch\mpv\portable_config\screen.conf" '' -Encoding ascii
 Copy-Item "$root\config\gamefirst.ini", "$root\README.md", "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md", "$root\CHANGELOG.md" $out
@@ -83,6 +87,9 @@ if ($NoZip) { Write-Host "Built $out"; return }
 $zip = Join-Path $root "dist\$name.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 tar.exe -a -c -f $zip -C (Join-Path $root 'dist') $name
+if ($LASTEXITCODE -ne 0) { Remove-Item $zip -ErrorAction SilentlyContinue; throw 'Creating the zip failed' }
+$listed = (tar.exe -tf $zip | Measure-Object).Count
+if ($LASTEXITCODE -ne 0 -or $listed -lt $manifest.Count) { throw "The zip looks incomplete ($listed entries for $($manifest.Count) files)" }
 $h = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
 Set-Content (Join-Path $root "dist\$name.zip.sha256") "$h  $name.zip" -Encoding ascii
 Write-Host ("Built {0} ({1:N0} MB)`nSHA-256 {2}" -f $zip, ((Get-Item $zip).Length / 1MB), $h)

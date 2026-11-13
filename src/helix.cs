@@ -29,6 +29,11 @@ static class Tw
     public static string[] Granted = new string[0];   // scopes of the current token
     public static bool Has(string scope) { return Array.IndexOf(Granted, scope) >= 0; }
     static string refresh, path;
+    // Credentials change only under credLock, and each change bumps authGen; an answer that arrives after a
+    // log out or a new login (authGen moved on) is thrown away instead of bringing old credentials back.
+    static readonly object credLock = new object();
+    static int authGen;
+    enum Refresh { Ok, Rejected, Unreachable }
 
     public static void Init(string tokenFile)
     {
@@ -59,8 +64,8 @@ static class Tw
 
     public static void LogOut()
     {
-        string t = Token;
-        Token = refresh = Login = UserId = null; Granted = new string[0]; Save();
+        string t;
+        lock (credLock) { t = Token; authGen++; Token = refresh = Login = UserId = null; Granted = new string[0]; Save(); }
         Log.Info("logged out; token revoked and deleted");
         if (t != null) Post("https://id.twitch.tv/oauth2/revoke", "client_id=" + ClientId + "&token=" + Uri.EscapeDataString(t)).ContinueWith(x => { });
     }
@@ -83,19 +88,24 @@ static class Tw
     }
 
     // a download with a size limit (null on any failure); images are checked by the caller
+    // (one deadline for headers AND body: HttpClient.Timeout alone does not cover a body that stalls)
     public static async Task<byte[]> GetBytes(string url, int max)
     {
-        try
+        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
         {
-            using (var r = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+            try
             {
-                if (!r.IsSuccessStatusCode) return null;
-                long? len = r.Content.Headers.ContentLength;
-                if (len.HasValue && len.Value > max) return null;
-                using (var st = await r.Content.ReadAsStreamAsync()) return await Bounded.ReadAllAsync(st, max);
+                using (var r = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token))
+                using (cts.Token.Register(() => { try { r.Dispose(); } catch { } }))   // ends a read that is stuck in the socket
+                {
+                    if (!r.IsSuccessStatusCode) return null;
+                    long? len = r.Content.Headers.ContentLength;
+                    if (len.HasValue && len.Value > max) return null;
+                    using (var st = await r.Content.ReadAsStreamAsync()) return await Bounded.ReadAllAsync(st, max, cts.Token);
+                }
             }
+            catch { return null; }
         }
-        catch { return null; }
     }
 
     static async Task<KeyValuePair<int, object>> Post(string url, string form)
@@ -110,7 +120,7 @@ static class Tw
 
     static void Take(object d)
     {
-        Token = S(d, "access_token"); refresh = S(d, "refresh_token"); Save();
+        lock (credLock) { authGen++; Token = S(d, "access_token"); refresh = S(d, "refresh_token"); Save(); }
     }
 
     // Signed in and the token is good (refreshed when it expired). Twitch asks apps to check hourly.
@@ -118,41 +128,60 @@ static class Tw
     {
         for (int i = 0; i < 2 && Token != null; i++)
         {
-            string t = Token;
+            string t = Token; int g = authGen;
             var rq = new HttpRequestMessage(HttpMethod.Get, "https://id.twitch.tv/oauth2/validate");
             rq.Headers.Authorization = new AuthenticationHeaderValue("OAuth", t);
             int code = 0; object d = null;
             try { using (var r = await Http.SendAsync(rq)) { code = (int)r.StatusCode; d = Parse(await r.Content.ReadAsStringAsync()); } }
             catch { }
+            if (g != authGen) return Login != null && Token != null;   // logged out / in again meanwhile: this answer is stale
             if (code == 200)
             {
                 string login = S(d, "login"), uid = S(d, "user_id");
                 // the token must belong to a real account and have been issued to this app
                 if (!ChannelName.IsValidLogin(login) || !ChannelName.IsNumericId(uid) || (S(d, "client_id") != null && S(d, "client_id") != ClientId))
                 { Log.Warn("token validation: unexpected answer, logging out"); break; }
-                Login = login; UserId = uid; Granted = A(d, "scopes").Select(x => Convert.ToString(x)).ToArray(); return true;
+                lock (credLock) { if (g != authGen) return Login != null; Login = login; UserId = uid; Granted = A(d, "scopes").Select(x => Convert.ToString(x)).ToArray(); }
+                return true;
             }
             if (code != 401) return Login != null;          // offline / Twitch trouble: keep the session
-            if (!await RefreshToken(t)) break;
+            var rr = await RefreshToken(t);
+            if (rr == Refresh.Ok) continue;
+            if (rr == Refresh.Unreachable)
+            {   // Twitch did not reject the refresh token, it just did not answer: keep it and try again later
+                // (upstream deleted the login here). Until then chat runs anonymously.
+                Log.Warn("token expired and Twitch is unreachable; keeping the login to retry");
+                lock (credLock) { Login = UserId = null; Granted = new string[0]; }
+                return false;
+            }
+            break;
         }
-        if (Token != null) { Token = refresh = null; Save(); Log.Info("token no longer valid: logged out"); }
-        Login = UserId = null; Granted = new string[0];
+        lock (credLock)
+        {
+            if (Token != null) { authGen++; Token = refresh = null; Save(); Log.Info("token no longer valid: logged out"); }
+            Login = UserId = null; Granted = new string[0];
+        }
         return false;
     }
 
     // Public clients get one-time refresh tokens: one refresh at a time, and a caller that waited
     // just uses the token the other one got.
-    static async Task<bool> RefreshToken(string failed)
+    static async Task<Refresh> RefreshToken(string failed)
     {
         await refreshGate.WaitAsync();
         try
         {
-            if (Token != failed) return Token != null;
-            if (refresh == null) return false;
+            if (Token != failed) return Token != null ? Refresh.Ok : Refresh.Rejected;
+            if (refresh == null) return Refresh.Rejected;
+            int g = authGen;
             var r = await Post("https://id.twitch.tv/oauth2/token", "client_id=" + ClientId + "&grant_type=refresh_token&refresh_token=" + Uri.EscapeDataString(refresh));
-            if (r.Key == 200 && S(r.Value, "access_token") != null) { Take(r.Value); return true; }
-            if (r.Key == 400 || r.Key == 401) { Token = refresh = null; Save(); }
-            return false;
+            lock (credLock)
+            {
+                if (g != authGen) return Token != null ? Refresh.Ok : Refresh.Rejected;   // logged out meanwhile: do not bring the token back
+                if (r.Key == 200 && S(r.Value, "access_token") != null) { Take(r.Value); Log.Info("token refreshed"); return Refresh.Ok; }
+                if (r.Key == 400 || r.Key == 401) { authGen++; Token = refresh = null; Save(); Log.Info("refresh token rejected: logged out"); return Refresh.Rejected; }
+            }
+            return Refresh.Unreachable;   // network error, 5xx, 429: the refresh token may still be good
         }
         finally { refreshGate.Release(); }
     }
@@ -170,7 +199,7 @@ static class Tw
             {
                 using (var r = await Http.SendAsync(rq))
                 {
-                    if ((int)r.StatusCode == 401) { if (await RefreshToken(t)) continue; return null; }
+                    if ((int)r.StatusCode == 401) { if (await RefreshToken(t) == Refresh.Ok) continue; return null; }
                     if ((int)r.StatusCode == 429 && !waited)
                     {   // rate limited: wait until Twitch's bucket refills (at most 10 s), once
                         waited = true;

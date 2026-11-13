@@ -34,9 +34,14 @@ partial class LiteView
     const int MaxQuickRetries = 8;
     DateTime lastCrashBox = DateTime.MinValue;
     bool settingsLoading;
+    // mpv commands: queued by any thread, written by one background thread, dropped if meant for an older stream
+    readonly System.Collections.Concurrent.BlockingCollection<KeyValuePair<int, string>> mpvOut =
+        new System.Collections.Concurrent.BlockingCollection<KeyValuePair<int, string>>(256);
+    int mpvPipeGen = -1, mpvDropped;
 
     void InitFork()
     {
+        new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>
         {
             retry.Stop();
@@ -44,6 +49,24 @@ partial class LiteView
         };
         status.Click += (s, e) => { if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
         Log.Info("window ready; CPU mask " + (mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X")) + ", NVIDIA " + HasNvidia);
+    }
+
+    void QueueMpv(int g, string json)
+    {
+        if (!mpvOut.TryAdd(new KeyValuePair<int, string>(g, json)) && Interlocked.Increment(ref mpvDropped) == 1)
+            Log.Warn("mpv is not reading its commands; dropping them");
+    }
+
+    void MpvWriter()
+    {
+        foreach (var item in mpvOut.GetConsumingEnumerable())
+        {
+            System.IO.Pipes.NamedPipeClientStream p; int pg;
+            lock (pipeLock) { p = mpvPipe; pg = mpvPipeGen; }
+            if (p == null || item.Key != pg) continue;   // no player yet, or a command for a stream that has ended
+            try { var b = Encoding.UTF8.GetBytes(item.Value + "\n"); p.Write(b, 0, b.Length); p.Flush(); }
+            catch (Exception) { }   // the pipe broke (mpv ended): PipeLoop notices and reconnects
+        }
     }
 
     // ---------- embedded browser ----------
@@ -133,6 +156,24 @@ partial class LiteView
             Log.Error("stream " + g + ": CreateProcess failed, error " + err);
             canRetry = true;
         }
+    }
+
+    int openingTicks;
+    // While Streamlink runs but the player is not up yet: say whether the channel is offline (Streamlink waits and
+    // starts it when it goes live) or what error it is retrying. Reads the log every 2 s (every 4th tick).
+    void OpeningStatus()
+    {
+        if (++openingTicks % 4 != 0) return;
+        try
+        {
+            if (!File.Exists(slLog)) return;
+            var lines = ReadShared(slLog);
+            string err = StreamOutcome.LastError(lines);
+            status.ForeColor = Dim;
+            if (StreamOutcome.Waiting(lines)) status.Text = "Offline - it starts by itself when the channel goes live";
+            else if (err.Length > 0) status.Text = "Retrying: " + err;
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     static IEnumerable<string> ReadShared(string path)

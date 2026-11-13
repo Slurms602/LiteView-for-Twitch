@@ -61,6 +61,8 @@ namespace LiteViewCore
 
     public static class StreamCommand
     {
+        public const int RetryStreamsSeconds = 30;
+
         /// <summary>The full command line for CreateProcess (program path first).</summary>
         public static string Build(StreamRequest r)
         {
@@ -73,6 +75,8 @@ namespace LiteViewCore
                 "--player", r.Mpv,
                 "--player-args", playerArgs,
                 "--twitch-low-latency",
+                // an offline channel: Streamlink itself checks again every 30 s and starts the player when it goes live
+                "--retry-streams", RetryStreamsSeconds.ToString(CultureInfo.InvariantCulture),
                 "--twitch-supported-codecs", "h264,h265,av1",
                 "--loglevel", "info",
                 "--logfile", r.LogFile,
@@ -100,16 +104,36 @@ namespace LiteViewCore
 
     public static class StreamOutcome
     {
-        /// <summary>The last "error:" line of a Streamlink log, without the prefix ("" if none).</summary>
+        // Streamlink 8.6's --logfile lines look like "[cli][info] ..." or "[plugins.twitch][error] ..."
+        // (format "[{name}][{levelname}] {message}"). Its final fatal message ("error: ...") goes to the console only,
+        // which streamlinkw.exe does not have, so it never reaches the log file (checked in streamlink_cli/main.py 8.6.3).
+        static readonly System.Text.RegularExpressions.Regex LevelLine =
+            new System.Text.RegularExpressions.Regex(@"^\[[A-Za-z0-9_.]+\]\[(error|critical)\]\s*(.*)$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>The message of the last error line of a Streamlink log ("" if none).</summary>
         public static string LastError(IEnumerable<string> logLines)
         {
             string last = "";
-            foreach (var l in logLines)
+            foreach (var raw in logLines)
             {
-                int i = l.IndexOf("error:", StringComparison.Ordinal);
-                if (i >= 0) last = l.Substring(i + 6).Trim();
+                string l = raw.Trim();
+                var m = LevelLine.Match(l);
+                if (m.Success) { last = m.Groups[2].Value.Trim(); continue; }
+                if (l.StartsWith("error:", StringComparison.Ordinal)) last = l.Substring(6).Trim();   // console form, if ever logged
             }
             return last;
+        }
+
+        /// <summary>True while Streamlink waits for an offline channel (--retry-streams) and has not opened a stream since.</summary>
+        public static bool Waiting(IEnumerable<string> logLines)
+        {
+            bool waiting = false;
+            foreach (var l in logLines)
+            {
+                if (l.IndexOf("] Waiting for streams, retrying every", StringComparison.Ordinal) >= 0) waiting = true;
+                else if (l.IndexOf("] Opening stream:", StringComparison.Ordinal) >= 0 || l.IndexOf("] Starting player:", StringComparison.Ordinal) >= 0) waiting = false;
+            }
+            return waiting;
         }
 
         /// <summary>Why the stream stopped, from Streamlink's last error and how long it played.</summary>

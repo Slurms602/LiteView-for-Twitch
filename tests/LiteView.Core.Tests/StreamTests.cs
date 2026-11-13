@@ -62,7 +62,7 @@ public class WinArgsTests
             @"C:\Apps\Lite View\twitch\streamlink\bin\streamlinkw.exe",
             "--player", @"C:\Apps\Lite View\twitch\mpv\mpv.exe",
             "--player-args", "--wid=132456 --input-ipc-server=liteview-mpv-abc123",
-            "--twitch-low-latency", "--twitch-supported-codecs", "h264,h265,av1",
+            "--twitch-low-latency", "--retry-streams", "30", "--twitch-supported-codecs", "h264,h265,av1",
             "--loglevel", "info", "--logfile", @"C:\Apps\Lite View\streamlink.log",
             "twitch.tv/xqc", "720p60,720p,best",
         }, argv);
@@ -111,12 +111,36 @@ public class QualityTests
 
 public class StreamOutcomeTests
 {
-    [Fact]
-    public void LastErrorLine()
+    // Lines in the format Streamlink 8.6.3 writes to --logfile ("[{name}][{levelname}] {message}")
+    static readonly string[] Offline =
     {
-        var log = new[] { "[cli][info] Found matching plugin twitch", "[cli][error] error: first", "[cli][info] x", "error: No playable streams found on this URL: twitch.tv/x" };
-        Assert.Equal("No playable streams found on this URL: twitch.tv/x", StreamOutcome.LastError(log));
-        Assert.Equal("", StreamOutcome.LastError(new[] { "fine" }));
+        "[cli][info] Found matching plugin twitch for URL twitch.tv/somebody",
+        "[cli][info] Waiting for streams, retrying every 30.0 second(s)",
+    };
+
+    [Fact]
+    public void LastErrorFromRealLogLines()
+    {
+        var log = new[]
+        {
+            "[cli][info] Found matching plugin twitch for URL twitch.tv/x",
+            "[plugins.twitch][error] Unable to open URL: https://gql.twitch.tv/gql (Read timed out.)",
+            "[cli][info] Waiting for streams, retrying every 30.0 second(s)",
+            "[cli][error] Try 1/1: Could not open stream <HLSStream ...> (Failed to read data from stream: ...)",
+            "[cli][info] Closing currently open stream...",
+        };
+        Assert.Equal("Try 1/1: Could not open stream <HLSStream ...> (Failed to read data from stream: ...)", StreamOutcome.LastError(log));
+        Assert.Equal("", StreamOutcome.LastError(Offline));
+        Assert.Equal("", StreamOutcome.LastError(new[] { "[cli][info] error: in a message is not an error line" }));
+        Assert.Equal("old console form", StreamOutcome.LastError(new[] { "error: old console form" }));
+    }
+
+    [Fact]
+    public void WaitingForAnOfflineChannel()
+    {
+        Assert.True(StreamOutcome.Waiting(Offline));
+        Assert.False(StreamOutcome.Waiting(Offline.Concat(new[] { "[cli][info] Available streams: audio_only, 160p, 360p, 480p, 720p60, 1080p60 (best)", "[cli][info] Opening stream: 1080p60 (hls)" })));
+        Assert.False(StreamOutcome.Waiting(new[] { "[cli][info] Found matching plugin twitch for URL twitch.tv/x" }));
     }
 
     [Theory]

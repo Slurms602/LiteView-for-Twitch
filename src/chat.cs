@@ -111,6 +111,8 @@ static class Images
         {
             Emote e;
             if (byUrl.TryGetValue(url, out e)) return e;
+            if (byUrl.Count >= 50000)   // the records themselves are small, but not unlimited: forget idle ones
+                foreach (var k in byUrl.Where(kv => kv.Value.State == 0 || kv.Value.State == 3).Select(kv => kv.Key).ToList()) byUrl.Remove(k);
             e = new Emote { Url = url, Name = name, FixedH = fixedH };
             if (fixedH > 0) { e.W = e.H = fixedH; e.SizeKnown = true; }
             else if (w > 0 && h > 0) { Fit(e, w, h); e.SizeKnown = true; }
@@ -190,12 +192,13 @@ class Irc
     ClientWebSocket ws; CancellationTokenSource cts;
     readonly SemaphoreSlim sendGate = new SemaphoreSlim(1);
 
-    public void Start(string channel, string login, string token)
+    // The login and token are read again for every connection attempt, so a refreshed token is used.
+    public void Start(string channel)
     {
         Stop();
         cts = new CancellationTokenSource();
         var c = cts.Token;
-        Task.Run(() => Loop(channel, login, token, c));
+        Task.Run(() => Loop(channel, c));
     }
 
     public void Stop()
@@ -224,7 +227,7 @@ class Irc
 
     void Say(string s) { var h = Status; if (h != null) h(s); }
 
-    async Task Loop(string chan, string login, string token, CancellationToken c)
+    async Task Loop(string chan, CancellationToken c)
     {
         if (!IrcProtocol.IsSafeChannel(chan)) { Say("Not a channel name."); return; }
         var rnd = new Random();
@@ -238,6 +241,7 @@ class Irc
                 await s.ConnectAsync(new Uri("wss://irc-ws.chat.twitch.tv:443"), c);
                 ws = s; connected = true; up.Restart();
                 await SendRaw(s, "CAP REQ :twitch.tv/tags twitch.tv/commands");
+                string login = Tw.Login, token = login != null ? Tw.Token : null;
                 await SendRaw(s, token != null ? "PASS oauth:" + token : "PASS SCHMOOPIIE");
                 await SendRaw(s, "NICK " + (token != null ? login : "justinfan" + rnd.Next(10000, 99999)));
                 await SendRaw(s, "JOIN #" + chan);
@@ -457,14 +461,14 @@ class ChatView : Control
             y -= m.H;
             if (y >= ClientSize.Height) continue;
             if (y + m.H <= 0) { top = 1; break; }
+            // every visible emote/badge: load it again if its frames were freed, and mark it in use
+            foreach (var pl in m.Places) { var pe = pl.P.E; if (pe == null) continue; if (pe.State == 0) Images.Need(pe); Images.Used(pe); }
             Render(m); m.Seen = gen;
-            foreach (var pl in m.Places) if (pl.P.E != null) Images.Used(pl.P.E);
             g.DrawImageUnscaled(m.Cache, 0, y);
             if (!m.Dynamic) continue;
             foreach (var pl in m.Places)
             {
                 var p = pl.P;
-                if ((p.Kind == 1 || p.Kind == 2) && p.E.State == 0) Images.Need(p.E);   // its frames were freed: load again
                 if ((p.Kind != 1 && p.Kind != 2) || p.E.State != 2 || (!p.E.Animated && !p.E.Zero)) continue;
                 int f = p.E.Index(now); pl.Last = f;
                 g.DrawImage(p.E.Frames[f], pl.R.X, pl.R.Y + y, pl.R.Width, pl.R.Height);
@@ -632,15 +636,20 @@ class ChatPanel : Panel
         irc.Line += OnLine;
         irc.Status += s => inbox.Enqueue(Sys(s));
         drain.Tick += (s, e) => Drain();
-        Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
+        // a decoded image is counted in the frame budget when it arrives, even if it is never drawn
+        Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { Images.Used(e); Images.Trim(); View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
         UpdateLogin();
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, string l);
 
+    string joinedAs;   // the account the chat connection was opened with (null = anonymous)
+
     public void UpdateLogin()
     {
+        // logged in, out or as someone else since the chat connected: reconnect as the current account
+        if (channel != null && drain.Enabled && joinedAs != Tw.Login) { Reconnect(); return; }
         input.Visible = emoteBtn.Visible = Tw.Token != null; loginLink.Visible = Tw.Token == null;
         if (Tw.Token == null) picker.Visible = false;
         else if (picker.Visible) { LoadTwitch(); RefreshPicker(); }
@@ -655,10 +664,10 @@ class ChatPanel : Panel
         channelSets = new List<KeyValuePair<string, List<Named>>>(); RefreshPicker();
         View.Clear(); Msg dummy; while (inbox.TryDequeue(out dummy)) { }
         string dummyS; while (pending.TryDequeue(out dummyS)) { }
-        chatters.Clear(); me = null;
+        chatters.Clear(); me = null; joinedAs = Tw.Login;
         UpdateLogin();
         inbox.Enqueue(Sys("Welcome to the chat room!"));
-        irc.Start(ch, Tw.Login, Tw.Login != null ? Tw.Token : null);
+        irc.Start(ch);
         drain.Start();
         LoadGlobals();
     }

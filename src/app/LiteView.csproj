@@ -5,6 +5,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
+    <!-- explicit, so restore is the same on every OS (on Windows the SDK adds win-x64 by itself, on Linux not) -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AssemblyName>LiteView</AssemblyName>
     <RootNamespace>LiteView</RootNamespace>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>

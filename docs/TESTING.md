@@ -26,7 +26,12 @@ no network, credentials or Twitch account.
 | CPU topology | `TopologyTests` | X3D dual-die, equal dies (9900X: no pinning), multi-group, buffer parsing |
 
 CI (`.github/workflows/ci.yml`) runs the build with warnings as errors, the tests, a secret scan, a vulnerable
-package check and the full `build.ps1` packaging on Windows.
+package check and the full `build.ps1` packaging on Windows. It then starts the packaged app on the Windows runner
+(`tools/smoke.ps1`, on a copy of the folder): the main window must appear and stay up for 30 s, `liteview.log` must
+have no errors, and the window must close normally with nothing left running. The run's `smoke-<commit>` artifact
+has a picture of the window, the whole screen, the logs and Windows' crash events. The runner is not logged in to
+Twitch and has no GPU, so this covers starting and closing, not playback. `tools\smoke.ps1 -Dir <built folder>`
+does the same on your own PC without touching that folder.
 
 **Not automated yet** (P1): integration tests with a fake Helix/IRC server and fake Streamlink/mpv, UI tests,
 the chat stress test, long-run leak tests.

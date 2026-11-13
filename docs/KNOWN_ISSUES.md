@@ -6,7 +6,7 @@ Verified or clearly visible in the code. Finding ids are from `BASELINE_AUDIT.md
 
 | Issue | Detail |
 |---|---|
-| **Not yet run on Windows** | All P0 changes compile and the logic is unit-tested, but the app itself has not been started since the changes. The manual pass in `TESTING.md` is required. |
+| **No manual pass on Windows yet** | CI starts and closes the packaged app on a Windows runner (`tools/smoke.ps1`), but login, playback, chat and the rest of the manual pass in `TESTING.md` have not been done. |
 | **Upstream's Twitch client id** (SEC-16) | The fork logs in as upstream's registered application. A public release needs its own registration on dev.twitch.tv (client type *Public*, device code flow) and the id in `src/helix.cs`. |
 
 ## Open

@@ -187,11 +187,15 @@ public class RedactTests
     }
 }
 
+// Log is process-wide: run this alone, not in parallel with tests whose code writes log lines.
+[CollectionDefinition("log", DisableParallelization = true)] public class LogCollection { }
+
+[Collection("log")]
 public class LogTests : IDisposable
 {
     readonly string dir = Path.Combine(Path.GetTempPath(), "lvlog-" + Guid.NewGuid().ToString("N"));
     public LogTests() { Directory.CreateDirectory(dir); }
-    public void Dispose() { try { Directory.Delete(dir, true); } catch { } }
+    public void Dispose() { Log.Close(); try { Directory.Delete(dir, true); } catch { } }
 
     [Fact]
     public void RotatesRedactsAndTails()

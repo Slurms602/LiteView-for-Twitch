@@ -61,7 +61,7 @@ partial class LiteView
             Fixture.Scene(this, browse, search);
             if (Fixture.SceneName == "chat")
             {   // the watch view with synthetic chat (no video in fixture mode), timestamps and a highlight word on
-                ChatPrefs.Timestamps = true; ChatPrefs.Filter.SetWords("clip");
+                ChatPrefs.Timestamps = true; ChatPrefs.Filter.SetWords("pog");
                 Watch("nightowl_plays");
                 stressRate = 15; StartStress();
                 return;

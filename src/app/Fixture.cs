@@ -82,8 +82,8 @@ static class Fixture
                 if (path.EndsWith("/streams", StringComparison.Ordinal)) return Json(Streams(Values(q, "user_login").Where(l => Live.Contains(l))));
                 if (path.EndsWith("/channels/followed", StringComparison.Ordinal))
                     return Json("{\"data\":[" + string.Join(",", Live.Concat(Offline).Select((l, i) => "{\"broadcaster_id\":\"" + (2000 + i) + "\",\"broadcaster_login\":\"" + l + "\",\"broadcaster_name\":\"" + Display(l) + "\",\"followed_at\":\"" + DateTime.UtcNow.AddDays(-40 * i - 3).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) + "\"}")) + "],\"pagination\":{}}");
-                if (path.EndsWith("/users", StringComparison.Ordinal))
-                    return Json("{\"data\":[" + string.Join(",", Values(q, "login").Select(l => "{\"login\":\"" + l + "\",\"display_name\":\"" + Display(l) + "\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/jtv_user_pictures/fixture-" + l + "-profile_image-300x300.png\"}")) + "]}");
+                if (path.EndsWith("/users", StringComparison.Ordinal))   // by login (Following page) or by id (followed column)
+                    return Json("{\"data\":[" + string.Join(",", Values(q, "login").Concat(Values(q, "id").Select(LoginOf).Where(l => l != null)).Select(l => "{\"id\":\"" + (2000 + Array.IndexOf(Live.Concat(Offline).ToArray(), l)) + "\",\"login\":\"" + l + "\",\"display_name\":\"" + Display(l) + "\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/jtv_user_pictures/fixture-" + l + "-profile_image-300x300.png\"}")) + "]}");
                 if (path.EndsWith("/search/channels", StringComparison.Ordinal))
                 {
                     string text = (Values(q, "query").FirstOrDefault() ?? "").ToLowerInvariant();
@@ -122,6 +122,14 @@ static class Fixture
                     "\",\"viewer_count\":" + viewers + ",\"started_at\":\"" + now.AddMinutes(-(17 + i * 41)).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) +
                     "\",\"language\":\"en\",\"thumbnail_url\":\"https://static-cdn.jtvnw.net/previews-ttv/live_user_" + l + "-{width}x{height}.jpg\"}";
             })) + "],\"pagination\":{}}";
+        }
+
+        static string LoginOf(string id)
+        {
+            int n;
+            if (!int.TryParse(id, out n) || n < 2000) return null;
+            var all = Live.Concat(Offline).ToArray();
+            return n - 2000 < all.Length ? all[n - 2000] : null;
         }
 
         static string Display(string login)

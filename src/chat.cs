@@ -882,7 +882,7 @@ class ChatPanel : Panel
         m.NameColor = ParseColor(im.Tag("color"), login);
         if (login != null) chatters[m.Display] = 0;
         var bd = badges; var gb = globalBadges;
-        if (ChatPrefs.Timestamps) { string ts = ChatFilter.Stamp(im.Tag("tmi-sent-ts")); if (ts.Length > 0) m.P.Add(new Piece { Kind = 6, Text = ts, C = ChatView.Dim }); }   // fork
+        if (ChatPrefs.Timestamps) { string ts = ChatFilter.Stamp(im.Tag("tmi-sent-ts")); m.P.Add(new Piece { Kind = 6, Text = ts.Length > 0 ? ts : DateTime.Now.ToString("HH:mm"), C = ChatView.Dim }); }   // fork
         foreach (var b in (im.Tag("badges") ?? "").Split(','))
         {
             if (b.Length == 0) continue;

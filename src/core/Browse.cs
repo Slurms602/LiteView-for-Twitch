@@ -129,15 +129,18 @@ namespace LiteViewCore
         {
             if (string.IsNullOrEmpty(s)) return "";
             var sb = new StringBuilder(Math.Min(s!.Length, MaxText));
-            foreach (char c in s)
+            for (int i = 0; i < s.Length; i++)
             {
+                char c = s[i];
                 if (sb.Length >= MaxText) break;
+                if (IrcProtocol.Unpaired(s, i)) continue;   // half a character (draws as a box)
                 if (char.IsControl(c)) { if (sb.Length > 0 && sb[sb.Length - 1] != ' ') sb.Append(' '); continue; }
                 if (c >= '\u202A' && c <= '\u202E' || c >= '\u2066' && c <= '\u2069') continue;   // no direction overrides in names and titles
                 sb.Append(c);
             }
-            if (sb.Length > 0 && char.IsHighSurrogate(sb[sb.Length - 1])) sb.Length--;   // never half a character
-            return sb.ToString().Trim();
+            string t = sb.ToString().Trim();
+            if (t.Length > 0 && char.IsHighSurrogate(t[t.Length - 1])) t = t.Substring(0, t.Length - 1).TrimEnd();   // never half a character
+            return t;
         }
     }
 

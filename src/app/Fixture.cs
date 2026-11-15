@@ -4,7 +4,9 @@
 // live (default), followed, recent, history, search:<text>, problem (the details of src/app/ProblemPopup.cs), or chat
 // (the watch view with synthetic chat; no video: Streamlink is not started in fixture mode), and with
 // LITEVIEW_UI_FIXTURE_STREAMS=1 (CI replaces Streamlink with tests/FakeStreamlink) watch, offline, fail or paused;
-// chatlog: the chat with made-up recent messages (src/app/ChatHistory.cs) and no stress lines.
+// chatlog: the chat with made-up recent messages (src/app/ChatHistory.cs) and no stress lines; stress: the busy-chat
+// run (300 messages a second, scrolled back after a minute; tools/stress-check.ps1 reads its numbers). The chat scenes
+// get made-up 7TV channel emotes (generated pictures, some animated).
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -110,6 +112,14 @@ static class Fixture
                     ";tmi-sent-ts=" + (now - (said.Length - i) * 45000) + ";historical=1 :" + x[0] + "!" + x[0] + "@" + x[0] + ".tmi.twitch.tv PRIVMSG #" + ch + " " + x[2]);
                 return Json("{\"messages\":[" + string.Join(",", lines.Select(l => "\"" + l + "\"")) + "],\"error\":null,\"error_code\":null}");
             }
+            if (u.Host == "7tv.io" && path.StartsWith("/v3/users/twitch/", StringComparison.Ordinal)) return Json(SevenTvSet());
+            if (u.Host == "cdn.7tv.app")   // /emote/<id>/1x.png or 1x.gif
+            {
+                var seg = path.Split('/');
+                int n;
+                if (seg.Length == 4 && seg[1] == "emote" && seg[2].StartsWith("fx", StringComparison.Ordinal) && int.TryParse(seg[2].Substring(2), out n) && n >= 0 && n < EmoteCount)
+                    return Image(EmoteImage(n), seg[3].EndsWith(".gif", StringComparison.Ordinal) ? "image/gif" : "image/png");
+            }
             if (u.Host == "static-cdn.jtvnw.net")
             {
                 string file = path.Substring(path.LastIndexOf('/') + 1);
@@ -192,6 +202,79 @@ static class Fixture
                 bmp.Save(ms, ImageFormat.Jpeg);
                 return ms.ToArray();
             }
+        }
+
+        // made-up 7TV channel emotes (the stress and chat scenes draw them): every 4th animated, every 10th wide, a few zero-width
+        const int EmoteCount = 120;
+        static readonly string[] EmoteWords = { "Pog", "Wave", "Hype", "Lul", "Sad", "Cozy", "Clap", "Dance", "Cat", "Owl", "Gg", "Hmm", "Wow", "Run", "Zzz" };
+        static string EmoteName(int i) { return new[] { "fx", "nite", "pix", "owl", "zed", "lofi", "retro", "jazz" }[i / EmoteWords.Length] + EmoteWords[i % EmoteWords.Length]; }
+        static bool Animated(int i) { return i % 4 == 0; }
+        static int EmoteW(int i) { return i % 10 == 5 ? 84 : 28; }
+
+        static string SevenTvSet()
+        {
+            var sb = new StringBuilder("{\"emote_set\":{\"emotes\":[");
+            for (int i = 0; i < EmoteCount; i++)
+                sb.Append(i > 0 ? "," : "").Append("{\"id\":\"fx").Append(i).Append("\",\"name\":\"").Append(EmoteName(i)).Append("\",\"flags\":").Append(i % 30 == 7 ? 1 : 0)
+                  .Append(",\"data\":{\"animated\":").Append(Animated(i) ? "true" : "false").Append(",\"host\":{\"url\":\"//cdn.7tv.app/emote/fx").Append(i)
+                  .Append("\",\"files\":[{\"name\":\"1x.webp\",\"width\":").Append(EmoteW(i)).Append(",\"height\":28}]}}}");
+            return sb.Append("]}}").ToString();
+        }
+
+        static readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> emoteImages = new System.Collections.Concurrent.ConcurrentDictionary<int, byte[]>();
+
+        static byte[] EmoteImage(int i)
+        {
+            return emoteImages.GetOrAdd(i, k =>
+            {
+                int w = EmoteW(k), frames = Animated(k) ? 10 : 1;
+                string label = EmoteWords[k % EmoteWords.Length];
+                var bmps = new List<Bitmap>();
+                try
+                {
+                    using (var font = new Font("Segoe UI Semibold", w > 28 ? 11f : 10f, FontStyle.Regular, GraphicsUnit.Pixel))
+                    using (var fill = new SolidBrush(Hue(EmoteName(k), 0.8f)))
+                    {
+                        for (int f = 0; f < frames; f++)
+                        {
+                            var bmp = new Bitmap(w, 28); bmps.Add(bmp);
+                            using (var g = Graphics.FromImage(bmp))
+                            {
+                                g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                                g.Clear(Color.Transparent);
+                                if (k % 30 == 7) g.DrawEllipse(Pens.Gold, 2, 2, w - 5, 23);   // zero-width: a ring over the emote before it
+                                else
+                                {
+                                    g.FillEllipse(fill, 1, 1, w - 3, 25);
+                                    var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                                    g.DrawString(w > 28 ? EmoteName(k) : label.Substring(0, Math.Min(3, label.Length)), font, Brushes.Black, new RectangleF(0, 0, w, 28), sf);
+                                }
+                                if (frames > 1)
+                                {
+                                    double a = f * Math.PI * 2 / frames;
+                                    g.FillEllipse(Brushes.White, (float)(w / 2 + Math.Cos(a) * (w / 2 - 5)) - 3, (float)(14 + Math.Sin(a) * 9) - 3, 6, 6);
+                                }
+                            }
+                        }
+                    }
+                    using (var ms = new System.IO.MemoryStream())
+                    {
+                        if (frames == 1) { bmps[0].Save(ms, ImageFormat.Png); return ms.ToArray(); }
+                        var gif = ImageCodecInfo.GetImageEncoders().First(c => c.MimeType == "image/gif");
+                        using (var ep = new EncoderParameters(1))
+                        {
+                            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.SaveFlag, (long)EncoderValue.MultiFrame);
+                            bmps[0].Save(ms, gif, ep);
+                            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.SaveFlag, (long)EncoderValue.FrameDimensionTime);
+                            for (int f = 1; f < bmps.Count; f++) bmps[0].SaveAdd(bmps[f], ep);
+                            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.SaveFlag, (long)EncoderValue.Flush);
+                            bmps[0].SaveAdd(ep);
+                        }
+                        return ms.ToArray();
+                    }
+                }
+                finally { foreach (var b in bmps) b.Dispose(); }
+            });
         }
 
         static byte[] Avatar(string login)

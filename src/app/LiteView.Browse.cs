@@ -67,6 +67,22 @@ partial class LiteView
                 stressRate = 15; StartStress();
                 return;
             }
+            if (Fixture.SceneName == "stress")
+            {   // CI's busy-chat run (tools/stress-check.ps1): 300 messages a second; after a minute the chat is scrolled
+                // back, as when reading older messages, so it keeps 2000 messages instead of 300 and lays out each new one
+                Watch("nightowl_plays");
+                stressRate = 300; StartStress();
+                var back = new Timer { Interval = 60000 };
+                back.Tick += (s2, e2) =>
+                {
+                    back.Stop(); back.Dispose();
+                    typeof(Control).GetMethod("OnMouseWheel", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                        .Invoke(nchat.View, new object[] { new MouseEventArgs(MouseButtons.None, 0, 10, 10, 120 * 10) });
+                    Log.Info("stress phase: scrolled back");
+                };
+                back.Start();
+                return;
+            }
             if (Fixture.SceneName == "chatlog")
             {   // the chat's recent messages (made-up answer from Fixture), nothing else
                 ChatPrefs.Timestamps = true;

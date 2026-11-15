@@ -72,6 +72,15 @@ jobs:
             if ($LASTEXITCODE) { $failed++ }
           }
           exit $failed
+      - name: Busy chat for two minutes (memory, handles and UI lag within budget)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'stress' }
+          ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke/fixture-stress -Env $vars -Seconds 135 -Expect 'chat stress mode: 300 messages per second', 'stress phase: scrolled back'
+          $smoke = $LASTEXITCODE
+          ./tools/stress-check.ps1 -Log smoke/fixture-stress/liteview.log -Rate 300 -MinDecoded 60 -MaxRefused 0 -Out smoke/fixture-stress/stress.txt
+          if ($smoke -or $LASTEXITCODE) { exit 1 }
       - name: Screenshot and logs of the start
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

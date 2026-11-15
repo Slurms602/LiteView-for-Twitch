@@ -33,7 +33,7 @@ namespace LiteViewCore
         {
             if (w <= 0 || h <= 0) { outW = outH = fixedH > 0 ? fixedH : 28; return; }
             int c = fixedH > 0 ? fixedH : cap;
-            if (h > c || fixedH > 0) { w = (int)Math.Max(1, (long)w * c / h); h = c; }
+            if (h > c || fixedH > 0) { w = (int)Math.Min(int.MaxValue, Math.Max(1, (long)w * c / h)); h = c; }
             int maxW = Math.Max(1, h * MaxAspect);
             if (w > maxW) { h = (int)Math.Max(1, (long)h * maxW / w); w = maxW; }
             outW = w; outH = h;

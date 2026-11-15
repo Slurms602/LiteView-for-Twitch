@@ -37,21 +37,35 @@ namespace LiteViewCore
         {
             if (string.IsNullOrEmpty(text)) return "";
             var sb = new StringBuilder(text!.Length);
-            foreach (char c in text)
+            for (int i = 0; i < text.Length; i++)
             {
+                char c = text[i];
+                if (Unpaired(text, i)) continue;
                 if (c == '\u0001') { sb.Append(c); continue; }
                 sb.Append(char.IsControl(c) || c == '\u2028' || c == '\u2029' ? ' ' : c);
             }
             string s = sb.ToString().Trim();
             bool action = s.StartsWith("\u0001ACTION ", StringComparison.Ordinal) && s.EndsWith("\u0001", StringComparison.Ordinal) && s.Length > 9;
-            if (!action) s = s.Replace("\u0001", "").Trim();
-            if (s.Length > MaxMessageChars)
+            // the text itself never holds \u0001: only the ACTION wrapper around it, which survives the length cut
+            string body = (action ? s.Substring(8, s.Length - 9) : s).Replace("\u0001", "").Trim();
+            int room = action ? MaxMessageChars - 9 : MaxMessageChars;
+            if (body.Length > room)
             {
-                int n = MaxMessageChars;
-                if (char.IsHighSurrogate(s[n - 1])) n--;   // never cut a surrogate pair in half
-                s = s.Substring(0, n);
+                int n = room;
+                if (char.IsHighSurrogate(body[n - 1])) n--;   // never cut a surrogate pair in half
+                body = body.Substring(0, n).TrimEnd();
             }
-            return s;
+            if (action && body.Length == 0) return "";
+            return action ? "\u0001ACTION " + body + "\u0001" : body;
+        }
+
+        /// <summary>True for half of a surrogate pair without its other half (not a character).</summary>
+        public static bool Unpaired(string s, int i)
+        {
+            char c = s[i];
+            if (char.IsHighSurrogate(c)) return i + 1 >= s.Length || !char.IsLowSurrogate(s[i + 1]);
+            if (char.IsLowSurrogate(c)) return i == 0 || !char.IsHighSurrogate(s[i - 1]);
+            return false;
         }
 
         /// <summary>Text for display, cut to MaxShownChars without splitting a surrogate pair.</summary>

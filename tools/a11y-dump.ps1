@@ -1,12 +1,14 @@
 # Lists what screen readers see in a running LiteView (UI Automation, the interface Narrator / NVDA use):
 # each List and its first ListItems with their names. Used by tools/smoke.ps1 -A11y; Windows PowerShell 5.1
 # (UI Automation is part of .NET Framework).   usage: powershell -File tools\a11y-dump.ps1 -ProcessId <pid> -Out a11y.txt
-param([Parameter(Mandatory = $true)] [int]$ProcessId, [string]$Out = 'a11y.txt', [int]$MaxItems = 8)
+# -Window: LiteView's window handle (smoke.ps1 finds it by title; the process's "main window" can be a tooltip).
+param([Parameter(Mandatory = $true)] [int]$ProcessId, [string]$Out = 'a11y.txt', [int]$MaxItems = 8, [long]$Window = 0)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 $A = [System.Windows.Automation.AutomationElement]
 $p = Get-Process -Id $ProcessId
-$root = $A::FromHandle($p.MainWindowHandle)
+$top = if ($Window -ne 0) { [IntPtr]$Window } else { $p.MainWindowHandle }
+$root = $A::FromHandle($top)
 $lines = New-Object System.Collections.Generic.List[string]
 $listCond = New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::List)
 foreach ($list in $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $listCond))
@@ -46,7 +48,7 @@ public static class Msaa
     }
 }
 '@
-$msaa = [Msaa]::Lists($p.MainWindowHandle, $MaxItems)
+$msaa = [Msaa]::Lists($top, $MaxItems)
 if ($msaa.Count -eq 0) { $lines.Add('no MSAA lists found') } else { foreach ($l in $msaa) { $lines.Add($l) } }
 # the raw tree (what is there at all), a few levels deep
 $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker

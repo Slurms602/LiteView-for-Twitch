@@ -80,9 +80,10 @@ chat, 62 MB scrolled back, the UI wait at most 5 ms.
 video (FakeStreamlink and the real mpv), its chat connection, emotes and recent messages, plus 50 chat messages a
 second. 26 switches: private memory 40-44 MB, threads 26-29, GDI 62-65, USER 79-82, UI wait at most 20 ms; handles
 634 → 697 (about 2.5 per switch). Nothing in the switch path keeps a handle (Streamlink's process and job, the mpv
-pipe and the chat socket are all closed), so these are most likely objects waiting for the garbage collector; the
-scene now collects garbage before each sample, so CI's budget (40 handles over about 20 switches) catches a real
-leak.
+pipe and the chat socket are all closed), so these are objects waiting for the garbage collector: with a full
+collection before each sample (as the scene does now, `d58c1a0`) handles went 666 → 673 over the last 20 switches,
+threads 28 → 26, GDI and USER flat. No leak across channel switches; CI's budget (40 handles over about 20 switches)
+would catch one.
 
 CI now fails when a run goes over this budget (`tools/stress-check.ps1` in `.github/workflows/ci.yml`): private
 memory 250 MB, growth over the last 30 s 30 MB / 100 handles / 20 GDI / 20 USER objects, UI wait 250 ms, the

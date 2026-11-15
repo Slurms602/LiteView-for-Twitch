@@ -137,7 +137,7 @@ if ($p.HasExited) {
         {
             $dump = Join-Path $Out 'a11y.txt'
             $dumper = Start-Process powershell.exe -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-                ('"' + (Join-Path $PSScriptRoot 'a11y-dump.ps1') + '"'), '-ProcessId', $p.Id, '-Out', ('"' + $dump + '"'))
+                ('"' + (Join-Path $PSScriptRoot 'a11y-dump.ps1') + '"'), '-ProcessId', $p.Id, '-Window', $main.ToInt64(), '-Out', ('"' + $dump + '"'))
             if (-not $dumper.WaitForExit(60000)) { Stop-Process -Id $dumper.Id -Force -ErrorAction SilentlyContinue; Note "screen reader dump: no answer within 60 s" }
             if (-not (Test-Path $dump)) { Set-Content $dump 'no dump (tools/a11y-dump.ps1 did not finish)' }
             $uia = Select-String -Path $dump -Pattern '^LIST .*\([1-9][0-9]* items\)' -Quiet         # Narrator

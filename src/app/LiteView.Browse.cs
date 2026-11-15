@@ -83,6 +83,14 @@ partial class LiteView
                 back.Start();
                 return;
             }
+            if (Fixture.SceneName == "picker")
+            {   // the emote picker open on the made-up 7TV emotes, the keyboard on the 5th (screen readers: tools/a11y-dump.ps1)
+                Watch("nightowl_plays");
+                var open = new Timer { Interval = 4000 };
+                open.Tick += (s2, e2) => { open.Stop(); open.Dispose(); nchat.OpenPicker(4); Log.Info("picker: open"); };
+                open.Start();
+                return;
+            }
             if (Fixture.SceneName == "chatlog")
             {   // the chat's recent messages (made-up answer from Fixture), nothing else
                 ChatPrefs.Timestamps = true;
@@ -233,6 +241,7 @@ partial class LiteView
         yield return Kv("following", nativeBrowse ? "native" : "web");
         yield return Kv("sort", browse.Order.ToString().ToLowerInvariant());
         yield return Kv("favfirst", browse.FavouritesFirst ? "1" : "0");
+        yield return Kv("browselang", browse.BrowseLanguage ?? "");
         yield return Kv("favorites", browse.Favourites.Save());
         yield return Kv("keeprecent", browse.RememberRecent ? "1" : "0");
         yield return Kv("recent", browse.RememberRecent ? browse.Recent.Save() : "");
@@ -254,6 +263,7 @@ partial class LiteView
         SortOrder o;
         browse.Order = Enum.TryParse(Native.Get(ini, "sort", "viewers"), true, out o) && Enum.IsDefined(typeof(SortOrder), o) ? o : SortOrder.Viewers;
         browse.FavouritesFirst = Native.Get(ini, "favfirst", "1") == "1";
+        browse.BrowseLanguage = Native.Get(ini, "browselang", "");   // anything but a known code: any language
         browse.Favourites.Load(Native.Get(ini, "favorites", ""));
         browse.RememberRecent = Native.Get(ini, "keeprecent", "1") == "1";
         browse.RememberSearches = Native.Get(ini, "keepsearches", "1") == "1";

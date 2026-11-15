@@ -117,7 +117,7 @@ size-limited image download had no deadline for the body, so a stalled server co
 | RES-4 | Low | `chatters` and learned `twitchEmotes` grow for the whole time in one channel. | `chat.cs` 558-559 | Cleared past 20 000 entries. | - | Fixed |
 | RES-5 | Info | Followed-channel avatars are never evicted (bounded by the number of follows). | `sidebar.cs` 119 | - | - | Open (Info) |
 | RES-6 | Info | LiteView's own UI thread runs at Below Normal priority; under full CPU load from a game the UI may lag. A design choice ("game first"). | `liteview.cs` 738 | - | - | Open: make it a setting (P4) |
-| RES-7 | Hypothesis | Image decode and avatar rounding happen on worker threads (good), but `Images.Loaded` invalidates and re-lays out *every* message using the emote; with thousands of messages scrolled back this is O(n) per image. | `chat.cs` 323-330 | - | - | Open: measure with the chat stress test (P1) |
+| RES-7 | Hypothesis | Image decode and avatar rounding happen on worker threads (good), but `Images.Loaded` invalidates and re-lays out *every* message using the emote; with thousands of messages scrolled back this is O(n) per image. | `chat.cs` 323-330 | Bounded by the message cap (300, or 2000 while scrolled back). Measured on CI at 300 messages/s with 120 emotes: the window's thread never waited more than 4 ms (`PERFORMANCE_BASELINE.md`) | CI stress step with a budget | Closed (measured); recheck on a real busy channel |
 
 ### 2.4 Fragile external behaviour
 

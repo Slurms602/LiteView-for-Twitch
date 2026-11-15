@@ -26,7 +26,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$re = 'stress: (\d+) messages \((\d+)/s\), working set (\d+) MB, private (\d+) MB, threads (\d+), handles (\d+), GDI (\d+), USER (\d+), CPU (\d+) s, UI lag max (\d+) ms, emotes: (.*)$'
+$re = 'stress: (\d+) messages \((\d+)/s\), working set (\d+) MB, private (\d+) MB, threads (\d+), handles (\d+), GDI (\d+), USER (\d+), CPU ([0-9.]+) s, UI lag max (\d+) ms, emotes: (.*)$'
 $rows = New-Object System.Collections.Generic.List[object]
 foreach ($line in Get-Content $Log) {
     $m = [regex]::Match($line, $re)
@@ -34,7 +34,7 @@ foreach ($line in Get-Content $Log) {
     $g = $m.Groups
     $rows.Add([pscustomobject]@{
         Phase = $null; Messages = [long]$g[1].Value; PerSecond = [int]$g[2].Value; WorkingMB = [int]$g[3].Value; PrivateMB = [int]$g[4].Value
-        Threads = [int]$g[5].Value; Handles = [int]$g[6].Value; Gdi = [int]$g[7].Value; User = [int]$g[8].Value; CpuS = [int]$g[9].Value
+        Threads = [int]$g[5].Value; Handles = [int]$g[6].Value; Gdi = [int]$g[7].Value; User = [int]$g[8].Value; CpuS = [double]::Parse($g[9].Value, [Globalization.CultureInfo]::InvariantCulture)
         LagMs = [int]$g[10].Value; Emotes = $g[11].Value.Trim() })
 }
 $samples = @($rows | Where-Object { $null -eq $_.Phase })
@@ -49,7 +49,7 @@ $t = 0; $prevCpu = $null
 foreach ($r in $rows) {
     if ($null -ne $r.Phase) { Note "     -- $($r.Phase)"; continue }
     $t += 10
-    $cpu = if ($null -eq $prevCpu) { '' } else { [string][int](($r.CpuS - $prevCpu) * 10) }   # % of one core over the 10 s
+    $cpu = if ($null -eq $prevCpu) { '' } else { [string][int][Math]::Round(($r.CpuS - $prevCpu) * 10) }   # % of one core over the 10 s
     $prevCpu = $r.CpuS
     Note ("{0,4} {1,9} {2,6} {3,8} {4,8} {5,7} {6,7} {7,5} {8,5} {9,6} {10,7}  {11}" -f $t, $r.Messages, $r.PerSecond, $r.WorkingMB, $r.PrivateMB, $r.Threads, $r.Handles, $r.Gdi, $r.User, $cpu, $r.LagMs, $r.Emotes)
 }

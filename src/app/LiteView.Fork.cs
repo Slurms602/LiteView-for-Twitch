@@ -125,7 +125,7 @@ partial class LiteView
     {
         var gen0 = new ChatStress("stress", Environment.TickCount);
         List<string> emotes = new List<string>(); string emotesFor = null;
-        double due = 0; var sw = Stopwatch.StartNew(); long lastLog = 0, lastCount = 0;
+        double due = 0; var sw = Stopwatch.StartNew(); long lastLog = 0, lastCount = 0, fedAt = -1;
         Text = Text + "  -  chat stress " + stressRate + "/s";
         Log.Info("chat stress mode: " + stressRate + " messages per second");
         int busy = 0;
@@ -150,9 +150,13 @@ partial class LiteView
                     }
                 }
                 string ch = nchat.Channel;
-                if (!watching || webChat || ch == null) return;
-                if (ch != emotesFor || sw.ElapsedMilliseconds % 5000 < 60) { emotes = nchat.EmoteNames(); emotesFor = ch; }
-                due += stressRate / 20.0;
+                long at = sw.ElapsedMilliseconds;
+                if (!watching || webChat || ch == null) { fedAt = at; return; }
+                if (ch != emotesFor || at % 5000 < 60) { emotes = nchat.EmoteNames(); emotesFor = ch; }
+                // by the time that passed, not per tick: Windows runs a 50 ms timer in 15.6 ms steps (about every 62 ms);
+                // after a stall at most one second's worth at once
+                if (fedAt < 0) fedAt = at;
+                due = Math.Min(stressRate, due + stressRate * (at - fedAt) / 1000.0); fedAt = at;
                 for (; due >= 1; due--) nchat.Inject(gen0.Next(emotes).Replace(" #stress", " #" + ch));
                 long now = sw.ElapsedMilliseconds;
                 if (now - lastLog >= 10000)
@@ -161,7 +165,7 @@ partial class LiteView
                         Log.Info("stress: " + gen0.Count + " messages (" + ((gen0.Count - lastCount) * 1000 / Math.Max(1, now - lastLog)) + "/s), working set "
                             + me.WorkingSet64 / (1024 * 1024) + " MB, private " + me.PrivateMemorySize64 / (1024 * 1024) + " MB, threads " + me.Threads.Count
                             + ", handles " + me.HandleCount + ", GDI " + GetGuiResources(me.Handle, 0) + ", USER " + GetGuiResources(me.Handle, 1)
-                            + ", CPU " + (int)me.TotalProcessorTime.TotalSeconds + " s, UI lag max " + takeLag() + " ms, emotes: " + Images.Stats());
+                            + ", CPU " + me.TotalProcessorTime.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s, UI lag max " + takeLag() + " ms, emotes: " + Images.Stats());
                     lastLog = now; lastCount = gen0.Count;
                 }
             }

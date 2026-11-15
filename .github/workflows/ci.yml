@@ -62,11 +62,14 @@ jobs:
           dotnet build tests/FakeStreamlink -c Release --no-restore -o fake
           $fake = (Resolve-Path fake/streamlinkw.exe).Path
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'problem', 'chat', 'chatlog', 'watch', 'paused', 'offline', 'fail') {
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'problem', 'chat', 'chatlog', 'picker', 'watch', 'paused', 'offline', 'fail') {
             $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
-            $more = @{ A11y = $scene -in 'live', 'followed', 'chat', 'chatlog' }   # also check what screen readers see
+            $more = @{ A11y = $scene -in 'live', 'followed', 'browse', 'category', 'chat', 'chatlog', 'picker' }   # also check what screen readers see
             if ($scene -in 'watch', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
             if ($scene -eq 'chatlog') { $more.Expect = @('chat: 6 recent messages') }
+            if ($scene -eq 'browse') { $more.A11yExpect = @("^LIST 'Browse categories' \([1-9][0-9]* items\)", '^  - Elden Ring, category') }
+            if ($scene -eq 'category') { $more.A11yExpect = @("^LIST 'Browse, Music' \(2 items\)") }
+            if ($scene -eq 'picker') { $more.Expect = @('picker: open'); $more.A11yExpect = @("^LIST 'Emotes' \([1-9][0-9]* items\)", "^MSAA LIST 'Emotes' \([1-9][0-9]* items\)") }
             if ($scene -eq 'paused') { $more.Expect = @('stream 1: playing', 'paused: stream stopped') }
             ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-')) -Env $vars @more
             if ($LASTEXITCODE) { $failed++ }
@@ -79,7 +82,8 @@ jobs:
           $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'stress' }
           ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke/fixture-stress -Env $vars -Seconds 135 -Expect 'chat stress mode: 300 messages per second', 'stress phase: scrolled back'
           $smoke = $LASTEXITCODE
-          ./tools/stress-check.ps1 -Log smoke/fixture-stress/liteview.log -Rate 300 -MinDecoded 60 -MaxRefused 0 -Out smoke/fixture-stress/stress.txt
+          # budget from the first runs (docs/PERFORMANCE_BASELINE.md): about 4x the private memory seen, flat handles, no freeze
+          ./tools/stress-check.ps1 -Log smoke/fixture-stress/liteview.log -Rate 300 -MaxPrivateMB 250 -MaxGrowthMB 30 -MaxHandleGrowth 100 -MaxGdiGrowth 20 -MaxUserGrowth 20 -MaxLagMs 250 -MinDecoded 100 -MaxRefused 0 -Out smoke/fixture-stress/stress.txt
           if ($smoke -or $LASTEXITCODE) { exit 1 }
       - name: Screenshot and logs of the start
         if: always()

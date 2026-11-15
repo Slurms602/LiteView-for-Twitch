@@ -575,6 +575,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         drain.Tick += (s, e) => Drain();
         // a decoded image is counted in the frame budget when it arrives, even if it is never drawn
         Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { Images.Used(e); Images.Trim(); View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
+        InitPickerAccess();   // fork: Ctrl+E, keyboard and screen readers in the picker (src/app/PickerAccess.cs)
         UpdateLogin();
     }
 

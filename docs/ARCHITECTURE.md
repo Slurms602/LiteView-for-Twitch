@@ -37,6 +37,7 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/app/LiteView.Chat.cs` | Chat preferences (`ChatPrefs`), chat width handle, the list dialog | fork |
 | `src/app/ChatHistory.cs` | `ChatPanel` (partial): the channel's recent messages when joining | fork |
 | `src/app/LiteView.Pause.cs` | Pause / play (ends and restarts the stream processes) | fork |
+| `src/app/PickerAccess.cs` | `EmotePicker` and `ChatPanel` (partial): the picker by keyboard (Ctrl+E, arrow keys) and for screen readers | fork |
 | `src/app/LiteView.Performance.cs` | CPU use modes, Gaming mode | fork |
 | `src/app/LiteView.Screens.cs` | Fullscreen across monitors, RTX card detection | fork |
 | `src/app/ProblemPopup.cs`, `DarkMenu.cs` | Error details window, dark menus | fork |
@@ -49,6 +50,7 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `tests/LiteView.Core.Tests/` | xUnit tests of `src/core` (run on any OS) | fork |
 | `config/` | mpv config and shaders, `gamefirst.ini` | upstream |
 | `tools/upstream.sh` | Reviewing and taking upstream changes (`docs/UPSTREAM.md`) | fork |
+| `tools/smoke.ps1`, `tools/a11y-dump.ps1`, `tools/stress-check.ps1` | CI on Windows: start the packaged app per fixture scene, read what screen readers see, check the busy-chat numbers against the budget | fork |
 
 **Why the upstream files did not move**: this fork follows upstream and takes its improvements
 (`docs/UPSTREAM.md`). Git applies upstream patches cleanly only while the files keep their paths and the

@@ -28,8 +28,9 @@ Windows pass and one green CI run.
 4. Integration tests with fakes. **Done for Twitch login/API and the chat connection** (`TwitchClient`, `Irc` moved
    into `src/core`). **Done for the stream path too**: `tests/FakeStreamlink` stands in for Streamlink on the Windows
    runner (plays a generated video in the real mpv, waits like an offline channel, or fails), CI runs all three.
-5. Chat stress tool: **done** (`--chat-stress=N`, logs memory/handles/emote cache every 10 s). Still to do: run it on
-   Windows and set the emote budget and any chat limits from the numbers (RES-7).
+5. Chat stress tool: **done** (`--chat-stress=N`, logs memory/handles/emote cache/UI lag every 10 s). CI runs it for
+   two minutes at 300 messages a second with a budget (`tools/stress-check.ps1`, numbers in `PERFORMANCE_BASELINE.md`).
+   Still to do: a long run on the owner's PC with a real busy channel.
 6. Status/errors (UI-5): **implemented** (⚠ in the status line, details with Try again / Open log folder / Copy).
 7. Sleep/resume and network changes: **implemented** (chat liveness PING, restart on resume, reconnect when the
    network returns); needs the Windows check.
@@ -41,7 +42,8 @@ native Following page from Helix (`streams/followed`, `channels/followed`, `user
 `streams?user_login`): live cards, all followed, recently watched, search with history, favourites, sorting,
 virtualised drawing, image budget, cached search with stale-answer protection, no polling while hidden or minimised.
 The WebView2 page stays as a fallback (menu > Following page).
-Not done: browse by game/category, language filter, hover previews (optional in the brief).
+Browse tab (CI-checked): the most watched categories (`games/top`) with box art, each category's live channels and
+all of Twitch's (`streams?game_id`), language filter. Not done: hover previews (optional in the brief).
 **Per-monitor DPI** (UI-1): still open. It needs every layout constant and custom-drawn control scaled (about 80
 places in upstream files) and a way to test at 150 % on CI (per-monitor DPI can be changed without signing out;
 system DPI cannot). Planned as its own step. The owner's screen is 2560x1440 at 100 %, where the text was simply too
@@ -74,7 +76,7 @@ a settings window; theming (DUP-2).
 Done (P2 branch): live notifications for favourites with quiet hours (tray), settings export / import / reset,
 update check (opens the release page only) and a release workflow (draft release with the zip's SHA-256).
 Done: screen readers read the Following page, the followed column and the chat (UI Automation for Narrator, MSAA
-for NVDA / JAWS; CI checks both). Not done: the emote picker.
+for NVDA / JAWS; CI checks both), and so can the emote picker, which also works by keyboard now (Ctrl+E).
 
 Accessibility for the custom-drawn controls (UI-4); notifications for favourite channels with quiet hours;
 settings export/import/reset by category; safe update checking (no silent replacement, verified downloads);

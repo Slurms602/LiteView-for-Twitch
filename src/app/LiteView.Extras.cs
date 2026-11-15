@@ -18,7 +18,8 @@ partial class LiteView
     // ---------- keyboard ----------
 
     [DllImport("user32.dll")] static extern IntPtr GetFocus();
-    static bool Typing { get { return Control.FromChildHandle(GetFocus()) is TextBoxBase; } }
+    // a text box, or the emote picker's grid (its letters, Space and Backspace are its own)
+    static bool Typing { get { var c = Control.FromChildHandle(GetFocus()); return c is TextBoxBase || c is EmotePicker; } }
 
     public const string Shortcuts =
         "Ctrl+L  Go to channel (search)\n" +
@@ -29,7 +30,8 @@ partial class LiteView
         "Space  Pause / play (play continues at live)\n" +
         "M  Mute\n" +
         "Ctrl+Up / Ctrl+Down  Volume\n" +
-        "C  Show or hide the chat\n\n" +
+        "C  Show or hide the chat\n" +
+        "Ctrl+E  Emotes (in the chat box; arrow keys choose, Enter inserts)\n\n" +
         "On the Following page: arrow keys choose, Enter watches, the menu key opens the channel menu.\n" +
         "With the video clicked, mpv's keys apply (double-click or F: fullscreen, M: mute, wheel: volume).";
 

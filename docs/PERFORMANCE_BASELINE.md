@@ -1,6 +1,6 @@
 # Performance baseline
 
-**Status: nothing has been measured by this fork yet.** The development environment for the P0 milestone was a
+**Status: only the CI busy-chat run below has been measured by this fork.** The development environment for the P0 milestone was a
 Linux sandbox without Windows, a GPU or Twitch playback. This file records upstream's own published numbers
 (unverified by us), the method we will use, and what the P0 changes may affect, so the first real measurement on
 Windows has something to compare against.
@@ -52,6 +52,30 @@ compared without a busy real channel.
 
 Suggested tools: Windows Performance Recorder/Analyzer or `typeperf` for CPU and GPU counters, PresentMon or
 CapFrameX for game frame times. Store the raw CSVs under `docs/perf/<date>-<commit>/` with a short README.
+
+## Busy chat on the CI runner (first numbers)
+
+Not a substitute for the measurements above: a GitHub Windows Server 2025 runner (no GPU, no video, made-up 7TV
+emotes of 28 px, a quarter animated), LiteView's own chat at 300 messages a second for two minutes, the second minute
+scrolled back (2000 messages kept and each new one laid out). Run 43677013718 (commit `d29ef49`), every 10 s:
+
+| | Start (10 s) | Bottom of chat (50 s) | Scrolled back (90 s) | End (130 s) |
+|---|---|---|---|---|
+| Private memory | 42 MB | 45 MB | 52 MB | 56 MB |
+| Working set | 72 MB | 74 MB | 85 MB | 84 MB |
+| Handles / GDI / USER | 626 / 61 / 76 | 604 / 61 / 75 | 607 / 61 / 74 | 613 / 61 / 74 |
+| Longest UI wait in the 10 s | 4 ms | 3 ms | 1 ms | 1 ms |
+| Emotes | 120 decoded | 120 | 120 | 120, none refused, 0 MB of the 128 MB budget |
+
+Memory grows only with the number of messages kept (300 at the bottom, 2000 scrolled back) and then levels off;
+handles and GDI/USER objects stay flat; the window's thread never waited more than 4 ms. That run's generator only
+reached 239 messages a second (it fed a fixed number per 50 ms timer tick and Windows' timer runs in 15.6 ms steps);
+it now feeds by elapsed time. RES-7 (re-laying out every message that uses an emote when the emote arrives) is
+bounded by the 300/2000 message cap and does not show up here.
+
+CI now fails when a run goes over this budget (`tools/stress-check.ps1` in `.github/workflows/ci.yml`): private
+memory 250 MB, growth over the last 30 s 30 MB / 100 handles / 20 GDI / 20 USER objects, UI wait 250 ms, the
+generator at 80 % of its rate, at least 100 emotes decoded and none refused.
 
 ## What P0 changed that could matter
 

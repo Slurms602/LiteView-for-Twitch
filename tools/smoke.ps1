@@ -11,6 +11,7 @@ param(
     [switch]$A11y,             # also save what screen readers see (tools/a11y-dump.ps1) as a11y.txt
     [string]$FakeStreamlink,   # CI: replace Streamlink in the copy with tests/FakeStreamlink (no Twitch needed)
     [string[]]$Expect = @(),   # regular expressions that must each match a line of liteview.log (what the scene must have done)
+    [string[]]$A11yExpect = @(),   # with -A11y: regular expressions that must each match a line of a11y.txt
     [hashtable]$Env = @{}   # e.g. @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'followed' } (made-up data, docs/TESTING.md)
 )
 $ErrorActionPreference = 'Stop'
@@ -103,6 +104,9 @@ if ($p.HasExited) {
             $msaa = Select-String -Path $dump -Pattern '^MSAA LIST .*\([1-9][0-9]* items\)' -Quiet   # NVDA, JAWS
             if (-not ($uia -and $msaa)) { $ok = $false; Note "FAIL: screen readers see no list items (UI Automation: $uia, MSAA: $msaa; a11y.txt)" }
             else { Note "screen readers see the lists (UI Automation and MSAA; a11y.txt)" }
+            foreach ($x in $A11yExpect) {
+                if (Select-String -Path $dump -Pattern $x -Quiet) { Note "a11y has: $x" } else { $ok = $false; Note "FAIL: a11y.txt has no line matching: $x" }
+            }
         }
     }
     foreach ($c in Tree $p.Id) { Note ("  process {0} ({1}): {2:N0} MB" -f $c.Name, $c.ProcessId, ($c.WorkingSetSize / 1MB)) }

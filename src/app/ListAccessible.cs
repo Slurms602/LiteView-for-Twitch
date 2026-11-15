@@ -19,15 +19,17 @@ sealed class ListModel
     public Action<int> Open;
     public string Action = "Watch";
 
+    // a screen reader may still hold an item of a list that got shorter since: out of range is "nowhere"
     public Rectangle ScreenBounds(int i)
     {
+        if (i < 0 || i >= Count()) return Rectangle.Empty;
         var r = Bounds(i);
         if (r.IsEmpty || !Owner.IsHandleCreated) return Rectangle.Empty;
         r.Intersect(Owner.ClientRectangle);
         return r.IsEmpty ? Rectangle.Empty : Owner.RectangleToScreen(r);
     }
 
-    public bool Offscreen(int i) { var r = Bounds(i); return !r.IsEmpty && !r.IntersectsWith(Owner.ClientRectangle); }
+    public bool Offscreen(int i) { if (i < 0 || i >= Count()) return true; var r = Bounds(i); return !r.IsEmpty && !r.IntersectsWith(Owner.ClientRectangle); }
 
     /// <summary>Exposes the list to MSAA and UI Automation. Call once, from the control's constructor.</summary>
     public UiaList Attach() { var u = new UiaList(this); u.Hook(); return u; }

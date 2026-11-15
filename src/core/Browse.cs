@@ -28,6 +28,26 @@ namespace LiteViewCore
         public DateTimeOffset? Started, Followed;
     }
 
+    /// <summary>A category ("game") from games/top: numeric id, name, box art URL template ({width}x{height}).</summary>
+    public sealed class Category { public string Id = "", Name = "", BoxArt = ""; }
+
+    /// <summary>The stream languages the Browse tab can filter by (Twitch's codes: ISO 639-1, plus "other").</summary>
+    public static class Languages
+    {
+        public static readonly KeyValuePair<string, string>[] All =
+        {
+            P("en", "English"), P("es", "Spanish"), P("de", "German"), P("fr", "French"), P("pt", "Portuguese"), P("it", "Italian"),
+            P("ru", "Russian"), P("pl", "Polish"), P("tr", "Turkish"), P("nl", "Dutch"), P("sv", "Swedish"), P("ja", "Japanese"),
+            P("ko", "Korean"), P("zh", "Chinese"), P("ar", "Arabic"), P("th", "Thai"), P("other", "Other"),
+        };
+        static KeyValuePair<string, string> P(string k, string v) { return new KeyValuePair<string, string>(k, v); }
+
+        /// <summary>One of All's codes (the only values sent to Twitch).</summary>
+        public static bool IsKnown(string? code) { return code != null && All.Any(l => l.Key == code); }
+
+        public static string Name(string? code) { foreach (var l in All) if (l.Key == code) return l.Value; return "Any language"; }
+    }
+
     /// <summary>users: a channel's display name and picture.</summary>
     public sealed class UserInfo { public string Login = "", Name = "", Avatar = ""; }
 
@@ -79,6 +99,21 @@ namespace LiteViewCore
                     Game = Text(Json.S(c, "game_name")), Title = Text(Json.S(c, "title")), Avatar = Json.S(c, "thumbnail_url") ?? "",
                     Live = Json.B(c, "is_live"), Started = Time(Json.S(c, "started_at")),
                 });
+            }
+            return list;
+        }
+
+        /// <summary>games/top: categories with a numeric id and a name; the box art only when it is an allowed image URL.</summary>
+        public static List<Category> Categories(object? json)
+        {
+            var list = new List<Category>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var c in Json.A(json, "data"))
+            {
+                string id = Id(Json.S(c, "id")), name = Text(Json.S(c, "name"));
+                if (id.Length == 0 || name.Length == 0 || !seen.Add(id)) continue;
+                string art = Json.S(c, "box_art_url") ?? "";
+                list.Add(new Category { Id = id, Name = name, BoxArt = Thumb(art, 285, 380).Length > 0 ? art : "" });
             }
             return list;
         }
@@ -391,6 +426,27 @@ namespace LiteViewCore
             if (j == null) return null;
             // live channels first, then Twitch's order (relevance)
             return HelixData.Search(j).Select((c, i) => new { c, i }).OrderBy(x => x.c.Live ? 0 : 1).ThenBy(x => x.i).Select(x => x.c).ToList();
+        }
+
+        public const int MaxCategories = 100, MaxBrowseStreams = 100;
+
+        /// <summary>The most watched categories right now (games/top); null when Twitch could not be reached.</summary>
+        public async Task<List<Category>?> TopCategories()
+        {
+            var j = await helix("games/top?first=" + MaxCategories).ConfigureAwait(false);
+            return j == null ? null : HelixData.Categories(j);
+        }
+
+        /// <summary>
+        /// The most watched live streams, in one category (numeric id) or all of Twitch (null), in one language (a code of
+        /// Languages.All) or any (null); null when Twitch could not be reached or the category id is not a number.
+        /// </summary>
+        public async Task<List<LiveStream>?> TopStreams(string? categoryId, string? language)
+        {
+            if (categoryId != null && !ChannelName.IsNumericId(categoryId)) return null;
+            string q = "streams?first=" + MaxBrowseStreams + (categoryId != null ? "&game_id=" + categoryId : "") + (Languages.IsKnown(language) ? "&language=" + language : "");
+            var j = await helix(q).ConfigureAwait(false);
+            return j == null ? null : Distinct(HelixData.Streams(j), x => x.Login);
         }
 
         static string After(string? cursor) { return cursor != null ? "&after=" + Uri.EscapeDataString(cursor) : ""; }

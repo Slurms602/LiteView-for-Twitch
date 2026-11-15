@@ -45,6 +45,9 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - GameFirst can undo what it changed: `GameFirst.exe --stop`.
 - The top right of the Following page showed a broken white box instead of the menu button until a stream was opened.
   The Following page now shows only the menu there; quality, Chat and the player buttons appear while watching.
+- Names and titles on the Following page and sent chat messages no longer end in half an emoji; a `/me` message
+  longer than Twitch allows keeps its action form.
+- A broken emote size from an emote service can no longer give an emote a negative width.
 
 ### Added
 
@@ -69,11 +72,19 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - The chat shows the channel's **recent messages** when you join, like on Twitch (from recent-messages.robotty.de, the
   service Chatterino uses; chat gear > *Recent messages when joining* turns it off).
 - Menu > **Text size** for the Following page and the chat. Both are a step larger by default than before.
+- **Browse** tab on the Following page: the most watched categories on Twitch; click one for its live channels (or
+  *All live channels* for the most watched of all). *Language* filters the channels. Backspace or Esc goes back.
+- Emote picker by keyboard: **Ctrl+E** in the chat box opens it; Down goes from its search into the grid, arrow keys
+  choose, Enter inserts, typing searches again, Esc closes. Screen readers read each emote and its set.
 
 ### For developers
 
 - `LiteView.exe <channel> --chat-stress=200` floods the chat with synthetic messages and logs memory and handle
-  counts every 10 s (docs/TESTING.md).
+  counts every 10 s (docs/TESTING.md), and now also the longest wait of the window's thread (UI lag).
+- CI runs that stress for two minutes at 300 messages a second with made-up 7TV emotes and checks memory, handles,
+  GDI/USER objects and UI lag against a budget (`tools/stress-check.ps1`).
+- Random-input tests (`FuzzTests`) for every parser of outside data: IRC, JSON, the chat history, image headers,
+  links, channel names, Helix answers, Streamlink's log, settings files.
 
 - Twitch login/API and the chat connection moved into the tested library and are tested against a simulated
   Twitch and chat server; JSON is read by a small built-in reader instead of `JavaScriptSerializer`.

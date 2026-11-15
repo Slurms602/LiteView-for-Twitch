@@ -294,3 +294,71 @@ public class FollowingTests
         Assert.Equal(new[] { "aa1", "bb1" }, r.Value.Select(c => c.Login));
     }
 }
+
+public class CategoryTests
+{
+    readonly List<string> asked = new List<string>();
+    readonly Dictionary<string, string?> answers = new Dictionary<string, string?>();
+
+    Following Make()
+    {
+        return new Following(q =>
+        {
+            asked.Add(q);
+            string? key = answers.Keys.FirstOrDefault(k => q.StartsWith(k, StringComparison.Ordinal));
+            return Task.FromResult(key == null || answers[key] == null ? null : Json.Parse(answers[key]));
+        });
+    }
+
+    [Fact]
+    public void CategoriesNeedAnIdAndANameAndKeepOnlyAllowedBoxArt()
+    {
+        var list = HelixData.Categories(Json.Parse("{\"data\":[" +
+            "{\"id\":\"509658\",\"name\":\"Just Chatting\",\"box_art_url\":\"https://static-cdn.jtvnw.net/ttv-boxart/509658-{width}x{height}.jpg\"}," +
+            "{\"id\":\"33214\",\"name\":\"Fort\\u202Enite\\n\",\"box_art_url\":\"https://evil.example/x-{width}x{height}.jpg\"}," +
+            "{\"id\":\"509658\",\"name\":\"duplicate\"}," +
+            "{\"id\":\"12a\",\"name\":\"not a number\"},{\"id\":\"7\",\"name\":\"  \"},{\"name\":\"no id\"},5]}"));
+        Assert.Equal(new[] { "509658", "33214" }, list.Select(c => c.Id));
+        Assert.Equal("Just Chatting", list[0].Name);
+        Assert.Equal("Fortnite", list[1].Name);                   // no direction override, no line break
+        Assert.StartsWith("https://static-cdn.jtvnw.net/", list[0].BoxArt);
+        Assert.Equal("", list[1].BoxArt);                         // not an image host LiteView downloads from
+        Assert.Equal("https://static-cdn.jtvnw.net/ttv-boxart/509658-150x200.jpg", HelixData.Thumb(list[0].BoxArt, 150, 200));
+        Assert.Empty(HelixData.Categories(null));
+    }
+
+    [Fact]
+    public async Task TopCategoriesAndUnreachable()
+    {
+        answers["games/top?first=100"] = "{\"data\":[{\"id\":\"1\",\"name\":\"A\"}]}";
+        Assert.Single((await Make().TopCategories())!);
+        answers["games/top?first=100"] = null;
+        Assert.Null(await Make().TopCategories());
+    }
+
+    [Fact]
+    public async Task TopStreamsSendOnlyANumericCategoryAndAKnownLanguage()
+    {
+        answers["streams?first=100"] = "{\"data\":[{\"user_login\":\"aa1\"},{\"user_login\":\"aa1\"},{\"user_login\":\"bb2\"}]}";
+        var f = Make();
+        Assert.Equal(new[] { "aa1", "bb2" }, (await f.TopStreams(null, null))!.Select(s => s.Login));
+        await f.TopStreams("509658", "de");
+        await f.TopStreams("509658", "de&first=1");   // not a language: left out
+        await f.TopStreams(null, "other");
+        Assert.Null(await f.TopStreams("12&user_id=1", null));   // not an id: nothing is asked
+        Assert.Equal(new[] { "streams?first=100", "streams?first=100&game_id=509658&language=de", "streams?first=100&game_id=509658", "streams?first=100&language=other" }, asked);
+        answers["streams?first=100"] = null;
+        Assert.Null(await f.TopStreams(null, null));
+    }
+
+    [Fact]
+    public void LanguageNames()
+    {
+        Assert.True(Languages.IsKnown("en"));
+        Assert.False(Languages.IsKnown("EN"));
+        Assert.False(Languages.IsKnown(null));
+        Assert.Equal("German", Languages.Name("de"));
+        Assert.Equal("Any language", Languages.Name(null));
+        Assert.All(Languages.All, l => Assert.Matches("^([a-z]{2}|other)$", l.Key));
+    }
+}

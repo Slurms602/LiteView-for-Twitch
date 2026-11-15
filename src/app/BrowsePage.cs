@@ -16,7 +16,7 @@ using SortOrder = LiteViewCore.SortOrder;   // not System.Windows.Forms.SortOrde
 
 class BrowsePage : Control
 {
-    public enum Tab { Live, Followed, Recent }
+    public enum Tab { Live, Followed, Recent, Browse }
 
     static readonly Color Bg = Color.FromArgb(14, 14, 16), CardC = Color.FromArgb(24, 24, 27), HoverC = Color.FromArgb(38, 38, 44),
         SelC = Color.FromArgb(53, 53, 59), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Faint = Color.FromArgb(110, 110, 122),
@@ -31,7 +31,7 @@ class BrowsePage : Control
     static readonly Font FMenuBold = new Font("Segoe UI", 9f, FontStyle.Bold);
     static readonly string Star = ((char)0xE735).ToString(), RefreshGlyph = ((char)0xE72C).ToString(), Down = ((char)0xE70D).ToString();
     const int MaxImageBytes = 1024 * 1024, MaxThumbs = 90, MaxAvatars = 600;
-    static readonly TimeSpan ThumbAge = TimeSpan.FromMinutes(5), FollowedAge = TimeSpan.FromMinutes(10);
+    static readonly TimeSpan ThumbAge = TimeSpan.FromMinutes(5), FollowedAge = TimeSpan.FromMinutes(10), CategoriesAge = TimeSpan.FromMinutes(10), BrowseAge = TimeSpan.FromSeconds(55);
 
     public event Action<string> Pick;
     public event Action LoginRequested, UseWebsite, Changed, SearchWanted;   // Changed: lists or order changed (save settings)
@@ -43,7 +43,7 @@ class BrowsePage : Control
     readonly Following feed = new Following(q => Tw.Helix(q));
     readonly System.Windows.Forms.Timer liveTimer = new System.Windows.Forms.Timer { Interval = 60000 }, searchDelay = new System.Windows.Forms.Timer { Interval = 250 },
         avatarDelay = new System.Windows.Forms.Timer { Interval = 120 };
-    readonly Latest searchGuard = new Latest(), liveGuard = new Latest(), followedGuard = new Latest();
+    readonly Latest searchGuard = new Latest(), liveGuard = new Latest(), followedGuard = new Latest(), browseGuard = new Latest();
     readonly TimedCache<string, List<ChannelInfo>> searchCache = new TimedCache<string, List<ChannelInfo>>(50, TimeSpan.FromMinutes(2));
     readonly ToolTip tip = new ToolTip();
     readonly ContextMenuStrip menu = new ContextMenuStrip();
@@ -53,6 +53,7 @@ class BrowsePage : Control
     {
         public string Login, Name, Game = "", Title = "", Thumb = "", Note = "";
         public long Viewers; public DateTimeOffset? Started; public bool Live, Card;
+        public Category Cat;   // Browse tab: a category card (Login is "")
     }
 
     sealed class Pic { public Bitmap Bmp; public DateTime At = DateTime.MinValue; public bool Loading; public long Used; }
@@ -62,6 +63,11 @@ class BrowsePage : Control
     List<ChannelInfo> followed; DateTime followedAt = DateTime.MinValue; bool followedFailed;
     FeedState liveState = FeedState.Ok; bool liveLoaded, loadingLive, loadingFollowed;
     string query; List<ChannelInfo> results; bool searching, searchFailed, history;
+    // Browse tab: the most watched categories, then the live channels of one (browseCat; AllLive = all of Twitch)
+    List<Category> categories; DateTime categoriesAt = DateTime.MinValue; bool categoriesFailed, loadingBrowse;
+    Category browseCat; List<LiveStream> browseStreams; DateTime browseAt = DateTime.MinValue; bool browseFailed; int browseScroll;
+    static readonly Category AllLive = new Category { Id = "", Name = "All live channels" };
+    string browseLang;   // a code of Languages.All, or null for any
     List<Item> items = new List<Item>();
     readonly Dictionary<string, Pic> thumbs = new Dictionary<string, Pic>(), avatars = new Dictionary<string, Pic>();
     readonly Dictionary<string, string> avatarUrl = new Dictionary<string, string>();   // login -> url ("" = none known)
@@ -71,15 +77,15 @@ class BrowsePage : Control
 
     int scroll, hover = -1, sel = -1, hot, cols = 1, cardW, cardH, contentH; string tipFor;
     bool dragging; int dragStart, dragScroll;
-    Rectangle btnRect, linkRect, sortRect, refreshRect, clearRect, barRect; readonly Rectangle[] tabRects = new Rectangle[3];
-    const int HotNone = 0, HotBtn = 1, HotLink = 2, HotSort = 3, HotRefresh = 4, HotClear = 5, HotTab = 10;
+    Rectangle btnRect, linkRect, sortRect, refreshRect, clearRect, barRect, langRect, backRect; readonly Rectangle[] tabRects = new Rectangle[4];
+    const int HotNone = 0, HotBtn = 1, HotLink = 2, HotSort = 3, HotRefresh = 4, HotClear = 5, HotLang = 6, HotBack = 7, HotTab = 10;
 
     public BrowsePage()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
         BackColor = Bg; TabStop = true;
         MakeFonts();
-        liveTimer.Tick += (s, e) => { if (Active) ReloadLive(); };
+        liveTimer.Tick += (s, e) => { if (Active) { ReloadLive(); if (tab == Tab.Browse && !loadingBrowse) BrowseIfOld(); } };
         searchDelay.Tick += (s, e) => { searchDelay.Stop(); DoSearch(); };
         avatarDelay.Tick += (s, e) => { avatarDelay.Stop(); FetchAvatarUrls(); };
         DarkMenuColors.Apply(menu); menu.ShowImageMargin = false;
@@ -127,6 +133,7 @@ class BrowsePage : Control
         if (!on) { tip.Hide(this); return; }
         if (!liveLoaded || liveState != FeedState.Ok || (DateTime.UtcNow - lastLive).TotalSeconds > 55) ReloadLive();
         if (tab == Tab.Followed && DateTime.UtcNow - followedAt > FollowedAge) ReloadFollowed();
+        if (tab == Tab.Browse) BrowseIfOld();
         Invalidate();
     }
 
@@ -137,7 +144,8 @@ class BrowsePage : Control
         liveGuard.Next(); followedGuard.Next(); loadingLive = loadingFollowed = false;
         followedLive = new List<LiveStream>(); otherLive = new List<LiveStream>();
         followed = null; followedAt = DateTime.MinValue; liveLoaded = false; searchCache.Clear();
-        if (running) { ReloadLive(); if (tab == Tab.Followed) ReloadFollowed(); if (query != null) DoSearch(); }
+        browseGuard.Next(); loadingBrowse = false; categories = null; browseStreams = null; categoriesAt = browseAt = DateTime.MinValue;
+        if (running) { ReloadLive(); if (tab == Tab.Followed) ReloadFollowed(); if (tab == Tab.Browse) BrowseIfOld(); if (query != null) DoSearch(); }
         Rebuild();
     }
 
@@ -146,6 +154,104 @@ class BrowsePage : Control
         followedAt = DateTime.MinValue;
         ReloadLive();
         if (tab == Tab.Followed) ReloadFollowed();
+        if (tab == Tab.Browse) ReloadBrowse();
+    }
+
+    // ---------- Browse tab ----------
+
+    /// <summary>The language the Browse tab's channels are filtered by (a code of Languages.All; null = any).</summary>
+    public string BrowseLanguage
+    {
+        get { return browseLang; }
+        set
+        {
+            string v = Languages.IsKnown(value) ? value : null;
+            if (v == browseLang) return;
+            browseLang = v; browseStreams = null; browseAt = DateTime.MinValue;
+            if (tab == Tab.Browse && browseCat != null && running) ReloadBrowse();
+            Rebuild();
+        }
+    }
+
+    bool InCategory { get { return tab == Tab.Browse && browseCat != null; } }
+
+    void BrowseIfOld()
+    {
+        if (browseCat == null ? categories == null || DateTime.UtcNow - categoriesAt > CategoriesAge : browseStreams == null || DateTime.UtcNow - browseAt > BrowseAge) ReloadBrowse();
+    }
+
+    // the category list, or the channels of the open category
+    async void ReloadBrowse()
+    {
+        if (Tw.Token == null) { Rebuild(); return; }
+        int t = browseGuard.Next();
+        var cat = browseCat; string lang = browseLang;
+        loadingBrowse = true; Invalidate();
+        try
+        {
+            if (cat == null)
+            {
+                var r = await feed.TopCategories();
+                if (!browseGuard.IsCurrent(t) || IsDisposed) return;
+                categoriesFailed = r == null;
+                if (r != null) { categories = r; categoriesAt = DateTime.UtcNow; }
+            }
+            else
+            {
+                var r = await feed.TopStreams(cat.Id.Length > 0 ? cat.Id : null, lang);
+                if (!browseGuard.IsCurrent(t) || IsDisposed) return;   // another category or language meanwhile
+                browseFailed = r == null;
+                if (r != null) { browseStreams = r; browseAt = DateTime.UtcNow; }
+            }
+        }
+        catch (Exception ex) { Log.Error("browse", ex); }
+        finally { if (browseGuard.IsCurrent(t)) loadingBrowse = false; Rebuild(); }
+    }
+
+    void OpenCategory(Category c)
+    {
+        if (browseCat == null) browseScroll = scroll;   // back to the same place in the list
+        browseCat = c; browseStreams = null; browseFailed = false; scroll = 0; sel = -1; history = false;
+        ReloadBrowse();
+        Rebuild();
+    }
+
+    /// <summary>For the UI fixture: opens a category of the loaded list by name (false: the list is not there yet).</summary>
+    public bool OpenCategoryNamed(string name)
+    {
+        var c = categories == null ? null : categories.FirstOrDefault(x => x.Name == name);
+        if (c == null) return false;
+        OpenCategory(c);
+        return true;
+    }
+
+    void CloseCategory()
+    {
+        if (browseCat == null) return;
+        string id = browseCat.Id;
+        browseCat = null; browseStreams = null; browseGuard.Next(); loadingBrowse = false;
+        Rebuild();
+        scroll = browseScroll; ClampScroll();
+        sel = items.FindIndex(x => x.Cat != null && x.Cat.Id == id);
+        BrowseIfOld();
+        Invalidate(); Announce();
+    }
+
+    void ShowLanguageMenu()
+    {
+        menu.Items.Clear();
+        var any = new ToolStripMenuItem("Any language") { Checked = browseLang == null };
+        any.Click += (s, e) => { BrowseLanguage = null; if (Changed != null) Changed(); };
+        menu.Items.Add(any);
+        menu.Items.Add(new ToolStripSeparator());
+        foreach (var l in Languages.All)
+        {
+            var code = l.Key;
+            var it = new ToolStripMenuItem(l.Value) { Checked = browseLang == code };
+            it.Click += (s, e) => { BrowseLanguage = code; if (Changed != null) Changed(); };
+            menu.Items.Add(it);
+        }
+        menu.Show(this, new Point(langRect.Left, langRect.Bottom + S(2)));
     }
 
     // ---------- data ----------
@@ -297,6 +403,14 @@ class BrowsePage : Control
         }
         else if (tab == Tab.Recent)
             foreach (var l in Recent.Items) list.Add(Row(l, null, liveBy));
+        else if (tab == Tab.Browse && browseCat == null && categories != null)
+        {
+            list.Add(new Item { Login = "", Name = AllLive.Name, Cat = AllLive, Card = true });
+            foreach (var c in categories) list.Add(new Item { Login = "", Name = c.Name, Cat = c, Card = true });
+        }
+        else if (tab == Tab.Browse && browseStreams != null)
+            foreach (var s in browseStreams)
+                list.Add(new Item { Login = s.Login, Name = s.Name, Game = s.Game, Title = s.Title, Viewers = s.Viewers, Started = s.Started, Live = true, Card = true, Thumb = s.Thumbnail });
         items = list;
         if (sel >= items.Count) sel = items.Count - 1;
         hover = -1;
@@ -315,7 +429,15 @@ class BrowsePage : Control
     {
         int w = Math.Max(1, ClientSize.Width - 2 * Pad);
         bool cards = items.Count > 0 && items[0].Card;
-        if (cards)
+        if (cards && items[0].Cat != null)
+        {   // category cards: box art (3:4) and the name
+            int min = S(150);
+            cols = Math.Max(1, (w + Gap) / (min + Gap));
+            cardW = (w - (cols - 1) * Gap) / cols;
+            cardH = cardW * 4 / 3 + S(34);
+            contentH = (items.Count + cols - 1) / cols * (cardH + Gap);
+        }
+        else if (cards)
         {
             int min = S(270);
             cols = Math.Max(1, (w + Gap) / (min + Gap));
@@ -388,10 +510,19 @@ class BrowsePage : Control
     void DrawHeader(Graphics g)
     {
         int x = Pad, w = ClientSize.Width;
-        string head = query != null ? "Search" : history ? "Recent searches" : "Following";
-        Txt.At(g, head, FHead, Fg, x - 2, S(14));
-        clearRect = sortRect = refreshRect = Rectangle.Empty;
-        for (int i = 0; i < 3; i++) tabRects[i] = Rectangle.Empty;
+        string head = query != null ? "Search" : history ? "Recent searches" : tab == Tab.Browse ? (browseCat == null ? "Browse" : browseCat.Name) : "Following";
+        clearRect = sortRect = refreshRect = langRect = backRect = Rectangle.Empty;
+        if (query == null && !history && InCategory)
+        {   // the category's name, and the way back to the categories
+            const string back = "\u2039  All categories";
+            int bw = Txt.Width(back, FTab) + S(24), hw = Math.Min(Txt.Width(head, FHead) + S(4), w - 2 * Pad - bw - S(16));
+            Txt.In(g, head, FHead, Fg, new Rectangle(x - 2, S(10), Math.Max(0, hw), S(36)), false);
+            backRect = new Rectangle(x + hw + S(12), S(15), bw, S(28));
+            Pill(g, backRect, hot == HotBack ? SelC : HoverC);
+            Txt.In(g, back, FTab, Fg, backRect, true);
+        }
+        else Txt.At(g, head, FHead, Fg, x - 2, S(14));
+        for (int i = 0; i < tabRects.Length; i++) tabRects[i] = Rectangle.Empty;
         int y = S(58);
         if (query != null)
         {
@@ -408,8 +539,8 @@ class BrowsePage : Control
             Txt.At(g, "Esc goes back", FText, Dim, clearRect.Right + S(12), y + S(6));
             return;
         }
-        string[] names = { "Live" + (liveLoaded && liveState == FeedState.Ok ? "  " + LiveCount : ""), "All followed", "Recently watched" };
-        for (int i = 0; i < 3; i++)
+        string[] names = { "Live" + (liveLoaded && liveState == FeedState.Ok ? "  " + LiveCount : ""), "All followed", "Recently watched", "Browse" };
+        for (int i = 0; i < names.Length; i++)
         {
             int tw = Txt.Width(names[i], FTab) + S(24);
             var r = new Rectangle(x, y, tw, S(30));
@@ -422,17 +553,32 @@ class BrowsePage : Control
         int right = w - Pad;
         refreshRect = new Rectangle(right - S(30), y, S(30), S(30));
         if (hot == HotRefresh) Pill(g, refreshRect, HoverC);
-        TextRenderer.DrawText(g, RefreshGlyph, FIcon, refreshRect, loadingLive || loadingFollowed ? Accent : Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-        if (tab == Tab.Live)
-        {
-            int sw = Txt.Width("Sort: " + SortName(Order), FText) + S(34);
-            sortRect = new Rectangle(refreshRect.Left - S(8) - sw, y, sw, S(30));
-            if (hot == HotSort) Pill(g, sortRect, HoverC);
-            Txt.In(g, "Sort: " + SortName(Order), FText, Dim, new Rectangle(sortRect.X + S(10), y, sw - S(28), S(30)), false);
-            TextRenderer.DrawText(g, Down, FIconSmall, new Rectangle(sortRect.Right - S(22), y, S(16), S(30)), Dim, TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
+        TextRenderer.DrawText(g, RefreshGlyph, FIcon, refreshRect, loadingLive || loadingFollowed || loadingBrowse ? Accent : Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        if (tab == Tab.Browse)
+        {   // the language of the channels (categories are the same in every language)
+            string name = browseLang == null ? "Any" : Languages.Name(browseLang);
+            langRect = MenuPill(g, "Language: " + name, name, x, y, hot == HotLang, browseLang != null ? Fg : Dim);
+            bool stale = browseCat == null ? categoriesFailed && categories != null : browseFailed && browseStreams != null;
+            if (stale && !langRect.IsEmpty) Txt.In(g, "Could not reach Twitch - showing the last list", FText, Gold, new Rectangle(x + S(10), y, Math.Max(0, langRect.Left - x - S(20)), S(30)), false);
         }
+        if (tab == Tab.Live) sortRect = MenuPill(g, "Sort: " + SortName(Order), SortName(Order), x, y, hot == HotSort, Dim);
         if (liveState == FeedState.Unreachable && liveLoaded && tab == Tab.Live && followedLive.Count > 0)
             Txt.In(g, "Could not reach Twitch - showing the last list", FText, Gold, new Rectangle(x + S(10), y, Math.Max(0, sortRect.Left - x - S(20)), S(30)), false);
+    }
+
+    // a drop-down pill left of the refresh button, never over the tabs (which end at minLeft): the long text, the short
+    // one, or only the arrow when the window is narrow (the menu still opens); nothing at all when even that does not fit
+    Rectangle MenuPill(Graphics g, string full, string brief, int minLeft, int y, bool hotNow, Color c)
+    {
+        int room = refreshRect.Left - S(8) - (minLeft + S(4));
+        string t = Txt.Width(full, FText) + S(34) <= room ? full : Txt.Width(brief, FText) + S(34) <= room ? brief : "";
+        int pw = t.Length > 0 ? Txt.Width(t, FText) + S(34) : S(30);
+        if (pw > room) return Rectangle.Empty;
+        var r = new Rectangle(refreshRect.Left - S(8) - pw, y, pw, S(30));
+        if (hotNow) Pill(g, r, HoverC);
+        if (t.Length > 0) Txt.In(g, t, FText, c, new Rectangle(r.X + S(10), y, pw - S(28), S(30)), false);
+        TextRenderer.DrawText(g, Down, FIconSmall, t.Length > 0 ? new Rectangle(r.Right - S(22), y, S(16), S(30)) : r, Dim, TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
+        return r;
     }
 
     int LiveCount { get { return followedLive.Count + otherLive.Count(s => Favourites.Contains(s.Login)); } }
@@ -458,6 +604,14 @@ class BrowsePage : Control
         {
             if (items.Count > 0) return null;
             return RememberRecent ? "Channels you watch will appear here." : "Remembering watched channels is turned off (menu at the top right).";
+        }
+        if (tab == Tab.Browse)
+        {
+            if (Tw.Token == null) return "Log in with Twitch to browse categories and live channels.";
+            if (browseCat == null) return categories != null ? null : categoriesFailed ? "Could not reach Twitch." : "Loading categories...";
+            if (browseStreams == null) return browseFailed ? "Could not reach Twitch." : "Loading...";
+            if (items.Count > 0) return null;
+            return "No " + (browseLang != null ? Languages.Name(browseLang) + " " : "") + "live channels" + (browseCat != AllLive ? " in " + browseCat.Name : "") + " right now.";
         }
         if (Tw.Token == null || liveState == FeedState.NotLoggedIn) return "Log in with Twitch to see the channels you follow.";
         if (tab == Tab.Followed)
@@ -495,8 +649,31 @@ class BrowsePage : Control
         }
     }
 
+    void DrawCategory(Graphics g, Item it, Rectangle r, int i)
+    {
+        var ar = new Rectangle(r.X, r.Y, r.Width, r.Width * 4 / 3);
+        bool hi = i == hover || i == sel, all = it.Cat == AllLive;
+        var pic = all ? null : Thumb(it, ar.Size);
+        if (pic != null) g.DrawImage(pic, ar);
+        else
+        {
+            using (var b = new SolidBrush(all ? AccentHot : CardC)) g.FillRectangle(b, ar);
+            if (all)
+            {
+                var lr = new Rectangle(ar.X + S(8), ar.Y + S(8), Txt.Width("LIVE", FSmall) + S(12), S(20));
+                using (var b = new SolidBrush(Red)) Fill(g, b, lr, S(3));
+                Txt.In(g, "LIVE", FSmall, Color.White, lr, true);
+                Txt.Wrap(g, "The most watched channels on Twitch", FTitle, Color.White, new Rectangle(ar.X + S(12), ar.Y + ar.Height / 2 - S(24), ar.Width - S(24), S(60)));
+            }
+            else Txt.Wrap(g, it.Name, FText, Faint, new Rectangle(ar.X + S(10), ar.Y + ar.Height / 2 - S(20), ar.Width - S(20), S(48)));   // until the picture is here
+        }
+        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, 145, 71, 255), S(3))) g.DrawRectangle(p, ar.X + 1, ar.Y + 1, ar.Width - 3, ar.Height - 3);
+        Txt.In(g, it.Name, FTitle, hi ? Color.FromArgb(191, 148, 255) : Fg, new Rectangle(r.X, ar.Bottom + S(8), r.Width, S(20)), false);
+    }
+
     void DrawCard(Graphics g, Item it, Rectangle r, int i)
     {
+        if (it.Cat != null) { DrawCategory(g, it, r, i); return; }
         int th = r.Width * 9 / 16;
         var tr = new Rectangle(r.X, r.Y, r.Width, th);
         bool hi = i == hover || i == sel;
@@ -583,13 +760,15 @@ class BrowsePage : Control
 
     Bitmap Thumb(Item it, Size size)
     {
+        bool art = it.Cat != null;   // a category's box art does not change: loaded again only when it failed
+        string key = art ? "cat:" + it.Cat.Id : it.Login;
         Pic p;
-        thumbs.TryGetValue(it.Login, out p);
+        thumbs.TryGetValue(key, out p);
         if (p != null) p.Used = clock;
-        if (Active && (p == null || !p.Loading && DateTime.UtcNow - p.At > ThumbAge))
+        if (Active && (p == null || !p.Loading && (!art || p.Bmp == null) && DateTime.UtcNow - p.At > ThumbAge))
         {
-            string url = HelixData.Thumb(it.Thumb, 440, 248);
-            if (url.Length > 0) Load(thumbs, it.Login, url, size, false, MaxThumbs);
+            string url = art ? HelixData.Thumb(it.Cat.BoxArt, 285, 380) : HelixData.Thumb(it.Thumb, 440, 248);
+            if (url.Length > 0) Load(thumbs, key, url, size, false, MaxThumbs);
         }
         return p != null ? p.Bmp : null;
     }
@@ -699,7 +878,9 @@ class BrowsePage : Control
         if (sortRect.Contains(p)) return HotSort;
         if (refreshRect.Contains(p)) return HotRefresh;
         if (clearRect.Contains(p)) return HotClear;
-        for (int i = 0; i < 3; i++) if (tabRects[i].Contains(p)) return HotTab + i;
+        if (langRect.Contains(p)) return HotLang;
+        if (backRect.Contains(p)) return HotBack;
+        for (int i = 0; i < tabRects.Length; i++) if (tabRects[i].Contains(p)) return HotTab + i;
         return HotNone;
     }
 
@@ -743,13 +924,15 @@ class BrowsePage : Control
             if (h == HotSort) { ShowSortMenu(); return; }
             if (h == HotRefresh) { Reload(); return; }
             if (h == HotClear) { ClearHistory(); return; }
+            if (h == HotLang) { ShowLanguageMenu(); return; }
+            if (h == HotBack) { CloseCategory(); return; }
             if (h >= HotTab) { SetTab((Tab)(h - HotTab)); return; }
         }
         int i = Message() == null ? ItemAt(e.Location) : -1;
         if (i < 0) return;
         sel = i; Invalidate(); Announce();
-        if (e.Button == MouseButtons.Left) Open(items[i].Login);
-        else if (e.Button == MouseButtons.Right) ShowItemMenu(i, e.Location);
+        if (e.Button == MouseButtons.Left) Activate(i);
+        else if (e.Button == MouseButtons.Right && items[i].Cat == null) ShowItemMenu(i, e.Location);
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)
@@ -781,9 +964,10 @@ class BrowsePage : Control
             case Keys.PageUp: s -= cols * Math.Max(1, ViewH / Math.Max(1, cardH + (cols > 1 ? Gap : 0))); break;
             case Keys.Home: s = 0; break;
             case Keys.End: s = n - 1; break;
-            case Keys.Enter: if (sel >= 0 && sel < n) Open(items[sel].Login); e.Handled = true; return;
-            case Keys.Apps: if (sel >= 0 && sel < n) ShowItemMenu(sel, ItemRect(sel).Location); e.Handled = true; return;
-            case Keys.Escape: if (history) { history = false; Rebuild(); e.Handled = true; } return;
+            case Keys.Enter: if (sel >= 0 && sel < n) Activate(sel); e.Handled = true; return;
+            case Keys.Apps: if (sel >= 0 && sel < n && items[sel].Cat == null) ShowItemMenu(sel, ItemRect(sel).Location); e.Handled = true; return;
+            case Keys.Escape: if (history) { history = false; Rebuild(); e.Handled = true; } else if (InCategory && query == null) { CloseCategory(); e.Handled = true; } return;
+            case Keys.Back: if (InCategory && query == null && !history) { CloseCategory(); e.Handled = true; } return;
             case Keys.F5: Reload(); e.Handled = true; return;
             default: base.OnKeyDown(e); return;
         }
@@ -797,6 +981,13 @@ class BrowsePage : Control
         Announce();
     }
 
+    // a category opens its channels; a channel is watched
+    void Activate(int i)
+    {
+        var it = items[i];
+        if (it.Cat != null) OpenCategory(it.Cat); else Open(it.Login);
+    }
+
     void Open(string login)
     {
         if (InSearch) Searched(login);
@@ -808,15 +999,18 @@ class BrowsePage : Control
     {
         if (query != null) { searchFailed = false; DoSearch(); }
         else if (tab == Tab.Followed) ReloadFollowed();
+        else if (tab == Tab.Browse) ReloadBrowse();
         else ReloadLive();
     }
 
     public void SetTab(Tab t)
     {
+        if (t == Tab.Browse && tab == Tab.Browse && browseCat != null && !history) { CloseCategory(); return; }   // the tab again: back to the categories
         history = false;
         if (tab != t) { tab = t; scroll = 0; sel = -1; }
         if (t == Tab.Followed && (followed == null || DateTime.UtcNow - followedAt > FollowedAge)) ReloadFollowed();
         if (t == Tab.Recent && Active) ReloadLive();   // live status of the recent channels
+        if (t == Tab.Browse) BrowseIfOld();
         Rebuild();
     }
 
@@ -883,18 +1077,25 @@ class BrowsePage : Control
         a11y = new ListModel
         {
             Owner = this,
-            Name = () => { string m = Message(); return (query != null ? "Search results" : history ? "Recent searches" : "Following, " + TabName(tab)) + (m != null ? ". " + m : ""); },
-            Count = () => Message() == null ? items.Count : 0, Item = i => Describe(items[i]), Bounds = ItemRect, Selected = () => sel, Open = i => Open(items[i].Login),
+            Name = () =>
+            {
+                string m = Message();
+                string what = query != null ? "Search results" : history ? "Recent searches" : tab == Tab.Browse ? (browseCat == null ? "Browse categories" : "Browse, " + browseCat.Name)
+                    + (browseLang != null ? ", " + Languages.Name(browseLang) : "") : "Following, " + TabName(tab);
+                return what + (m != null ? ". " + m : "");
+            },
+            Count = () => Message() == null ? items.Count : 0, Item = i => Describe(items[i]), Bounds = ItemRect, Selected = () => sel, Open = Activate,
         };
         uia = a11y.Attach();
     }
 
     protected override AccessibleObject CreateAccessibilityInstance() { return new ListAccessible(a11y); }
 
-    static string TabName(Tab t) { return t == Tab.Live ? "live channels" : t == Tab.Followed ? "all followed channels" : "recently watched"; }
+    static string TabName(Tab t) { return t == Tab.Live ? "live channels" : t == Tab.Followed ? "all followed channels" : t == Tab.Browse ? "browse" : "recently watched"; }
 
     string Describe(Item it)
     {
+        if (it.Cat != null) return it.Cat == AllLive ? "All live channels, the most watched on Twitch" : it.Name + ", category";
         string s = it.Name + (Favourites.Contains(it.Login) ? ", favourite" : "");
         if (!it.Live) return s + ", offline" + (it.Note.Length > 0 ? ", " + it.Note : "");
         string up = Fmt.Uptime(it.Started, DateTimeOffset.UtcNow);

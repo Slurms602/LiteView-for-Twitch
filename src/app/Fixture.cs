@@ -6,7 +6,8 @@
 // LITEVIEW_UI_FIXTURE_STREAMS=1 (CI replaces Streamlink with tests/FakeStreamlink) watch, offline, fail or paused;
 // chatlog: the chat with made-up recent messages (src/app/ChatHistory.cs) and no stress lines; stress: the busy-chat
 // run (300 messages a second, scrolled back after a minute; tools/stress-check.ps1 reads its numbers). The chat scenes
-// get made-up 7TV channel emotes (generated pictures, some animated).
+// get made-up 7TV channel emotes (generated pictures, some animated); picker: the emote picker open on them;
+// browse: the Browse tab's categories; category: the live channels of one of them.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -59,6 +60,14 @@ static class Fixture
         else if (scene == "recent") { foreach (var l in new[] { "jazz_nights", "apex_andy", "pixelforge" }) page.Watched(l); page.SetTab(BrowsePage.Tab.Recent); }
         else if (scene == "history") { foreach (var l in new[] { "chessmaster_k", "osu_oli" }) page.Searched(l); page.ShowHistory(); }
         else if (scene.StartsWith("search:", StringComparison.Ordinal)) search.Text = scene.Substring(7);
+        else if (scene == "browse") page.SetTab(BrowsePage.Tab.Browse);
+        else if (scene == "category")
+        {   // the Browse tab inside a category, once the categories are there
+            page.SetTab(BrowsePage.Tab.Browse);
+            var t = new System.Windows.Forms.Timer { Interval = 500 }; int tries = 0;
+            t.Tick += (s, e) => { if (page.OpenCategoryNamed("Music") || ++tries > 20) { t.Stop(); t.Dispose(); } };
+            t.Start();
+        }
         if (scene == "live" || scene == "followed") page.Favourites.Add("lofi_studio");
     }
 
@@ -84,7 +93,18 @@ static class Fixture
             if (u.Host == "api.twitch.tv")
             {
                 if (path.EndsWith("/streams/followed", StringComparison.Ordinal)) return Json(Streams(Live));
-                if (path.EndsWith("/streams", StringComparison.Ordinal)) return Json(Streams(Values(q, "user_login").Where(l => Live.Contains(l))));
+                if (path.EndsWith("/streams", StringComparison.Ordinal))
+                {
+                    var logins = Values(q, "user_login").ToList();
+                    if (logins.Count > 0) return Json(Streams(logins.Where(l => Live.Contains(l))));
+                    // the Browse tab: one category or all, one language (every made-up channel speaks English), most watched first
+                    string game = Values(q, "game_id").FirstOrDefault(), lang = Values(q, "language").FirstOrDefault();
+                    return Json(Streams(Live.Where(l => game == null || CategoryId(Games[Array.IndexOf(Live, l)]) == game).Where(l => lang == null || lang == "en")
+                        .OrderByDescending(l => ViewerCounts[Array.IndexOf(Live, l)])));
+                }
+                if (path.EndsWith("/games/top", StringComparison.Ordinal))
+                    return Json("{\"data\":[" + string.Join(",", Categories.Select(c => "{\"id\":\"" + CategoryId(c) + "\",\"name\":\"" + c +
+                        "\",\"box_art_url\":\"https://static-cdn.jtvnw.net/ttv-boxart/fxcat-" + CategoryId(c) + "-{width}x{height}.jpg\"}")) + "],\"pagination\":{}}");
                 if (path.EndsWith("/channels/followed", StringComparison.Ordinal))
                     return Json("{\"data\":[" + string.Join(",", Live.Concat(Offline).Select((l, i) => "{\"broadcaster_id\":\"" + (2000 + i) + "\",\"broadcaster_login\":\"" + l + "\",\"broadcaster_name\":\"" + Display(l) + "\",\"followed_at\":\"" + DateTime.UtcNow.AddDays(-40 * i - 3).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) + "\"}")) + "],\"pagination\":{}}");
                 if (path.EndsWith("/users", StringComparison.Ordinal))   // by login (Following page) or by id (followed column)
@@ -124,9 +144,40 @@ static class Fixture
             {
                 string file = path.Substring(path.LastIndexOf('/') + 1);
                 if (file.StartsWith("live_user_", StringComparison.Ordinal)) return Image(Preview(file.Substring(10, file.LastIndexOf('-') - 10)), "image/jpeg");
+                if (path.StartsWith("/ttv-boxart/fxcat-", StringComparison.Ordinal))
+                {
+                    var c = Categories.FirstOrDefault(x => file.StartsWith("fxcat-" + CategoryId(x) + "-", StringComparison.Ordinal));
+                    if (c != null) return Image(BoxArt(c), "image/jpeg");
+                }
                 if (file.StartsWith("fixture-", StringComparison.Ordinal)) return Image(Avatar(file.Substring(8, file.IndexOf("-profile_image", StringComparison.Ordinal) - 8)), "image/png");
             }
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") });
+        }
+
+        static readonly long[] ViewerCounts = { 182, 41250, 2210, 9800, 655, 74, 3120, 1460, 37, 12800, 940, 28300, 5100, 410 };
+
+        // the Browse tab's made-up categories: those of the live channels, most watched first, then a few with nobody live
+        static readonly string[] Categories = Games.Distinct().OrderByDescending(gm => Enumerable.Range(0, Live.Length).Where(i => Games[i] == gm).Sum(i => ViewerCounts[i]))
+            .Concat(new[] { "Board Games", "Science & Technology", "Travel & Outdoors", "Puzzle Games", "Retro Racing", "Space Sims" }).ToArray();
+
+        static string CategoryId(string name) { return (1000 + Array.IndexOf(Categories, name)).ToString(CultureInfo.InvariantCulture); }
+
+        static byte[] BoxArt(string name)
+        {
+            using (var bmp = new Bitmap(285, 380))
+            using (var g = Graphics.FromImage(bmp))
+            using (var bg = new LinearGradientBrush(new Rectangle(0, 0, 285, 380), Hue(name, 0.6f), Hue(name + "y", 0.2f), 70f))
+            using (var font = new Font("Segoe UI Semibold", 26f))
+            using (var small = new Font("Segoe UI", 10f))
+            using (var ms = new System.IO.MemoryStream())
+            {
+                g.FillRectangle(bg, 0, 0, 285, 380);
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                g.DrawString(name, font, Brushes.White, new RectangleF(18, 120, 250, 160));
+                g.DrawString("fixture box art", small, new SolidBrush(Color.FromArgb(200, 255, 255, 255)), 20, 340);
+                bmp.Save(ms, ImageFormat.Jpeg);
+                return ms.ToArray();
+            }
         }
 
         static IEnumerable<string> Values(string query, string key)
@@ -144,7 +195,7 @@ static class Fixture
             return "{\"data\":[" + string.Join(",", logins.Select(l =>
             {
                 int i = Array.IndexOf(Live, l);
-                long viewers = new long[] { 182, 41250, 2210, 9800, 655, 74, 3120, 1460, 37, 12800, 940, 28300, 5100, 410 }[i];
+                long viewers = ViewerCounts[i];
                 return "{\"user_id\":\"" + (2000 + i) + "\",\"user_login\":\"" + l + "\",\"user_name\":\"" + Display(l) + "\",\"game_name\":\"" + Games[i] + "\",\"title\":\"" + Titles[i] +
                     "\",\"viewer_count\":" + viewers + ",\"started_at\":\"" + now.AddMinutes(-(17 + i * 41)).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) +
                     "\",\"language\":\"en\",\"thumbnail_url\":\"https://static-cdn.jtvnw.net/previews-ttv/live_user_" + l + "-{width}x{height}.jpg\"}";
@@ -246,7 +297,7 @@ static class Fixture
                                 else
                                 {
                                     g.FillEllipse(fill, 1, 1, w - 3, 25);
-                                    var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                                    var sf = new StringFormat(StringFormatFlags.NoWrap) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                                     g.DrawString(w > 28 ? EmoteName(k) : label.Substring(0, Math.Min(3, label.Length)), font, Brushes.Black, new RectangleF(0, 0, w, 28), sf);
                                 }
                                 if (frames > 1)

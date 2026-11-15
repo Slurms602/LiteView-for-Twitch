@@ -8,7 +8,7 @@ using System.Linq;
 using System.Windows.Forms;
 using Named = System.Collections.Generic.KeyValuePair<string, Emote>;
 
-class EmotePicker : Control
+partial class EmotePicker : Control   // fork: partial (keyboard and screen readers: src/app/PickerAccess.cs)
 {
     public readonly TextBox Search = new TextBox();
     public event Action<string> Picked;
@@ -34,6 +34,7 @@ class EmotePicker : Control
         Search.TextChanged += (s, e) => { top = 0; Build(); Invalidate(); };
         Search.KeyDown += (s, e) =>
         {
+            if (SearchKey(e)) return;   // fork: Down / Tab go into the grid
             if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; Close(); }
             else if (e.KeyCode == Keys.Enter)
             {   // Enter: the first match
@@ -43,6 +44,7 @@ class EmotePicker : Control
             }
         };
         Controls.Add(Search);
+        InitAccess();   // fork
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
@@ -78,6 +80,7 @@ class EmotePicker : Control
         if (cells.Count == 0) { cells.Add(new Cell { R = new Rectangle(10, y, W - 20, Hh), Head = "Loading emotes..." }); y += Hh; }
         total = y + 6;
         top = Math.Max(0, Math.Min(top, total - ClientSize.Height));
+        AfterBuild();   // fork: the keyboard selection follows the emote it was on
     }
 
     protected override void OnResize(EventArgs e) { base.OnResize(e); Search.Width = ClientSize.Width - 20; Build(); }
@@ -99,6 +102,7 @@ class EmotePicker : Control
             if (r.Bottom < Top0 - 4 || r.Top > Height) continue;
             if (c.E == null) { Txt.In(g, c.Head, FHead, ChatView.Dim, r, false); continue; }
             if (i == hover) using (var b = new SolidBrush(HoverC)) g.FillRectangle(b, r.X + 1, r.Y + 1, r.Width - 2, r.Height - 2);
+            PaintKey(g, i, r);   // fork: the keyboard selection
             Images.Need(c.E);
             if (c.E.State != 2) continue;
             Images.Used(c.E);

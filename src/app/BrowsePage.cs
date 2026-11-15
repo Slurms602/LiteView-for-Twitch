@@ -26,7 +26,7 @@ class BrowsePage : Control
     // a 1440p screen at 100% Windows scaling, so the default ("Normal") is 115%.
     public static readonly float[] Zooms = { 1f, 1.15f, 1.3f, 1.5f };
     public static readonly string[] ZoomNames = { "Small", "Normal", "Large", "Larger" };
-    float zoom = 1.15f;
+    float zoom = 1.15f; int picGen;
     Font FHead, FTab, FTitle, FText, FSmall, FMsg, FIcon, FIconSmall;
     static readonly Font FMenuBold = new Font("Segoe UI", 9f, FontStyle.Bold);
     static readonly string Star = ((char)0xE735).ToString(), RefreshGlyph = ((char)0xE72C).ToString(), Down = ((char)0xE70D).ToString();
@@ -105,7 +105,9 @@ class BrowsePage : Control
             float z = Zooms.OrderBy(x => Math.Abs(x - value)).First();
             if (Math.Abs(z - zoom) < 0.001f) return;
             zoom = z; MakeFonts();
-            foreach (var c in new[] { thumbs, avatars }) { foreach (var p in c.Values) if (p.Bmp != null && !p.Loading) p.Bmp.Dispose(); c.Clear(); }   // loaded again at the new size
+            // loaded again at the new size; loads still running belong to the old size (picGen) and throw their result away
+            picGen++;
+            foreach (var c in new[] { thumbs, avatars }) { foreach (var p in c.Values) if (p.Bmp != null) { p.Bmp.Dispose(); p.Bmp = null; } c.Clear(); }
             DoLayout(); Invalidate();
         }
     }
@@ -627,6 +629,7 @@ class BrowsePage : Control
         if (!cache.TryGetValue(key, out p)) { p = new Pic { Used = clock }; cache[key] = p; }
         if (p.Loading) return;
         p.Loading = true;
+        int g = picGen;
         try
         {
             byte[] bytes;
@@ -637,7 +640,7 @@ class BrowsePage : Control
             int w = Math.Max(1, size.Width), h = Math.Max(1, size.Height);
             var bmp = await Task.Run(() => Decode(bytes, w, h, round));
             if (bmp == null) return;
-            if (IsDisposed) { bmp.Dispose(); return; }
+            if (IsDisposed || g != picGen) { bmp.Dispose(); return; }   // the text size changed meanwhile: not in the cache any more
             if (p.Bmp != null) p.Bmp.Dispose();
             p.Bmp = bmp;
             Trim(cache, max);

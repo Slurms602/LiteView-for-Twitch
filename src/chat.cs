@@ -605,10 +605,10 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         chatters.Clear(); me = null; joinedAs = Tw.Login;
         UpdateLogin();
         inbox.Enqueue(Sys("Welcome to the chat room!"));
+        StartHistory(ch);   // fork: the channel's recent messages (src/app/ChatHistory.cs), before the first live line
         irc.Start(ch);
         drain.Start();
         LoadGlobals();
-        StartHistory(ch);   // fork: the channel's recent messages (src/app/ChatHistory.cs)
     }
 
     public void Part() { irc.Stop(); drain.Stop(); StopHistory(); channel = null; View.Clear(); }
@@ -859,12 +859,13 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             case "CLEARMSG":
             {
                 string id = im.Tag("target-msg-id");
-                if (id != null) Post(() => View.Redo(m => { if (m.Id != id) return false; m.Deleted = true; return true; }));
+                if (id != null) Post(() => { HistoryModerated(id, null); View.Redo(m => { if (m.Id != id) return false; m.Deleted = true; return true; }); });   // fork: also the history not shown yet
                 break;
             }
             case "CLEARCHAT":
             {
                 string who = im.Text;
+                Post(() => HistoryModerated(null, who));   // fork: also the history not shown yet (null: all of it)
                 if (who == null) inbox.Enqueue(Sys("Chat was cleared by a moderator"));
                 else Post(() => View.Redo(m => { if (m.Login != who || m.Deleted) return false; m.Deleted = true; return true; }));
                 break;
@@ -985,6 +986,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
     {
         var list = new List<Msg>(); Msg m;
         while (inbox.TryDequeue(out m)) list.Add(m);
+        DropHistoryEchoes(list);   // fork: a live copy of a message the history already showed (src/app/ChatHistory.cs)
         if (list.Count > 150) list = list.GetRange(list.Count - 150, 150);   // a flood: keep the newest
         View.Add(list);
         Images.Trim();

@@ -73,6 +73,17 @@ reached 239 messages a second (it fed a fixed number per 50 ms timer tick and Wi
 it now feeds by elapsed time. RES-7 (re-laying out every message that uses an emote when the emote arrives) is
 bounded by the 300/2000 message cap and does not show up here.
 
+The next run (`fa4f767`, generator fixed) kept 299-300 messages a second: private memory 42 MB at the bottom of the
+chat, 62 MB scrolled back, the UI wait at most 5 ms.
+
+**Channel switching** (fixture scene `switching`, same runner): another channel every 5 s for two minutes, each with
+video (FakeStreamlink and the real mpv), its chat connection, emotes and recent messages, plus 50 chat messages a
+second. 26 switches: private memory 40-44 MB, threads 26-29, GDI 62-65, USER 79-82, UI wait at most 20 ms; handles
+634 → 697 (about 2.5 per switch). Nothing in the switch path keeps a handle (Streamlink's process and job, the mpv
+pipe and the chat socket are all closed), so these are most likely objects waiting for the garbage collector; the
+scene now collects garbage before each sample, so CI's budget (40 handles over about 20 switches) catches a real
+leak.
+
 CI now fails when a run goes over this budget (`tools/stress-check.ps1` in `.github/workflows/ci.yml`): private
 memory 250 MB, growth over the last 30 s 30 MB / 100 handles / 20 GDI / 20 USER objects, UI wait 250 ms, the
 generator at 80 % of its rate, at least 100 emotes decoded and none refused.

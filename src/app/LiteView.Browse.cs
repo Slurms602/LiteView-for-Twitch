@@ -60,7 +60,8 @@ partial class LiteView
         if (Fixture.On) Shown += (s, e) =>
         {
             Fixture.Scene(this, browse, search);
-            if (Fixture.SceneName == "chat")
+            if (Fixture.SceneName == "chatleft") { chatLeft = true; chatGrip.Dock = DockStyle.Right; }   // the chat scene with the chat on the left
+            if (Fixture.SceneName == "chat" || Fixture.SceneName == "chatleft")
             {   // the watch view with synthetic chat (no video in fixture mode), timestamps and a highlight word on
                 ChatPrefs.Timestamps = true; ChatPrefs.Filter.SetWords("pog");
                 Watch("nightowl_plays");
@@ -91,10 +92,16 @@ partial class LiteView
                 open.Start();
                 return;
             }
-            if (Fixture.SceneName == "chatlog")
-            {   // the chat's recent messages (made-up answer from Fixture), nothing else
+            if (Fixture.SceneName == "chatlog" || Fixture.SceneName == "reply")
+            {   // the chat's recent messages (made-up answer from Fixture), nothing else; reply: answering the last one
                 ChatPrefs.Timestamps = true;
                 Watch("nightowl_plays");
+                if (Fixture.SceneName == "reply")
+                {
+                    var r = new Timer { Interval = 4000 };
+                    r.Tick += (s2, e2) => { r.Stop(); r.Dispose(); nchat.ReplyToLast(); };
+                    r.Start();
+                }
                 return;
             }
             if (Fixture.SceneName == "switching")
@@ -103,7 +110,8 @@ partial class LiteView
                 string[] chans = { "play_demo", "nightowl_plays", "pixelforge", "lofi_studio", "zed_speedruns" };
                 int k = 0;
                 Watch(chans[k++]);
-                stressRate = 50; StartStress();
+                stressRate = 50; stressGc = true; StartStress();
+                Log.Info("stress: full garbage collection before each sample (leak check)");
                 var next = new Timer { Interval = 5000 };
                 next.Tick += (s2, e2) => { Watch(chans[k % chans.Length]); k++; Log.Info("switch " + k); };
                 FormClosing += (s2, e2) => next.Dispose();
@@ -112,7 +120,8 @@ partial class LiteView
             }
             if (Fixture.SceneName == "watch" || Fixture.SceneName == "offline" || Fixture.SceneName == "fail" || Fixture.SceneName == "paused")
             {   // with tests/FakeStreamlink: real mpv with a test video / Streamlink waiting / a failing stream / paused
-                Watch(Fixture.SceneName == "watch" || Fixture.SceneName == "paused" ? "play_demo" : Fixture.SceneName + "_demo");
+                // watch: a made-up live channel, so the status line has its viewers, uptime and title (FakeStreamlink plays any name)
+                Watch(Fixture.SceneName == "watch" ? "nightowl_plays" : Fixture.SceneName == "paused" ? "play_demo" : Fixture.SceneName + "_demo");
                 if (Fixture.SceneName == "watch") { stressRate = 10; StartStress(); }
                 if (Fixture.SceneName == "paused")
                 {

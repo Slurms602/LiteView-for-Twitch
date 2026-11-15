@@ -60,6 +60,33 @@ function WindowShot([IntPtr]$h, [string]$name) {   # the window's own content, e
     } catch { Note "window screenshot failed: $($_.Exception.Message)" }
 }
 
+# LiteView's own window, found by its title among the process's top-level windows. Not Process.MainWindowHandle:
+# that is the first visible top-level window, which can be a tooltip that popped up under the CI mouse.
+# GetWindowText does not wait on the window, so this works even when the app does not answer.
+if (-not ('Smoke.Top' -as [type])) {
+    Add-Type -Namespace Smoke -Name Top -MemberDefinition @'
+public delegate bool EnumProc(IntPtr h, IntPtr l);
+[DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+[DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
+[DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+public static string Title(IntPtr h) { var sb = new System.Text.StringBuilder(512); GetWindowText(h, sb, sb.Capacity); return sb.ToString(); }
+public static IntPtr Find(int pid, string prefix)
+{
+    IntPtr found = IntPtr.Zero;
+    EnumWindows((h, l) =>
+    {
+        uint p; GetWindowThreadProcessId(h, out p);
+        if (p == (uint)pid && IsWindowVisible(h) && Title(h).StartsWith(prefix, StringComparison.Ordinal)) { found = h; return false; }
+        return true;
+    }, IntPtr.Zero);
+    return found;
+}
+'@
+}
+$main = [IntPtr]::Zero
+
 function Tree([int]$id) {   # the process and everything it started (WebView2, Streamlink, mpv)
     $all = @(Get-CimInstance Win32_Process)
     $ids = New-Object System.Collections.Generic.List[int]; $ids.Add($id)
@@ -82,7 +109,10 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     $p.Refresh()
     if ($p.HasExited) { break }
     # the main window, not an error message box (title "LiteView")
-    if ($null -eq $firstWindow -and $p.MainWindowHandle -ne [IntPtr]::Zero -and $p.MainWindowTitle -like 'LiteView for Twitch*') { $firstWindow = ((Get-Date) - $t0).TotalSeconds }
+    if ($null -eq $firstWindow) {
+        $main = [Smoke.Top]::Find($p.Id, 'LiteView for Twitch')
+        if ($main -ne [IntPtr]::Zero) { $firstWindow = ((Get-Date) - $t0).TotalSeconds }
+    }
 }
 $p.Refresh()
 Screenshot 'screen.png'
@@ -95,7 +125,7 @@ if ($p.HasExited) {
     if ($null -eq $firstWindow) { $ok = $false; Note "FAIL: still running after $Seconds s without its main window (top window: '$($p.MainWindowTitle)')" }
     else
     {
-        Note ("window after {0:N1} s: '{1}'" -f $firstWindow, $p.MainWindowTitle); WindowShot $p.MainWindowHandle 'window.png'
+        Note ("window after {0:N1} s: '{1}'" -f $firstWindow, [Smoke.Top]::Title($main)); WindowShot $main 'window.png'
         if ($A11y)
         {
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'a11y-dump.ps1') -ProcessId $p.Id -Out (Join-Path $Out 'a11y.txt') | Out-Null
@@ -111,7 +141,8 @@ if ($p.HasExited) {
     }
     foreach ($c in Tree $p.Id) { Note ("  process {0} ({1}): {2:N0} MB" -f $c.Name, $c.ProcessId, ($c.WorkingSetSize / 1MB)) }
     # close it the normal way (runs the save-settings and stop-stream code), then make sure nothing is left
-    [void]$p.CloseMainWindow()
+    if ($main -ne [IntPtr]::Zero) { [void][Smoke.Top]::PostMessage($main, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }   # WM_CLOSE to LiteView's window
+    else { [void]$p.CloseMainWindow() }
     if ($p.WaitForExit(10000)) { Note "closed normally, exit code $($p.ExitCode)" }
     else { $ok = $false; Note "FAIL: did not close within 10 s of the close request" }
     Start-Sleep -Seconds 2

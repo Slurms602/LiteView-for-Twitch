@@ -209,6 +209,7 @@ class ChatView : Control
     static Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);   // fork: SetTextSize
     public readonly List<Msg> Msgs = new List<Msg>();
     public event Action<string> NameClicked;
+    public event Action<Msg, Point> MessageMenu;   // fork: right-click on a message (src/app/ChatReply.cs)
     int scroll, gen; readonly List<Place> anims = new List<Place>(); readonly List<KeyValuePair<Place, int>> animY = new List<KeyValuePair<Place, int>>();
     readonly System.Windows.Forms.Timer animTick = new System.Windows.Forms.Timer { Interval = 33 };
     readonly Stopwatch clock = Stopwatch.StartNew();
@@ -471,6 +472,7 @@ class ChatView : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         if (pausedBox.Contains(e.Location)) { scroll = 0; Invalidate(); return; }
+        if (e.Button == MouseButtons.Right) { Msg rm; Hit(e.Location, out rm); if (rm != null && MessageMenu != null) MessageMenu(rm, e.Location); return; }   // fork
         Msg m; var pl = Hit(e.Location, out m);
         if (pl == null) return;
         if (pl.P.Kind == 4) { var u = SafeUrl.FromChatWord(pl.P.Text); if (u != null) Launcher.Open(u); }   // upstream: Process.Start(raw word)
@@ -575,7 +577,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         drain.Tick += (s, e) => Drain();
         // a decoded image is counted in the frame budget when it arrives, even if it is never drawn
         Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { Images.Used(e); Images.Trim(); View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
-        InitPickerAccess();   // fork: Ctrl+E, keyboard and screen readers in the picker (src/app/PickerAccess.cs)
+        InitPickerAccess(); InitReply();   // fork: the emote picker by keyboard (src/app/PickerAccess.cs), replies (src/app/ChatReply.cs)
         UpdateLogin();
     }
 
@@ -606,13 +608,13 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         chatters.Clear(); me = null; joinedAs = Tw.Login;
         UpdateLogin();
         inbox.Enqueue(Sys("Welcome to the chat room!"));
-        StartHistory(ch);   // fork: the channel's recent messages (src/app/ChatHistory.cs), before the first live line
+        StartHistory(ch); CancelReply();   // fork: the channel's recent messages (src/app/ChatHistory.cs), before the first live line; no reply across channels
         irc.Start(ch);
         drain.Start();
         LoadGlobals();
     }
 
-    public void Part() { irc.Stop(); drain.Stop(); StopHistory(); channel = null; View.Clear(); }
+    public void Part() { irc.Stop(); drain.Stop(); StopHistory(); CancelReply(); channel = null; View.Clear(); }
 
     public void Reconnect() { if (channel != null) { var c = channel; channel = null; Join(c); } }
 
@@ -846,7 +848,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             {
                 if (im.Cmd == "USERSTATE") me = im;
                 string text;
-                if (im.Cmd == "USERSTATE" && pending.TryDequeue(out text)) inbox.Enqueue(Build(im, text, Tw.Login));
+                if (im.Cmd == "USERSTATE" && pending.TryDequeue(out text)) inbox.Enqueue(WithReply(Build(im, text, Tw.Login), text));   // fork: WithReply
                 break;
             }
             case "NOTICE":
@@ -1002,8 +1004,9 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             e.SuppressKeyPress = true;
             string t = IrcProtocol.CleanOutgoing(input.Text);   // no CR/LF/control characters, at most 500
             if (t.Length == 0 || channel == null || Tw.Token == null || Tw.Login == null) return;
-            if (irc.Send("PRIVMSG #" + channel + " :" + t))
+            if (irc.Send(ReplyPrefix() + "PRIVMSG #" + channel + " :" + t))   // fork: ReplyPrefix (src/app/ChatReply.cs)
             {
+                ReplySent(t);
                 pending.Enqueue(t);
                 var d = third; var used = t.Split(' ').Where(w => w.Length > 0 && (d.ContainsKey(w) || twitchEmotes.ContainsKey(w))).Distinct().Reverse().ToList();
                 if (used.Count > 0) Used(used);

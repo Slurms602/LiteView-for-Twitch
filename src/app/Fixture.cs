@@ -7,6 +7,7 @@
 // chatlog: the chat with made-up recent messages (src/app/ChatHistory.cs) and no stress lines; stress: the busy-chat
 // run (300 messages a second, scrolled back after a minute; tools/stress-check.ps1 reads its numbers). The chat scenes
 // get made-up 7TV channel emotes (generated pictures, some animated); picker: the emote picker open on them;
+// chatleft: the chat scene with the chat on the left; reply: the chatlog scene replying to a message;
 // browse: the Browse tab's categories; category: the live channels of one of them; switching (with STREAMS): another
 // channel every 5 s for the leak check.
 using System;
@@ -129,7 +130,7 @@ static class Fixture
                     new[] { "quiet_owl", "#9ACD32", "gg" }, new[] { "fixture_viewer", "#8A2BE2", ":hello from the history" },
                     new[] { "night_shift", "#DAA520", ":is this the recent messages test?" }, new[] { "early_bird", "#1E90FF", ":yes, made-up lines" },
                 };
-                var lines = said.Select((x, i) => "@badges=;color=" + x[1] + ";display-name=" + Display(x[0]) + ";emotes=;id=fixture-history-" + i +
+                var lines = said.Select((x, i) => "@badges=;color=" + x[1] + ";display-name=" + Display(x[0]) + ";emotes=;id=00000000-0000-4000-8000-00000000000" + i +
                     ";tmi-sent-ts=" + (now - (said.Length - i) * 45000) + ";historical=1 :" + x[0] + "!" + x[0] + "@" + x[0] + ".tmi.twitch.tv PRIVMSG #" + ch + " " + x[2]);
                 return Json("{\"messages\":[" + string.Join(",", lines.Select(l => "\"" + l + "\"")) + "],\"error\":null,\"error_code\":null}");
             }

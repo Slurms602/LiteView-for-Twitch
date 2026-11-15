@@ -59,6 +59,18 @@ namespace LiteViewCore
             return action ? "\u0001ACTION " + body + "\u0001" : body;
         }
 
+        static readonly System.Text.RegularExpressions.Regex MessageId = new System.Text.RegularExpressions.Regex(
+            "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>A Twitch chat message id (a UUID): the only thing that may go into a reply tag.</summary>
+        public static bool IsMessageId(string? id) { return id != null && MessageId.IsMatch(id); }
+
+        /// <summary>
+        /// The IRCv3 tag that makes a PRIVMSG a reply ("@reply-parent-msg-id=ID "), or "" when the id is not a message
+        /// id. The id comes from a received line: a space or ";" in it could otherwise add tags or start another command.
+        /// </summary>
+        public static string ReplyTag(string? id) { return IsMessageId(id) ? "@reply-parent-msg-id=" + id + " " : ""; }
+
         /// <summary>True for half of a surrogate pair without its other half (not a character).</summary>
         public static bool Unpaired(string s, int i)
         {

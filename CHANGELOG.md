@@ -74,6 +74,9 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Menu > **Text size** for the Following page and the chat. Both are a step larger by default than before.
 - **Browse** tab on the Following page: the most watched categories on Twitch; click one for its live channels (or
   *All live channels* for the most watched of all). *Language* filters the channels. Backspace or Esc goes back.
+- Right-click a chat message: **Reply** (sent as a Twitch reply; Esc cancels), Copy message, Copy name.
+- While a stream plays, the status line shows its **viewers, uptime, category and title** (the whole title on hover).
+- Chat gear menu: **Chat on the left** (between the followed channels and the video; drag its right edge for the width).
 - Emote picker by keyboard: **Ctrl+E** in the chat box opens it; Down goes from its search into the grid, arrow keys
   choose, Enter inserts, typing searches again, Esc closes. Screen readers read each emote and its set.
 

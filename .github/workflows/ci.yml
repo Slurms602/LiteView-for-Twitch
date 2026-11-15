@@ -62,11 +62,12 @@ jobs:
           dotnet build tests/FakeStreamlink -c Release --no-restore -o fake
           $fake = (Resolve-Path fake/streamlinkw.exe).Path
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'problem', 'chat', 'chatlog', 'picker', 'watch', 'paused', 'offline', 'fail') {
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'paused', 'offline', 'fail') {
             $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
             $more = @{ A11y = $scene -in 'live', 'followed', 'browse', 'category', 'chat', 'chatlog', 'picker' }   # also check what screen readers see
             if ($scene -in 'watch', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
             if ($scene -eq 'chatlog') { $more.Expect = @('chat: 6 recent messages') }
+            if ($scene -eq 'reply') { $more.Expect = @('chat: 6 recent messages', 'chat: replying') }
             if ($scene -eq 'browse') { $more.A11yExpect = @("^LIST 'Browse categories' \([1-9][0-9]* items\)", '^  - Elden Ring, category') }
             if ($scene -eq 'category') { $more.A11yExpect = @("^LIST 'Browse, Music' \(2 items\)") }
             if ($scene -eq 'picker') { $more.Expect = @('picker: open'); $more.A11yExpect = @("^LIST 'Emotes' \([1-9][0-9]* items\)", "^MSAA LIST 'Emotes' \([1-9][0-9]* items\)") }
@@ -93,8 +94,9 @@ jobs:
           $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'switching'; LITEVIEW_UI_FIXTURE_STREAMS = '1' }
           ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke/fixture-switching -Env $vars -FakeStreamlink $fake -Seconds 135 -Expect 'switch 20', 'stream 20: playing'
           $smoke = $LASTEXITCODE
-          # from the end of warm-up (3rd sample) to the end: about 20 switches, so a leak per switch adds up
-          ./tools/stress-check.ps1 -Log smoke/fixture-switching/liteview.log -Rate 50 -SteadySamples 10 -MaxPrivateMB 300 -MaxGrowthMB 40 -MaxHandleGrowth 60 -MaxGdiGrowth 20 -MaxUserGrowth 20 -MaxThreadGrowth 10 -MaxLagMs 1500 -Out smoke/fixture-switching/stress.txt
+          # from the end of warm-up (3rd sample) to the end: about 20 switches, so a leak per switch adds up; the scene
+          # collects garbage before each sample, so what waits for the garbage collector does not count as a leak
+          ./tools/stress-check.ps1 -Log smoke/fixture-switching/liteview.log -Rate 50 -SteadySamples 10 -MaxPrivateMB 300 -MaxGrowthMB 40 -MaxHandleGrowth 40 -MaxGdiGrowth 20 -MaxUserGrowth 20 -MaxThreadGrowth 10 -MaxLagMs 1000 -Out smoke/fixture-switching/stress.txt
           if ($smoke -or $LASTEXITCODE) { exit 1 }
       - name: Screenshot and logs of the start
         if: always()

@@ -195,3 +195,32 @@ public class ChatStressTests
         for (int i = 0; i < 200; i++) Assert.Equal(IrcMsg.Parse(a.Next(new[] { "X" }))!.Cmd, IrcMsg.Parse(b.Next(new[] { "X" }))!.Cmd);
     }
 }
+
+public class ReplyTagTests
+{
+    [Theory]
+    [InlineData("b34ccfc7-4977-403a-8a94-33c6bac34fb8", "@reply-parent-msg-id=b34ccfc7-4977-403a-8a94-33c6bac34fb8 ")]
+    [InlineData("B34CCFC7-4977-403A-8A94-33C6BAC34FB8", "@reply-parent-msg-id=B34CCFC7-4977-403A-8A94-33C6BAC34FB8 ")]
+    [InlineData("b34ccfc7-4977-403a-8a94-33c6bac34fb8 PRIVMSG #other :spam", "")]   // would start another command
+    [InlineData("b34ccfc7-4977-403a-8a94-33c6bac34fb8;mod=1", "")]               // would add a tag
+    [InlineData("fixture-history-1", "")]
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    public void OnlyRealMessageIdsBecomeATag(string? id, string expected)
+    {
+        Assert.Equal(expected, IrcProtocol.ReplyTag(id));
+        Assert.Equal(expected.Length > 0, IrcProtocol.IsMessageId(id));
+    }
+
+    [Fact]
+    public void AReplyLineParsesBackAsOneMessage()
+    {
+        var m = IrcMsg.Parse(IrcProtocol.ReplyTag("b34ccfc7-4977-403a-8a94-33c6bac34fb8") + "PRIVMSG #chan :hi there");
+        Assert.NotNull(m);
+        Assert.Equal("PRIVMSG", m!.Cmd);
+        Assert.Equal("chan", m.Chan);
+        Assert.Equal("hi there", m.Text);
+        Assert.Equal("b34ccfc7-4977-403a-8a94-33c6bac34fb8", m.Tag("reply-parent-msg-id"));
+        Assert.Single(m.Tags);
+    }
+}

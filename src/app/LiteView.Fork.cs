@@ -43,6 +43,7 @@ partial class LiteView
     // ---------- command line ----------
 
     static int stressRate;   // --chat-stress=<messages per second>
+    static bool stressGc;    // CI leak check: a full garbage collection before each sample, so only real leaks grow
 
     static void ParseArgs(string[] args)
     {
@@ -161,6 +162,7 @@ partial class LiteView
                 long now = sw.ElapsedMilliseconds;
                 if (now - lastLog >= 10000)
                 {
+                    if (stressGc) { GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); }
                     using (var me = Process.GetCurrentProcess())
                         Log.Info("stress: " + gen0.Count + " messages (" + ((gen0.Count - lastCount) * 1000 / Math.Max(1, now - lastLog)) + "/s), working set "
                             + me.WorkingSet64 / (1024 * 1024) + " MB, private " + me.PrivateMemorySize64 / (1024 * 1024) + " MB, threads " + me.Threads.Count

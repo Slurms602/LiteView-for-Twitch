@@ -51,7 +51,9 @@ A last CI step runs the chat at 300 messages a second for two minutes (fixture s
 emotes, the second minute scrolled back so 2000 messages are kept) and checks the `stress:` lines with
 `tools/stress-check.ps1`: private memory under its budget, no growth of memory, handles or GDI/USER objects over the
 last 30 s (four samples), the generator keeping its rate, emotes decoded and none refused, and the window's thread never waiting
-longer than its budget (UI lag). The table goes to `smoke/fixture-stress/stress.txt` in the artifact.
+longer than its budget (UI lag). The table goes to `smoke/fixture-stress/stress.txt` in the artifact. Another step
+switches channel every 5 s for two minutes (scene `switching`, with video through FakeStreamlink and 50 chat messages a
+second) and checks that handles, GDI/USER objects, threads and memory do not grow from the 3rd sample to the last.
 
 **Not automated yet**: real Twitch playback, chat stress beyond two minutes, hour-long leak tests, display scaling.
 
@@ -116,6 +118,9 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 47 | Following page > *Browse*; click a category; *Language*: one you watch; Backspace | The most watched categories with their box art; the category's live channels, most watched first; only that language; back to the categories at the same place |
 | 48 | In the chat box Ctrl+E; type part of a name; Down; arrow keys; Enter; Esc | The picker opens with the search box; Down moves into the grid (purple frame); Enter inserts the emote and the picker stays; Esc closes it and the chat box has the keyboard. Space, M and C do not pause, mute or hide the chat while in the grid |
 | 49 | Narrator in the emote picker grid (item 48) | Each emote is read with its set, e.g. "Pog, 7TV channel" |
+| 50 | Chat gear > *Chat on the left*; drag the chat's right edge; restart | Chat between the followed column and the video, the video still fills its area; the width follows the drag; both kept after a restart; unticking puts it back on the right |
+| 51 | Watch a live channel for a few minutes | Next to the channel name: viewers, uptime, category and title; the numbers update about once a minute; hovering shows the whole title |
+| 52 | Right-click someone's chat message > *Reply to ...*; type; Enter | "Replying to @name: ..." above the chat box; the message shows as a reply on twitch.tv and in LiteView; Esc or ✕ cancels; switching channel ends it |
 
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
 
@@ -125,7 +130,7 @@ Report results (pass/fail, with `liteview.log` and the diagnostics file for fail
 (`src/app/Fixture.cs`): no network for the Twitch API, no real login (the token file is not read or written), no
 Streamlink, anonymous chat, and the title says *UI fixture*. `LITEVIEW_UI_FIXTURE_SCENE` picks the screen: `live`,
 `followed`, `recent`, `history`, `search:<text>`, `browse`, `category` (the Browse tab and one category), `problem`,
-`chat`, `chatlog` (the chat's recent messages), `picker` (the emote picker, keyboard on an emote), `stress` (the
+`chat`, `chatleft` (the chat on the left), `chatlog` (the chat's recent messages), `reply` (replying to one of them), `picker` (the emote picker, keyboard on an emote), `stress` (the
 two-minute busy chat), and with
 `LITEVIEW_UI_FIXTURE_STREAMS=1` plus `smoke.ps1 -FakeStreamlink` also `watch`, `offline`, `fail`, `paused`. `smoke.ps1
 -Expect <regex>` also requires lines in `liteview.log` (CI: the chatlog scene must log 6 recent messages, the paused

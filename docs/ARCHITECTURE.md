@@ -37,6 +37,8 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/app/LiteView.Chat.cs` | Chat preferences (`ChatPrefs`), chat width handle, the list dialog | fork |
 | `src/app/ChatHistory.cs` | `ChatPanel` (partial): the channel's recent messages when joining | fork |
 | `src/app/LiteView.Pause.cs` | Pause / play (ends and restarts the stream processes) | fork |
+| `src/app/LiteView.StreamInfo.cs` | The status line while playing: viewers, uptime, category, title | fork |
+| `src/app/ChatReply.cs` | `ChatPanel` (partial): the message menu (reply, copy) and sending replies | fork |
 | `src/app/PickerAccess.cs` | `EmotePicker` and `ChatPanel` (partial): the picker by keyboard (Ctrl+E, arrow keys) and for screen readers | fork |
 | `src/app/LiteView.Performance.cs` | CPU use modes, Gaming mode | fork |
 | `src/app/LiteView.Screens.cs` | Fullscreen across monitors, RTX card detection | fork |

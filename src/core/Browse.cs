@@ -191,6 +191,19 @@ namespace LiteViewCore
         }
 
         /// <summary>How long a stream has been live: "45m", "2h 05m", "" when unknown or in the future.</summary>
+        /// <summary>The status line while a stream plays: "12.3K viewers  ·  2h 05m  ·  Game  ·  Title" (what is known).</summary>
+        public static string Playing(LiveStream? s, DateTimeOffset now)
+        {
+            if (s == null) return "";
+            var parts = new List<string>();
+            if (s.Viewers > 0) parts.Add(Viewers(s.Viewers) + (s.Viewers == 1 ? " viewer" : " viewers"));
+            string up = Uptime(s.Started, now);
+            if (up.Length > 0) parts.Add(up);
+            if (s.Game.Length > 0) parts.Add(s.Game);
+            if (s.Title.Length > 0) parts.Add(s.Title);
+            return string.Join("  \u00B7  ", parts);
+        }
+
         public static string Uptime(DateTimeOffset? started, DateTimeOffset now)
         {
             if (started == null) return "";

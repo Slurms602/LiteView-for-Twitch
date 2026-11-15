@@ -197,6 +197,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         side.Visible = sw > 0; side.SetBounds(0, 0, sw, body.Height);
         video.SetBounds(sw, 0, Math.Max(1, body.Width - cw - sw), body.Height);
         chatBox.SetBounds(body.Width - cw, 0, cw, body.Height);
+        if (chatLeft) { chatBox.Left = sw; video.Left = sw + cw; }   // fork: chat on the left (src/app/LiteView.Chat.cs)
         chatBox.Visible = cw > 0;
     }
 
@@ -462,7 +463,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         bool alive = false;
         try { alive = !slProc.HasExited; } catch { }
         // playing = OUR mpv answered on this stream's pipe (upstream looked for any mpv.exe on the PC)
-        if (alive) { if (mpvGen == gen) { if (!played) { played = true; Log.Info("stream " + gen + ": playing"); } status.Text = ""; } else OpeningStatus(); return; }
+        if (alive) { if (mpvGen == gen) { if (!played) { played = true; Log.Info("stream " + gen + ": playing"); } ShowPlayingInfo(); } else OpeningStatus(); return; }   // fork: viewers, uptime, title (upstream: status.Text = "")
         OnStreamExited();
     }
 

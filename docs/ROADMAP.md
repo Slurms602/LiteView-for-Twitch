@@ -63,8 +63,8 @@ measured GPU cost and image metrics); before/after comparison tool; RTX VSR inte
 Done (P2 branch, not yet checked on Windows): CPU use modes (Automatic / Windows decides / custom cores), opt-in
 Gaming mode, `GameFirst.exe --stop` with rollback, chat text size / timestamps / highlight words / ignored users /
 width (UI-3), keyboard shortcuts, text size for the Following page and chat, pause (stops the stream processes),
-chat history when joining (recent-messages.robotty.de, can be turned off). Not done: a settings window (the top-right menu holds the settings for now),
-theming, chat on the left.
+chat history when joining (recent-messages.robotty.de, can be turned off). Chat on the left (chat gear menu). Not done: a settings window (the top-right menu holds the settings for
+now), theming.
 
 Measured CPU scheduling modes (Windows default / recommended / manual / gaming); opt-in Gaming Mode (foreground
 game detection with non-invasive APIs, lower preset, restore); GameFirst per-app policies with rollback;

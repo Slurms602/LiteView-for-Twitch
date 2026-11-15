@@ -1,6 +1,7 @@
 // Chat preferences (P4): text size, timestamps, highlight words, ignored users, recent messages when joining
-// (src/app/ChatHistory.cs), and the chat's width (drag its left edge; UI-3). The native chat (src/chat.cs) reads
-// ChatPrefs while it builds and draws messages.
+// (src/app/ChatHistory.cs), the chat's width (drag its inner edge; UI-3) and side: right of the video (default) or
+// left of it, after the followed channels column. The native chat (src/chat.cs) reads ChatPrefs while it builds and
+// draws messages.
 using System;
 using System.Drawing;
 using System.Windows.Forms;
@@ -21,19 +22,20 @@ partial class LiteView
     int chatWidth = 340, chatSize = 1;
     int ChatW { get { return chatWidth; } }   // upstream: const 340
     readonly Panel chatGrip = new Panel();
-    bool gripDrag; int gripX, gripW;
+    bool gripDrag, chatLeft; int gripX, gripW;
 
     void InitChatPrefs()
     {
-        // a 5 px handle on the chat's left edge: drag to change the chat's width
-        chatGrip.Dock = DockStyle.Left; chatGrip.Width = 5; chatGrip.Cursor = Cursors.SizeWE; chatGrip.BackColor = Color.FromArgb(31, 31, 35);
+        // a 5 px handle on the chat's edge next to the video: drag to change the chat's width
+        chatGrip.Dock = chatLeft ? DockStyle.Right : DockStyle.Left; chatGrip.Width = 5; chatGrip.Cursor = Cursors.SizeWE; chatGrip.BackColor = Color.FromArgb(31, 31, 35);
         chatBox.Controls.Add(chatGrip);
         new ToolTip().SetToolTip(chatGrip, "Drag to change the chat's width");
         chatGrip.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) { gripDrag = true; gripX = Cursor.Position.X; gripW = chatWidth; } };
         chatGrip.MouseMove += (s, e) =>
         {
             if (!gripDrag) return;
-            int w = Math.Max(MinChatW, Math.Min(MaxChatW, gripW + gripX - Cursor.Position.X));
+            int dx = Cursor.Position.X - gripX;   // the chat grows away from the video
+            int w = Math.Max(MinChatW, Math.Min(MaxChatW, gripW + (chatLeft ? dx : -dx)));
             if (w == chatWidth) return;
             chatWidth = w; Relayout();
         };
@@ -70,12 +72,14 @@ partial class LiteView
             string t = TextListDialog.Ask(this, "Ignored users", "Messages from these users are not shown. One Twitch user name per line.", string.Join("\r\n", ChatPrefs.Filter.Ignored));
             if (t != null) { ChatPrefs.Filter.SetIgnored(t); SaveSettings(); }
         };
+        var left = new ToolStripMenuItem("Chat on the left");
+        left.Click += (s, e) => { chatLeft = !chatLeft; chatGrip.Dock = chatLeft ? DockStyle.Right : DockStyle.Left; Relayout(); SaveSettings(); };
         var width = new ToolStripMenuItem("Reset chat width");
         width.Click += (s, e) => { chatWidth = 340; Relayout(); FitWindow(); SaveSettings(); };
-        menu.Opening += (s, e) => { stamps.Checked = ChatPrefs.Timestamps; history.Checked = ChatPrefs.History; width.Enabled = chatWidth != 340; };
+        menu.Opening += (s, e) => { stamps.Checked = ChatPrefs.Timestamps; history.Checked = ChatPrefs.History; left.Checked = chatLeft; width.Enabled = chatWidth != 340; };
         menu.ShowItemToolTips = true;
         menu.Items.Insert(0, new ToolStripSeparator());
-        foreach (var it in new ToolStripItem[] { width, ignore, words, history, stamps, size }) menu.Items.Insert(0, it);
+        foreach (var it in new ToolStripItem[] { width, left, ignore, words, history, stamps, size }) menu.Items.Insert(0, it);
     }
 
     void LoadChatSettings(System.Collections.Generic.Dictionary<string, string> ini)
@@ -83,6 +87,8 @@ partial class LiteView
         int v;
         if (int.TryParse(Native.Get(ini, "chatwidth", "340"), out v)) chatWidth = Math.Max(MinChatW, Math.Min(MaxChatW, v));
         if (int.TryParse(Native.Get(ini, "chatsize", "1"), out v) && v >= 0 && v < ChatPrefs.Sizes.Length) chatSize = v;
+        chatLeft = Native.Get(ini, "chatside", "right") == "left";
+        chatGrip.Dock = chatLeft ? DockStyle.Right : DockStyle.Left;
         ChatPrefs.Timestamps = Native.Get(ini, "timestamps", "0") == "1";
         ChatPrefs.History = Native.Get(ini, "chathistory", "1") != "0";
         ChatPrefs.Filter.SetWords(Native.Get(ini, "highlights", ""));
@@ -93,6 +99,7 @@ partial class LiteView
     {
         yield return Kv("chatwidth", chatWidth.ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("chatsize", chatSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        yield return Kv("chatside", chatLeft ? "left" : "right");
         yield return Kv("timestamps", ChatPrefs.Timestamps ? "1" : "0");
         yield return Kv("chathistory", ChatPrefs.History ? "1" : "0");
         yield return Kv("highlights", ChatPrefs.Filter.SaveWords());

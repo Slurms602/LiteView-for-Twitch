@@ -362,3 +362,18 @@ public class CategoryTests
         Assert.All(Languages.All, l => Assert.Matches("^([a-z]{2}|other)$", l.Key));
     }
 }
+
+public class PlayingLineTests
+{
+    [Fact]
+    public void ShowsWhatIsKnown()
+    {
+        var now = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+        var s = new LiveStream { Login = "a", Viewers = 12345, Started = now.AddMinutes(-125), Game = "Chess", Title = "rated games" };
+        Assert.Equal("12.3K viewers  ·  2h 05m  ·  Chess  ·  rated games", Fmt.Playing(s, now));
+        Assert.Equal("1 viewer", Fmt.Playing(new LiveStream { Viewers = 1 }, now));
+        Assert.Equal("Chess", Fmt.Playing(new LiveStream { Game = "Chess" }, now));
+        Assert.Equal("", Fmt.Playing(null, now));
+        Assert.Equal("", Fmt.Playing(new LiveStream(), now));
+    }
+}

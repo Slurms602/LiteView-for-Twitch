@@ -108,6 +108,16 @@ partial class ChatPanel
         return entry;
     }
 
+    // a received reply starts with "@name " of the person it answers; Twitch's chat leaves that out (the "Replying to" line
+    // above says it), unless it is the whole message
+    static void DropReplyMention(Msg m, string display, string login)
+    {
+        int i = m.P.FindIndex(p => p.Kind != 6 && p.Kind != 2 && p.Kind != 3);
+        if (i < 0 || i == m.P.Count - 1 || m.P[i].Kind != 5) return;
+        string t = m.P[i].Text.Substring(1);
+        if (t.Equals(display, StringComparison.OrdinalIgnoreCase) || (login != null && t.Equals(login, StringComparison.OrdinalIgnoreCase))) m.P.RemoveAt(i);
+    }
+
     // IRC thread: our own message as Twitch confirmed it (USERSTATE), with its "Replying to" line when it was a reply
     Msg Echo(IrcMsg im, string entry)
     {

@@ -87,6 +87,8 @@ partial class LiteView
         int v;
         if (int.TryParse(Native.Get(ini, "chatwidth", "340"), out v)) chatWidth = Math.Max(MinChatW, Math.Min(MaxChatW, v));
         if (int.TryParse(Native.Get(ini, "chatsize", "1"), out v) && v >= 0 && v < ChatPrefs.Sizes.Length) chatSize = v;
+        UiFont.UseInter = Native.Get(ini, "font", "inter") != "segoe";
+        ApplyFont();
         chatLeft = Native.Get(ini, "chatside", "right") == "left";
         chatGrip.Dock = chatLeft ? DockStyle.Right : DockStyle.Left;
         ChatPrefs.Timestamps = Native.Get(ini, "timestamps", "0") == "1";
@@ -95,11 +97,20 @@ partial class LiteView
         ChatPrefs.Filter.SetIgnored(Native.Get(ini, "ignored", ""));
     }
 
+    // the font setting (UiFont) changed or was loaded: the chat, the Following page and the followed column draw with it
+    void ApplyFont()
+    {
+        nchat.View.SetTextSize(ChatPrefs.Sizes[chatSize]);
+        if (browse != null) browse.ReFont();
+        side.Invalidate();
+    }
+
     System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string, string>> ChatSettings()
     {
         yield return Kv("chatwidth", chatWidth.ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("chatsize", chatSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("chatside", chatLeft ? "left" : "right");
+        yield return Kv("font", UiFont.UseInter ? "inter" : "segoe");
         yield return Kv("timestamps", ChatPrefs.Timestamps ? "1" : "0");
         yield return Kv("chathistory", ChatPrefs.History ? "1" : "0");
         yield return Kv("highlights", ChatPrefs.Filter.SaveWords());

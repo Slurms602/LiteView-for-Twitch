@@ -97,8 +97,8 @@ class BrowsePage : Control
     void MakeFonts()
     {
         foreach (var f in new[] { FHead, FTab, FTitle, FText, FSmall, FMsg, FIcon, FIconSmall }) if (f != null) f.Dispose();
-        FHead = new Font("Segoe UI Semibold", 15f * zoom); FTab = new Font("Segoe UI Semibold", 10f * zoom); FTitle = new Font("Segoe UI Semibold", 10f * zoom);
-        FText = new Font("Segoe UI", 9.25f * zoom); FSmall = new Font("Segoe UI Semibold", 8.25f * zoom); FMsg = new Font("Segoe UI", 10.5f * zoom);
+        FHead = UiFont.New(FontKind.Bold, 15f * zoom); FTab = UiFont.New(FontKind.Semi, 10f * zoom); FTitle = UiFont.New(FontKind.Semi, 10f * zoom);
+        FText = UiFont.New(FontKind.Text, 9.25f * zoom); FSmall = UiFont.New(FontKind.Semi, 8.25f * zoom); FMsg = UiFont.New(FontKind.Text, 10.5f * zoom);
         FIcon = new Font("Segoe MDL2 Assets", 10f * zoom); FIconSmall = new Font("Segoe MDL2 Assets", 7f * zoom);
     }
 
@@ -117,6 +117,9 @@ class BrowsePage : Control
             DoLayout(); Invalidate();
         }
     }
+    /// <summary>The font setting changed (UiFont): new fonts, same size.</summary>
+    public void ReFont() { MakeFonts(); DoLayout(); Invalidate(); }
+
     int Pad { get { return S(20); } }
     int Gap { get { return S(14); } }
     int HeadH { get { return S(96); } }

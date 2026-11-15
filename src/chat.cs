@@ -34,19 +34,19 @@ static class Txt
         f.FormatFlags |= StringFormatFlags.NoWrap; f.Trimming = StringTrimming.EllipsisCharacter; f.Alignment = a; f.LineAlignment = StringAlignment.Center;
         return f;
     }
-    public static Graphics Prep(Graphics g) { g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit; return g; }
+    public static Graphics Prep(Graphics g) { g.TextRenderingHint = UiFont.Hint; return g; }   // fork: ClearType when Windows uses it (src/app/UiFont.cs)
     public static SolidBrush Brush(Color c)
     {
         SolidBrush b; int k = c.ToArgb();
         if (!brushes.TryGetValue(k, out b)) { b = new SolidBrush(c); brushes[k] = b; }
         return b;
     }
-    public static int Width(string s, Font f) { lock (mg) return (int)Math.Round(mg.MeasureString(s, f, PointF.Empty, Typo).Width); }
+    public static int Width(string s, Font f) { lock (mg) return (int)Math.Round(mg.MeasureString(s, UiFont.For(f, s), PointF.Empty, Typo).Width); }   // fork: UiFont.For = Segoe UI for what Inter lacks
     public static int Height(Font f) { lock (mg) return (int)Math.Ceiling(f.GetHeight(mg)); }
-    public static void At(Graphics g, string s, Font f, Color c, int x, int y) { Prep(g).DrawString(s, f, Brush(c), x, y, Typo); }
+    public static void At(Graphics g, string s, Font f, Color c, int x, int y) { var u = UiFont.For(f, s); Prep(g).DrawString(s, u, Brush(c), x, y + UiFont.Shift(f, u), Typo); }   // fork: Segoe UI words on Inter's baseline
     // one line in a box, vertically centred, "..." when it does not fit
-    public static void In(Graphics g, string s, Font f, Color c, Rectangle r, bool centred) { Prep(g).DrawString(s, f, Brush(c), r, centred ? center : clip); }
-    public static void Wrap(Graphics g, string s, Font f, Color c, Rectangle r) { Prep(g).DrawString(s, f, Brush(c), r, wrap); }
+    public static void In(Graphics g, string s, Font f, Color c, Rectangle r, bool centred) { Prep(g).DrawString(s, UiFont.For(f, s), Brush(c), r, centred ? center : clip); }
+    public static void Wrap(Graphics g, string s, Font f, Color c, Rectangle r) { Prep(g).DrawString(s, UiFont.For(f, s), Brush(c), r, wrap); }
 }
 
 // One emote or badge image
@@ -206,7 +206,7 @@ class ChatView : Control
 {
     public static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
         MentionBg = Color.FromArgb(62, 22, 26), NoticeBg = Color.FromArgb(31, 31, 35), Accent = Color.FromArgb(145, 71, 255), LinkC = Color.FromArgb(191, 148, 255);
-    static Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);   // fork: SetTextSize
+    static Font F = UiFont.New(FontKind.Text, 9.75f), FB = UiFont.New(FontKind.Bold, 9.75f), FS = UiFont.New(FontKind.Text, 8.75f);   // fork: SetTextSize, UiFont (Inter like Twitch, or Segoe UI)
     public readonly List<Msg> Msgs = new List<Msg>();
     public event Action<string> NameClicked;
     public event Action<Msg, Point> MessageMenu;   // fork: right-click on a message (src/app/ChatReply.cs)
@@ -247,8 +247,8 @@ class ChatView : Control
     // fork (chat text size, src/app/LiteView.Chat.cs): new fonts, then every message is laid out again
     public void SetTextSize(float pt)
     {
-        if (Math.Abs(F.Size - pt) < 0.01f) return;
-        F = new Font("Segoe UI", pt); FB = new Font("Segoe UI Semibold", pt); FS = new Font("Segoe UI", pt - 1f);
+        if (Math.Abs(F.Size - pt) < 0.01f && UiFont.On == (F.Name != "Segoe UI")) return;
+        F = UiFont.New(FontKind.Text, pt); FB = UiFont.New(FontKind.Bold, pt); FS = UiFont.New(FontKind.Text, pt - 1f);
         widths.Clear();
         spaceW = Txt.Width("x x", F) - Txt.Width("xx", F);
         textH = Txt.Height(F);
@@ -304,7 +304,7 @@ class ChatView : Control
         m.LW = W; m.Places = new List<Place>(); m.Dynamic = false;
         m.Shown = m.Deleted ? m.P.Where(p => p.Kind == 2 || p.Kind == 3).Concat(new[] { new Piece { Kind = 6, Text = "<message deleted>", C = Dim } }).ToList() : m.P;
         int x0 = m.Style == 2 ? 14 : 10, right = W - 10, y = 5;
-        if (m.Reply != null) { m.Places.Add(new Place { R = new Rectangle(x0, y, right - x0, 16), P = new Piece { Kind = 7, Text = m.Reply, C = Dim } }); y += 18; }
+        if (m.Reply != null) { int rh = Txt.Height(FS) + 1; m.Places.Add(new Place { R = new Rectangle(x0, y, right - x0, rh), P = new Piece { Kind = 7, Text = m.Reply, C = Dim } }); y += rh + 2; }   // fork: the line's height follows the text size (a box lower than the text drew nothing)
         var lines = new List<List<Place>>(); var line = new List<Place>(); int x = x0;
         Place prevEmote = null;
         foreach (var p0 in m.Shown)
@@ -964,6 +964,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             pos = r.Value;
         }
         Words(m, text.Substring(pos), tc, login == Tw.Login && login != null && im.Tag("emotes") == null);
+        if (rp != null) DropReplyMention(m, rp, im.Tag("reply-parent-user-login"));   // fork: like Twitch, a reply does not repeat "@name" (src/app/ChatReply.cs)
         if (Tw.Login != null && login != Tw.Login && Regex.IsMatch(text, @"(^|\W)@?" + Regex.Escape(Tw.Login) + @"(\W|$)", RegexOptions.IgnoreCase)) m.Style = 1;
         if (m.Reply != null && Tw.Login != null && im.Tag("reply-parent-user-login") == Tw.Login && login != Tw.Login) m.Style = 1;
         if (m.Style == 0 && login != null && login != Tw.Login && ChatPrefs.Filter.Highlights(text)) m.Style = 1;   // fork: highlight words

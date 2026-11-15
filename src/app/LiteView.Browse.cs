@@ -245,6 +245,16 @@ partial class LiteView
             it.Click += (s, e) => { chatSize = k; nchat.View.SetTextSize(ChatPrefs.Sizes[k]); SaveSettings(); };
             m.DropDownItems.Add(it);
         }
+        m.DropDownItems.Add(new ToolStripSeparator());
+        m.DropDownItems.Add(new ToolStripMenuItem("Font") { Enabled = false });
+        foreach (var inter in new[] { true, false })
+        {
+            bool k = inter;
+            var it = new ToolStripMenuItem(k ? "    Inter (like Twitch)" : "    Segoe UI (Windows)") { Checked = UiFont.UseInter == k, Enabled = !k || UiFont.Available };
+            if (k && !UiFont.Available) it.ToolTipText = "The font files are missing from the fonts folder";
+            it.Click += (s, e) => { if (UiFont.UseInter == k) return; UiFont.UseInter = k; ApplyFont(); SaveSettings(); };
+            m.DropDownItems.Add(it);
+        }
         DarkMenuColors.Apply(m.DropDown);
         return m;
     }

@@ -61,7 +61,7 @@ public class WinArgsTests
         {
             @"C:\Apps\Lite View\twitch\streamlink\bin\streamlinkw.exe",
             "--player", @"C:\Apps\Lite View\twitch\mpv\mpv.exe",
-            "--player-args", "--wid=132456 --input-ipc-server=liteview-mpv-abc123",
+            "--player-args", "--wid=132456 --input-ipc-server=liteview-mpv-abc123 --osc=no",
             "--twitch-low-latency", "--retry-streams", "30", "--twitch-supported-codecs", "h264,h265,av1",
             "--loglevel", "info", "--logfile", @"C:\Apps\Lite View\streamlink.log",
             "twitch.tv/xqc", "720p60,720p,best",
@@ -72,7 +72,7 @@ public class WinArgsTests
     public void ASeamlessSwitchStartsThePlayerMuted()
     {
         var argv = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, StartMuted = true }));
-        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --mute=yes", argv[argv.IndexOf("--player-args") + 1]);
+        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --osc=no --mute=yes", argv[argv.IndexOf("--player-args") + 1]);
         argv = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7 }));
         Assert.DoesNotContain("mute", argv[argv.IndexOf("--player-args") + 1]);
     }
@@ -81,7 +81,7 @@ public class WinArgsTests
     public void VideosAndClipsPlayWithPassthroughAndNoLiveOptions()
     {
         var v = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Video = "2001", StartSeconds = 754, Quality = "720p60" }));
-        Assert.Equal(new[] { "s", "--player", "m", "--player-args", "--wid=7 --input-ipc-server=liteview-mpv-1 --start=+754", "--player-passthrough", "hls,http",
+        Assert.Equal(new[] { "s", "--player", "m", "--player-args", "--wid=7 --input-ipc-server=liteview-mpv-1 --osc=no --start=+754", "--player-passthrough", "hls,http",
             "--twitch-supported-codecs", "h264,h265,av1", "--loglevel", "info", "--logfile", "l", "twitch.tv/videos/2001", "720p60,720p,best" }, v);
         var c = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Clip = "Funny_Clip-1", StartSeconds = 9 }));
         Assert.Contains("clips.twitch.tv/Funny_Clip-1", c);
@@ -93,7 +93,7 @@ public class WinArgsTests
     public void APreviewIsSmallMutedAndDeaf()
     {
         var p = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Preview = true, Quality = "1080p60" }));
-        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --mute=yes --osc=no --osd-level=0 --input-cursor=no --input-vo-keyboard=no", p[p.IndexOf("--player-args") + 1]);
+        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --osc=no --mute=yes --osd-level=0 --input-cursor=no --input-vo-keyboard=no", p[p.IndexOf("--player-args") + 1]);
         Assert.Equal("160p,360p,worst", p[p.Count - 1]);
         Assert.DoesNotContain("--retry-streams", p);
         Assert.Throws<ArgumentException>(() => StreamCommand.Build(new StreamRequest { Channel = "xqc", PipeName = "p", Preview = true, Video = "1" }));
@@ -103,11 +103,24 @@ public class WinArgsTests
     public void AnExtraWindowStartsAtItsOwnVolume()
     {
         var p = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Volume = 35 }));
-        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --volume=35", p[p.IndexOf("--player-args") + 1]);
+        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --osc=no --volume=35", p[p.IndexOf("--player-args") + 1]);
         var high = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Volume = 900 }));
         Assert.EndsWith("--volume=100", high[high.IndexOf("--player-args") + 1]);
         var none = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7 }));
         Assert.DoesNotContain("--volume", none[none.IndexOf("--player-args") + 1]);
+    }
+
+    [Fact]
+    public void ClipsKeepTheLastSecondsInMemory()
+    {
+        var p = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, BackBufferMiB = StreamCommand.ClipBufferMiB(60) }));
+        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --osc=no --cache=yes --demuxer-max-back-bytes=66MiB", p[p.IndexOf("--player-args") + 1]);
+        Assert.Equal(0, StreamCommand.ClipBufferMiB(0));
+        Assert.Equal(StreamCommand.MaxBackBufferMiB, StreamCommand.ClipBufferMiB(100000));
+        Assert.Throws<ArgumentException>(() => StreamCommand.Build(new StreamRequest { Channel = "xqc", PipeName = "p", BackBufferMiB = -1 }));
+        Assert.Throws<ArgumentException>(() => StreamCommand.Build(new StreamRequest { Channel = "xqc", PipeName = "p", BackBufferMiB = 9999 }));
+        var pv = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Preview = true, BackBufferMiB = 66 }));
+        Assert.DoesNotContain("--cache", pv[pv.IndexOf("--player-args") + 1]);   // previews never keep any
     }
 
     [Fact]

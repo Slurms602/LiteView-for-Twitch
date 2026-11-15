@@ -45,6 +45,7 @@ sealed class ExtraPlayer : Form
     ChatPanel chat;
     MpvPipe pipe;
     IntPtr job; Process proc; DateTime started; bool seen, muted;
+    bool onTop, chatOn; string quality;   // this window's own choices; a change also becomes the default for new windows (opts)
     string playingQuality = "";
 
     public event Action LoginRequested, WatchHere;
@@ -58,7 +59,8 @@ sealed class ExtraPlayer : Form
     {
         this.login = login; this.log = log; this.launch = launch; this.opts = opts; this.mainQuality = mainQuality; this.save = save;
         Text = name + "  -  LiteView"; BackColor = Bg; ClientSize = new Size(640, 360 + BarH); MinimumSize = new Size(360, 240);
-        StartPosition = FormStartPosition.WindowsDefaultLocation; TopMost = opts.OnTop; KeyPreview = true;
+        onTop = opts.OnTop; chatOn = opts.Chat; quality = opts.Quality;
+        StartPosition = FormStartPosition.WindowsDefaultLocation; TopMost = onTop; KeyPreview = true;
         note.Cursor = Cursors.Hand;
         note.Click += (s, e) => { if (job == IntPtr.Zero) Start(); };
         body.Controls.Add(surface); body.Controls.Add(note); note.BringToFront();
@@ -67,8 +69,8 @@ sealed class ExtraPlayer : Form
         volBar.Value = opts.Volume; volBar.Width = 90; volBar.BackColor = BarC;
         volBar.Changed += v => { opts.Volume = v; if (muted) SetMute(false); Send("{\"command\":[\"set_property\",\"volume\"," + v + "]}"); UpdateMute(); saveLater.Stop(); saveLater.Start(); };
         tips.SetToolTip(volBar, "Volume of this window (or the mouse wheel on the video)");
-        Flat(chatBtn, "", "Chat beside the video"); chatBtn.Click += (s, e) => { opts.Chat = !opts.Chat; ShowChat(opts.Chat, true); save(); };
-        Flat(pinBtn, "", "Keep this window on top of other windows"); pinBtn.Click += (s, e) => { opts.OnTop = !opts.OnTop; TopMost = opts.OnTop; UpdateButtons(); save(); };
+        Flat(chatBtn, "", "Chat beside the video"); chatBtn.Click += (s, e) => { chatOn = !chatOn; opts.Chat = chatOn; ShowChat(chatOn, true); save(); };
+        Flat(pinBtn, "", "Keep this window on top of other windows"); pinBtn.Click += (s, e) => { onTop = !onTop; opts.OnTop = onTop; TopMost = onTop; UpdateButtons(); save(); };
         Flat(moreBtn, "", "Quality, shape, watch in the main window"); moreBtn.Click += (s, e) => { BuildMenu(); more.Show(moreBtn, new Point(moreBtn.Width - more.Width, -more.Height)); };
         DarkMenuColors.Apply(more);
         bar.Controls.AddRange(new Control[] { muteBtn, volBar, chatBtn, pinBtn, moreBtn });
@@ -79,7 +81,7 @@ sealed class ExtraPlayer : Form
         SetFonts();
         UpdateButtons(); UpdateMute(); LayoutBar();
         watch.Tick += (s, e) => Check();
-        Shown += (s, e) => { if (opts.Chat) ShowChat(true, false); Start(); };
+        Shown += (s, e) => { if (chatOn) ShowChat(true, true); else if (opts.Fit) FitToVideo(); Start(); };   // the chat widens the window, the video keeps its size
         KeyDown += (s, e) =>
         {
             if (e.Control || e.Alt || (chat != null && chat.ContainsFocus)) return;
@@ -126,12 +128,14 @@ sealed class ExtraPlayer : Form
 
     void UpdateButtons()
     {
-        pinBtn.ForeColor = opts.OnTop ? Accent : Dim; pinBtn.Text = opts.OnTop ? "" : "";
-        tips.SetToolTip(pinBtn, opts.OnTop ? "On top of other windows (click: a normal window)" : "A normal window (click: keep it on top of other windows)");
-        chatBtn.ForeColor = opts.Chat ? Accent : Dim;
+        pinBtn.ForeColor = onTop ? Accent : Dim; pinBtn.Text = onTop ? "" : "";
+        tips.SetToolTip(pinBtn, onTop ? "On top of other windows (click: a normal window)" : "A normal window (click: keep it on top of other windows)");
+        chatBtn.ForeColor = chatOn ? Accent : Dim;
     }
 
     void UpdateMute() { muteBtn.Text = muted || volBar.Value == 0 ? "" : ""; volBar.Invalidate(); }
+
+    string QualityNow() { return new PopOptions { Quality = quality }.QualityFor(mainQuality()); }
 
     void SetMute(bool m)
     {
@@ -145,17 +149,17 @@ sealed class ExtraPlayer : Form
         foreach (var name in PopOptions.Qualities)
         {
             var choice = name;
-            var it = new ToolStripMenuItem(PopOptions.QualityName(name) + (name == PopOptions.DefaultQuality ? "  (default)" : "")) { Checked = opts.Quality == name };
-            it.Click += (s, e) => { if (opts.Quality == choice) return; opts.Quality = choice; save(); if (opts.QualityFor(mainQuality()) != playingQuality) Start(); };
+            var it = new ToolStripMenuItem(PopOptions.QualityName(name) + (name == PopOptions.DefaultQuality ? "  (default)" : "")) { Checked = quality == name };
+            it.Click += (s, e) => { if (quality == choice) return; quality = choice; opts.Quality = choice; save(); if (QualityNow() != playingQuality) Start(); };
             q.DropDownItems.Add(it);
         }
         DarkMenuColors.Apply(q.DropDown);
         var fit = new ToolStripMenuItem("Keep the video's shape (no black bars)") { Checked = opts.Fit };
         fit.ToolTipText = "Resizing keeps the video at 16:9. Off: any size, with black bars where it does not fit.";
         fit.Click += (s, e) => { opts.Fit = !opts.Fit; save(); if (opts.Fit) FitToVideo(); };
-        var top = new ToolStripMenuItem("On top of other windows") { Checked = opts.OnTop };
+        var top = new ToolStripMenuItem("On top of other windows") { Checked = onTop };
         top.Click += (s, e) => pinBtn.PerformClick();
-        var chatItem = new ToolStripMenuItem("Chat") { Checked = opts.Chat };
+        var chatItem = new ToolStripMenuItem("Chat") { Checked = chatOn };
         chatItem.Click += (s, e) => chatBtn.PerformClick();
         var main = new ToolStripMenuItem("Watch in the main window");
         main.Click += (s, e) => { if (WatchHere != null) WatchHere(); Close(); };
@@ -189,6 +193,7 @@ sealed class ExtraPlayer : Form
             int w = Width + (on ? ChatW : -ChatW);
             Width = Math.Max(MinimumSize.Width, Math.Min(wa.Width, w));
             if (Right > wa.Right) Left = Math.Max(wa.Left, wa.Right - Width);
+            if (opts.Fit) FitToVideo();
         }
         UpdateButtons();
     }
@@ -233,26 +238,28 @@ sealed class ExtraPlayer : Form
     void Start()
     {
         Stop();
-        playingQuality = opts.QualityFor(mainQuality());
+        playingQuality = QualityNow();
         note.Text = "Opening " + login + "..."; note.Visible = true; note.BringToFront();
         var req = new StreamRequest { Channel = login, LogFile = log, WindowHandle = surface.Handle.ToInt64(), Quality = playingQuality, Volume = volBar.Value, StartMuted = muted };
         var r = launch(req);
         if (r.Key == IntPtr.Zero) { note.Text = "Could not start Streamlink. Click to try again."; return; }
         job = r.Key; proc = r.Value; started = DateTime.Now; seen = false;
-        pipe = new MpvPipe(req.PipeName);
-        pipe.Changed += OnMpvChange;
-        pipe.Start();
+        var p = new MpvPipe(req.PipeName);
+        p.Changed += (what, value) => OnMpvChange(p, what, value);
+        pipe = p;
+        p.Start();
         watch.Start();
         Log.Info("window: " + login + " (" + playingQuality + ")");
     }
 
     // mpv's volume or mute changed (its mouse wheel or M on the video): the bar follows (pipe thread)
-    void OnMpvChange(string what, string value)
+    void OnMpvChange(MpvPipe from, string what, string value)
     {
         try
         {
             BeginInvoke((Action)(() =>
             {
+                if (from != pipe) return;   // a player this window already stopped (a quality change restarts it)
                 double v;
                 if (Fixture.On) Log.Info("window: mpv " + what + " " + value);
                 if (what == "volume" && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out v))
@@ -300,34 +307,37 @@ sealed class ExtraPlayer : Form
     }
 }
 
-// A small client of mpv's JSON IPC pipe for an extra window: connects (retrying while mpv starts), watches volume and
-// mute, and sends commands. Its own thread; Dispose ends it.
+// A small client of mpv's JSON IPC pipe for an extra window: connects (retrying while Streamlink waits for an offline
+// channel, until the window stops the player), watches volume and mute, and sends commands. Reading and writing have
+// their own threads and commands wait in a short queue, so a stalled mpv never blocks the window; Dispose ends both
+// (closing the pipe ends a write that hangs).
 sealed class MpvPipe : IDisposable
 {
+    const int MaxQueued = 64;
     readonly string name;
-    readonly object gate = new object();
-    NamedPipeClientStream stream;
-    StreamWriter writer;
+    readonly System.Collections.Concurrent.ConcurrentQueue<string> queue = new System.Collections.Concurrent.ConcurrentQueue<string>();
+    readonly AutoResetEvent wake = new AutoResetEvent(false);
+    volatile NamedPipeClientStream stream;
     volatile bool stop;
     public event Action<string, string> Changed;   // property name, value (JSON text)
 
     public MpvPipe(string name) { this.name = name; }
 
-    public void Start() { new Thread(Run) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "extra window pipe" }.Start(); }
+    public void Start()
+    {
+        new Thread(Run) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "extra window pipe" }.Start();
+        new Thread(Write) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "extra window pipe writer" }.Start();
+    }
 
     void Run()
     {
-        var until = DateTime.UtcNow.AddSeconds(90);   // Streamlink may take a while (an offline channel: it never comes)
-        while (!stop && DateTime.UtcNow < until)
+        while (!stop)
         {
             var s = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
             try { s.Connect(500); }
-            catch (Exception ex) when (ex is TimeoutException || ex is IOException) { s.Dispose(); Thread.Sleep(500); continue; }
-            lock (gate)
-            {
-                if (stop) { s.Dispose(); return; }
-                stream = s; writer = new StreamWriter(s, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
-            }
+            catch (Exception ex) when (ex is TimeoutException || ex is IOException || ex is UnauthorizedAccessException) { s.Dispose(); Thread.Sleep(1000); continue; }
+            stream = s;
+            if (stop) { s.Dispose(); return; }
             Send("{\"command\":[\"observe_property\",1,\"volume\"]}");
             Send("{\"command\":[\"observe_property\",2,\"mute\"]}");
             try
@@ -340,27 +350,54 @@ sealed class MpvPipe : IDisposable
                         if (line.Length > 4096 || line.IndexOf("\"property-change\"", StringComparison.Ordinal) < 0) continue;
                         var j = Json.Parse(line);
                         string prop = Json.S(j, "name"), data = Json.S(j, "data");
-                        if ((prop == "volume" || prop == "mute") && data != null && Changed != null) Changed(prop, data);
+                        var c = Changed;
+                        if ((prop == "volume" || prop == "mute") && data != null && c != null) c(prop, data);
                     }
                 }
             }
-            catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException || ex is FormatException) { }
-            return;   // mpv went away: the window's own check notices
+            catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException) { }
+            stream = null;
+            try { s.Dispose(); } catch (IOException) { }
+            if (!stop) Thread.Sleep(1000);   // mpv went away; Streamlink may start another (the window's own check sees the end)
         }
     }
 
+    void Write()
+    {
+        while (!stop)
+        {
+            wake.WaitOne(1000);
+            string json;
+            while (!stop && queue.TryPeek(out json))
+            {
+                var s = stream;
+                if (s == null) break;   // not connected yet: the commands wait
+                try
+                {
+                    var b = Encoding.UTF8.GetBytes(json + "\n");
+                    s.Write(b, 0, b.Length); s.Flush();
+                }
+                catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException || ex is InvalidOperationException) { break; }
+                queue.TryDequeue(out json);
+            }
+        }
+    }
+
+    /// <summary>Queues a command (the oldest go when mpv does not keep up).</summary>
     public void Send(string json)
     {
-        lock (gate)
-        {
-            if (writer == null) return;
-            try { writer.WriteLine(json); } catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException) { }
-        }
+        if (stop) return;
+        queue.Enqueue(json);
+        string dropped;
+        while (queue.Count > MaxQueued && queue.TryDequeue(out dropped)) { }
+        wake.Set();
     }
 
     public void Dispose()
     {
         stop = true;
-        lock (gate) { try { if (stream != null) stream.Dispose(); } catch (IOException) { } stream = null; writer = null; }
+        wake.Set();
+        var s = stream; stream = null;
+        if (s != null) { try { s.Dispose(); } catch (IOException) { } }
     }
 }

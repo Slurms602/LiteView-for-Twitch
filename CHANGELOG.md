@@ -102,9 +102,16 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Menu > Playback > **Sharpness** for High and Ultra (Off, Soft, Normal, Strong), and **B** to see the original
   picture and back, to compare.
 - **Videos and clips**: right-click a channel on the Following page > *Videos and clips*: its newest past
-  broadcasts, highlights and uploads, or its most viewed clips of the last 30 days. They play in LiteView with the
-  channel's live chat; videos can be seeked (arrow keys or mpv's bar at the bottom), and Pause, F5 or a new quality
-  continue where the video was.
+  broadcasts, highlights and uploads, or its most viewed clips of the last 30 days. They play in LiteView with a
+  **seek bar** under the picture (click or drag; Left/Right jump 10 s), and Pause, F5 or a new quality continue where
+  the video was.
+- **Chat replay**: a past broadcast shows its chat as it was at that moment of the broadcast (emotes, badges and your
+  chat settings as in live chat), and jumping in the video starts the chat again from there. It comes from the same
+  Twitch service the website uses, asked anonymously (no login is sent). Chat gear > *Chat replay for videos* turns it
+  off (then the channel's live chat shows, as for clips).
+- **Save clips on your PC**: the scissors button (or Alt+X) saves the last 60 s of what plays, live or a video, in its
+  original quality to `Videos\LiteView Clips` (`.mkv`, plays in VLC, mpv or the Media Player). Menu > Playback > Clips:
+  30 s, 60 s, 2 minutes, or Off; the player keeps that much of the stream in memory (about 1 MB a second).
 - **Colour emoji** in the chat (drawn with DirectWrite like the browser does; where that is not available they stay
   as before).
 - **More streams at once**: right-click a channel > *Watch in a new window* plays it in a separate window, up to 3

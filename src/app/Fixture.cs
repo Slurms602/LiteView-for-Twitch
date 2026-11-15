@@ -115,7 +115,8 @@ static class Fixture
                 {
                     string login = LoginOf(Values(q, "user_id").FirstOrDefault() ?? "") ?? "";
                     string[] types = { "archive", "archive", "highlight", "archive", "upload", "archive", "highlight", "archive" };
-                    return Json("{\"data\":[" + string.Join(",", Enumerable.Range(0, 8).Select(k => "{\"id\":\"" + (5000 + k) + "\",\"user_login\":\"" + login + "\",\"user_name\":\"" + Display(login) +
+                    string uid = Values(q, "user_id").FirstOrDefault() ?? "";
+                    return Json("{\"data\":[" + string.Join(",", Enumerable.Range(0, 8).Select(k => "{\"id\":\"" + (5000 + k) + "\",\"user_id\":\"" + uid + "\",\"user_login\":\"" + login + "\",\"user_name\":\"" + Display(login) +
                         "\",\"title\":\"" + VideoTitles[k] + "\",\"type\":\"" + types[k] + "\",\"duration\":\"" + (k % 3 == 2 ? "" : (1 + k) + "h") + (7 * k + 3) + "m" + (11 * k % 60) + "s\",\"view_count\":" + (31 * k * k * k + 120) +
                         ",\"created_at\":\"" + DateTime.UtcNow.AddHours(-(5 + 30 * k * k)).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) +
                         "\",\"thumbnail_url\":\"https://static-cdn.jtvnw.net/cf_vods/fixture/v" + (5000 + k) + "/thumb/thumb0-%{width}x%{height}.jpg\"}")) + "],\"pagination\":{}}");
@@ -150,6 +151,22 @@ static class Fixture
                 var lines = said.Select((x, i) => "@badges=;color=" + x[1] + ";display-name=" + Display(x[0]) + ";emotes=;id=00000000-0000-4000-8000-00000000000" + i + (x.Length > 3 ? x[3] : "") +
                     ";tmi-sent-ts=" + (now - (said.Length - i) * 45000) + ";historical=1 :" + x[0] + "!" + x[0] + "@" + x[0] + ".tmi.twitch.tv PRIVMSG #" + ch + " " + x[2]);
                 return Json("{\"messages\":[" + string.Join(",", lines.Select(l => "\"" + l + "\"")) + "],\"error\":null,\"error_code\":null}");
+            }
+            if (u.Host == "gql.twitch.tv" && rq.Method == HttpMethod.Post && rq.Content != null)
+            {   // chat replay (src/core/ChatReplay.cs): a made-up comment every 2 s from a little before the asked position
+                string body = rq.Content.ReadAsStringAsync().Result;
+                var mo = System.Text.RegularExpressions.Regex.Match(body, "contentOffsetSeconds:([0-9]+)");
+                var mv = System.Text.RegularExpressions.Regex.Match(body, "video\\(id:\\\\\"([0-9]+)");
+                int off = mo.Success ? int.Parse(mo.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+                string vid = mv.Success ? mv.Groups[1].Value : "0";
+                var edges = Enumerable.Range(0, 30).Select(k =>
+                {
+                    int at = Math.Max(0, off - 2) + 2 * k; string who = Live[(at / 2) % Live.Length];
+                    string text = at % 10 == 0 ? "the replay at " + at + " s " + EmoteName(at % EmoteCount) : "chat replay line at " + at + " s";
+                    return "{\"node\":{\"id\":\"fx-" + vid + "-" + at + "\",\"contentOffsetSeconds\":" + at + ",\"createdAt\":\"2026-11-01T12:00:00Z\",\"commenter\":{\"login\":\"" + who + "\",\"displayName\":\"" + Display(who) +
+                        "\"},\"message\":{\"userColor\":\"#1E90FF\",\"fragments\":[{\"text\":\"" + text + "\",\"emote\":null}],\"userBadges\":[]}}}";
+                });
+                return Json("{\"data\":{\"video\":{\"comments\":{\"edges\":[" + string.Join(",", edges) + "],\"pageInfo\":{\"hasNextPage\":" + (off < 5000 ? "true" : "false") + "}}}}}");
             }
             if (u.Host == "7tv.io" && path.StartsWith("/v3/users/twitch/", StringComparison.Ordinal)) return Json(SevenTvSet());
             if (u.Host == "cdn.7tv.app")   // /emote/<id>/1x.png or 1x.gif

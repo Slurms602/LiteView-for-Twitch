@@ -60,6 +60,8 @@ partial class LiteView
         stamps.Click += (s, e) => { ChatPrefs.Timestamps = !ChatPrefs.Timestamps; SaveSettings(); };
         var history = new ToolStripMenuItem("Recent messages when joining") { ToolTipText = "The last messages of the channel, like on Twitch, from recent-messages.robotty.de\n(the service Chatterino uses; it learns which channels you open)" };
         history.Click += (s, e) => { ChatPrefs.History = !ChatPrefs.History; SaveSettings(); };
+        var replayItem = new ToolStripMenuItem("Chat replay for videos") { ToolTipText = "A past broadcast shows its chat as it was, from Twitch (src/core/ChatReplay.cs).\nOff: the channel's live chat, as for clips." };
+        replayItem.Click += (s, e) => { chatReplay = !chatReplay; SaveSettings(); if (watching && currentVideo != null && chatOn.Checked && !webChat) { StopChat(); StartChat(); } };
         var words = new ToolStripMenuItem("Highlight words...");
         words.Click += (s, e) =>
         {
@@ -76,10 +78,10 @@ partial class LiteView
         left.Click += (s, e) => { chatLeft = !chatLeft; chatGrip.Dock = chatLeft ? DockStyle.Right : DockStyle.Left; Relayout(); SaveSettings(); };
         var width = new ToolStripMenuItem("Reset chat width");
         width.Click += (s, e) => { chatWidth = 340; Relayout(); FitWindow(); SaveSettings(); };
-        menu.Opening += (s, e) => { stamps.Checked = ChatPrefs.Timestamps; history.Checked = ChatPrefs.History; left.Checked = chatLeft; width.Enabled = chatWidth != 340; };
+        menu.Opening += (s, e) => { stamps.Checked = ChatPrefs.Timestamps; history.Checked = ChatPrefs.History; left.Checked = chatLeft; width.Enabled = chatWidth != 340; replayItem.Checked = chatReplay; };
         menu.ShowItemToolTips = true;
         menu.Items.Insert(0, new ToolStripSeparator());
-        foreach (var it in new ToolStripItem[] { width, left, ignore, words, history, stamps, size }) menu.Items.Insert(0, it);
+        foreach (var it in new ToolStripItem[] { width, left, ignore, words, replayItem, history, stamps, size }) menu.Items.Insert(0, it);
     }
 
     void LoadChatSettings(System.Collections.Generic.Dictionary<string, string> ini)
@@ -93,6 +95,7 @@ partial class LiteView
         chatGrip.Dock = chatLeft ? DockStyle.Right : DockStyle.Left;
         ChatPrefs.Timestamps = Native.Get(ini, "timestamps", "0") == "1";
         ChatPrefs.History = Native.Get(ini, "chathistory", "1") != "0";
+        chatReplay = Native.Get(ini, "chatreplay", "1") != "0";
         ChatPrefs.Filter.SetWords(Native.Get(ini, "highlights", ""));
         ChatPrefs.Filter.SetIgnored(Native.Get(ini, "ignored", ""));
     }
@@ -120,6 +123,7 @@ partial class LiteView
         yield return Kv("font", UiFont.UseInter ? "inter" : "segoe");
         yield return Kv("timestamps", ChatPrefs.Timestamps ? "1" : "0");
         yield return Kv("chathistory", ChatPrefs.History ? "1" : "0");
+        yield return Kv("chatreplay", chatReplay ? "1" : "0");
         yield return Kv("highlights", ChatPrefs.Filter.SaveWords());
         yield return Kv("ignored", ChatPrefs.Filter.SaveIgnored());
     }

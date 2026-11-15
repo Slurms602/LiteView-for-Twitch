@@ -123,6 +123,8 @@ namespace LiteViewCore
         public bool Preview;
         /// <summary>The player's starting volume, 0-100 (an extra window has its own); -1: mpv.conf's.</summary>
         public int Volume = -1;
+        /// <summary>Memory (MiB) for the stream's last seconds, so a clip can be saved (src/app/LiteView.Clips.cs); 0: mpv.conf's 4 MiB.</summary>
+        public int BackBufferMiB;
     }
 
     public static class StreamCommand
@@ -139,8 +141,11 @@ namespace LiteViewCore
             if (video && clip) throw new ArgumentException("a video or a clip, not both");
             if (!IsPipeName(r.PipeName)) throw new ArgumentException("bad pipe name");
             if (r.Preview && (video || clip)) throw new ArgumentException("previews are of live streams");
-            string playerArgs = "--wid=" + r.WindowHandle.ToString(CultureInfo.InvariantCulture) + " --input-ipc-server=" + r.PipeName + (r.StartMuted || r.Preview ? " --mute=yes" : "")
-                + (r.Preview ? " --osc=no --osd-level=0 --input-cursor=no --input-vo-keyboard=no" : "")
+            if (r.BackBufferMiB < 0 || r.BackBufferMiB > MaxBackBufferMiB) throw new ArgumentException("bad clip buffer");
+            // --osc=no: mpv's own on-screen controls are not used (a video has LiteView's seek bar under the picture)
+            string playerArgs = "--wid=" + r.WindowHandle.ToString(CultureInfo.InvariantCulture) + " --input-ipc-server=" + r.PipeName + " --osc=no" + (r.StartMuted || r.Preview ? " --mute=yes" : "")
+                + (r.Preview ? " --osd-level=0 --input-cursor=no --input-vo-keyboard=no" : "")
+                + (r.BackBufferMiB > 0 && !r.Preview ? " --cache=yes --demuxer-max-back-bytes=" + r.BackBufferMiB.ToString(CultureInfo.InvariantCulture) + "MiB" : "")
                 + (video && r.StartSeconds > 0 ? " --start=+" + Math.Min(r.StartSeconds, 999999).ToString(CultureInfo.InvariantCulture) : "")
                 + (r.Volume >= 0 ? " --volume=" + Math.Min(r.Volume, 100).ToString(CultureInfo.InvariantCulture) : "");
             var a = new List<string> { r.Streamlink, "--player", r.Mpv, "--player-args", playerArgs };
@@ -161,6 +166,10 @@ namespace LiteViewCore
         }
 
         public const string PreviewSelector = "160p,360p,worst";
+        public const int MaxBackBufferMiB = 512;
+
+        /// <summary>The memory for a clip of this many seconds: Twitch's highest bitrate (about 8 Mb/s, 1 MB a second) and a tenth more.</summary>
+        public static int ClipBufferMiB(int seconds) { return seconds <= 0 ? 0 : Math.Min(MaxBackBufferMiB, (int)Math.Ceiling(seconds * 1.1)); }
 
         /// <summary>A new, unguessable pipe name for one stream (mpv's IPC server).</summary>
         public static string NewPipeName()

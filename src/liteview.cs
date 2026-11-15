@@ -167,7 +167,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     void LayoutBar()
     {
         int x = bar.Width - 6;
-        foreach (Control c in new Control[] { menuBtn, fsBtn, volBar, muteBtn, pauseBtn, rtx, picture, chatOn, quality })
+        foreach (Control c in new Control[] { menuBtn, fsBtn, volBar, muteBtn, pauseBtn, clipBtn, rtx, picture, chatOn, quality })   // fork: clipBtn (src/app/LiteView.Clips.cs)
         {
             x -= c.Width + 6;
             c.Location = new Point(x, (BarH - c.Height) / 2);
@@ -179,7 +179,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     {
         watching = watch;
         back.Visible = liveDot.Visible = title.Visible = fsBtn.Visible = muteBtn.Visible = volBar.Visible = picture.Visible = watch; rtx.Visible = watch && HasNvidia;
-        quality.Visible = chatOn.Visible = pauseBtn.Visible = watch;   // fork: the Following page has only the menu on the right
+        quality.Visible = chatOn.Visible = pauseBtn.Visible = clipBtn.Visible = watch;   // fork: the Following page has only the menu on the right
         search.Visible = !watch;
         status.Location = new Point(watch ? title.Right + 14 : search.Right + 14, 12);
         if (web != null) web.Visible = !watch;
@@ -206,7 +206,6 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     // Keep the video area 16:9 while the window is resized (no black bars).
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == 0x0210) ClickedInside(m.WParam);   // fork: WM_PARENTNOTIFY, a click anywhere in the window (src/app/LiteView.Focus.cs)
         if (m.Msg == 0x0214 && watching && !fullscreen)   // WM_SIZING
         {
             var r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
@@ -344,7 +343,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     {
         if (channel == null) return;
         nchat.Visible = !webChat; chatWeb.Visible = webChat;
-        if (!webChat) { nchat.Join(channel); return; }
+        if (!webChat) { if (!StartReplayChat()) nchat.Join(channel); return; }   // fork: a past broadcast's chat replay (src/app/LiteView.Replay.cs)
         var cw = chatWeb;   // SetWebChat replaces the control: work on this one only, and check after every await
         try
         {

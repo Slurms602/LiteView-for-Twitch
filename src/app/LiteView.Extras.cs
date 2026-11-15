@@ -33,6 +33,8 @@ partial class LiteView
         "C  Show or hide the chat\n" +
         "I  Playback stats on the video (codec, decoding, dropped frames, buffer, GPU time, CPU, memory)\n" +
         "B  The original picture without enhancement, to compare (B again: back)\n" +
+        "Alt+X  Save a clip of the last seconds (Videos\\LiteView Clips)\n" +
+        "Left / Right  A video: back / forward 10 s (or its bar under the picture)\n" +
         "Ctrl+E  Emotes (in the chat box; arrow keys choose, Enter inserts)\n\n" +
         "On the Following page: arrow keys choose, Enter watches, the menu key opens the channel menu.\n" +
         "With the video clicked, mpv's keys apply (double-click or F: fullscreen, M: mute, wheel: volume).";
@@ -47,6 +49,7 @@ partial class LiteView
             else if (!watching) return;
             else if (e.KeyCode == Keys.F5 && channel != null) Replay();
             else if (e.KeyCode == Keys.MediaPlayPause) TogglePause();
+            else if (e.Alt && e.KeyCode == Keys.X) SaveClip();   // src/app/LiteView.Clips.cs
             else if (e.Alt && e.KeyCode == Keys.Left || e.KeyCode == Keys.Back && plain && !typing) Browse();
             else if (typing) return;
             else if (e.KeyCode == Keys.Space && plain) TogglePause();

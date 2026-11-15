@@ -40,6 +40,8 @@ partial class LiteView
         }
         if (PictureLine(line, g)) return true;
         if (VideoLine(line, g)) return true;
+        if (ClipLine(line, g)) return true;   // src/app/LiteView.Clips.cs
+        if (SeekLine(line, g)) return true;   // src/app/LiteView.Replay.cs
         if (VideoEndLine(line, g)) return true;
         if (line.IndexOf("client-message", StringComparison.Ordinal) >= 0)
         {

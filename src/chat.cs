@@ -547,7 +547,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         head.Paint += (s, e) =>
         {
             using (var p = new Pen(Color.FromArgb(53, 53, 59))) e.Graphics.DrawLine(p, 0, head.Height - 1, head.Width, head.Height - 1);
-            Txt.In(e.Graphics, "STREAM CHAT", HeadFont, ChatView.Fg, new Rectangle(gear.Width, 0, head.Width - 2 * gear.Width, head.Height - 1), true);
+            Txt.In(e.Graphics, replay ? "CHAT REPLAY" : "STREAM CHAT", HeadFont, ChatView.Fg, new Rectangle(gear.Width, 0, head.Width - 2 * gear.Width, head.Height - 1), true);   // fork: replay (src/app/ChatReplayPanel.cs)
         };
         head.Resize += (s, e) => head.Invalidate();
 
@@ -592,7 +592,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
     public void UpdateLogin()
     {
         // logged in, out or as someone else since the chat connected: reconnect as the current account
-        if (channel != null && drain.Enabled && joinedAs != Tw.Login) { Reconnect(); return; }
+        if (channel != null && drain.Enabled && joinedAs != Tw.Login && !replay) { Reconnect(); return; }   // fork: a chat replay has no connection to redo
         bool can = Tw.Token != null && Tw.Login != null;   // a validated session (not a token kept while Twitch was unreachable)
         input.Visible = emoteBtn.Visible = can; loginLink.Visible = !can;
         if (!can) picker.Visible = false;
@@ -603,7 +603,8 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
 
     public void Join(string ch)
     {
-        if (ch == channel && drain.Enabled) return;
+        if (ch == channel && drain.Enabled && !replay) return;
+        EndReplay();   // fork: from a past broadcast's chat replay to the live chat (src/app/ChatReplayPanel.cs)
         channel = ch; roomId = null; badges = new Dictionary<string, Emote>(); third = globals ?? new Dictionary<string, Emote>();
         channelSets = new List<KeyValuePair<string, List<Named>>>(); RefreshPicker();
         View.Clear(); Msg dummy; while (inbox.TryDequeue(out dummy)) { }
@@ -617,9 +618,9 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         LoadGlobals();
     }
 
-    public void Part() { irc.Stop(); drain.Stop(); StopHistory(); CancelReply(); channel = null; View.Clear(); }
+    public void Part() { irc.Stop(); drain.Stop(); StopHistory(); CancelReply(); EndReplay(); channel = null; View.Clear(); }   // fork: EndReplay
 
-    public void Reconnect() { if (channel != null) { var c = channel; channel = null; Join(c); } }
+    public void Reconnect() { if (channel != null && !replay) { var c = channel; channel = null; Join(c); } }   // fork: not in a chat replay (src/app/ChatReplayPanel.cs)
 
     // ---------- emotes and badges ----------
     void LoadGlobals()

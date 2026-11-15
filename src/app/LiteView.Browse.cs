@@ -53,6 +53,7 @@ partial class LiteView
         InitPreview();   // src/app/LiteView.Preview.cs
         browse.WindowWanted += OpenWindow;   // src/app/ExtraPlayer.cs
         InitPause();   // src/app/LiteView.Pause.cs
+        InitClips();   // src/app/LiteView.Clips.cs
         bar.Controls.Add(menuBtn);
         LayoutBar();
 
@@ -125,8 +126,17 @@ partial class LiteView
             {   // a channel's videos or clips (made-up); vod: the first video plays (with tests/FakeStreamlink)
                 browse.ShowVideos("nightowl_plays", "NightowlPlays", Fixture.SceneName == "clips");
                 if (Fixture.SceneName != "vod") return;
-                var t = new Timer { Interval = 500 }; int waited = 0;
-                t.Tick += (s2, e2) => { waited += 500; if (!browse.PlayFirstVideo() && waited < 10000) return; t.Stop(); t.Dispose(); };
+                var t = new Timer { Interval = 500 }; int waited = 0, step = 0;
+                t.Tick += (s2, e2) =>
+                {
+                    waited += 500;
+                    if (step == 0) { if (!browse.PlayFirstVideo() && waited < 10000) return; step = 1; waited = 0; return; }
+                    // the test video is 2 s long (looped): a jump to 10:00 is simulated as mpv's position, for the chat replay
+                    if (firstFrameGen != gen && waited < 20000) return;
+                    if (waited < 5000) return;
+                    t.Stop(); t.Dispose();
+                    Log.Info("video: position 10:00 (simulated)"); fixturePos = 600; VideoAt(600);
+                };
                 t.Start();
                 return;
             }
@@ -149,6 +159,7 @@ partial class LiteView
                 return;
             }
             if (Fixture.SceneName == "focus") { FocusScene(); return; }        // src/app/LiteView.Focus.cs
+            if (Fixture.SceneName == "clip") { ClipScene(); return; }          // src/app/LiteView.Clips.cs
             if (Fixture.SceneName == "sidemenu") { SideMenuScene(); return; }  // src/app/LiteView.SideMenu.cs
             if (Fixture.SceneName == "release") { ReleaseScene(); return; }    // src/app/LiteView.Picture.cs
             if (Fixture.SceneName == "preview")
@@ -331,6 +342,7 @@ partial class LiteView
         yield return Kv("previews", browse.Previews ? "1" : "0");
         yield return Kv("startmin", startMin ? "1" : "0");
         yield return Kv("sharpness", PicturePreset.Save(sharpness));
+        yield return Kv("clipsecs", clipSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("totray", toTray ? "1" : "0");
         yield return Kv("pagesize", Array.FindIndex(BrowsePage.Zooms, z => Math.Abs(z - browse.Zoom) < 0.001f).ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("notify", notify ? "1" : "0");
@@ -359,6 +371,7 @@ partial class LiteView
         browse.Previews = Native.Get(ini, "previews", "1") != "0";
         startMin = Native.Get(ini, "startmin", "0") == "1";
         sharpness = PicturePreset.ParseSharpness(Native.Get(ini, "sharpness", "normal"));
+        int cs; clipSeconds = int.TryParse(Native.Get(ini, "clipsecs", "60"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out cs) && Array.IndexOf(ClipChoices, cs) >= 0 ? cs : 60;
         toTray = Native.Get(ini, "totray", "0") == "1";
         int ps;
         if (int.TryParse(Native.Get(ini, "pagesize", "1"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ps) && ps < BrowsePage.Zooms.Length) browse.Zoom = BrowsePage.Zooms[ps];

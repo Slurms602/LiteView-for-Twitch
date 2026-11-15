@@ -10,13 +10,13 @@ partial class LiteView
 {
     VideoInfo currentVideo, videoNext;   // what plays instead of the live stream (null: live)
     bool replaying; int videoPos, videoTicks;
-    const int VideoPosId = 83;
+    const int VideoPosId = 83, VideoDurationId = 84;
 
     void PlayVideo(VideoInfo v)
     {
         if (v == null || !ChannelName.IsValidLogin(v.Login)) return;
         Log.Info("video: " + (v.IsClip ? "clip" : VideoData.KindName(v.Kind).ToLowerInvariant()) + " " + v.Id);
-        videoNext = v;
+        videoNext = v; videoBar.Clear();
         Watch(v.Login);
     }
 
@@ -53,23 +53,30 @@ partial class LiteView
         return true;
     }
 
-    // OnTick: where the video is (every second)
+    // OnTick: where the video is (every half second: the seek bar and the chat replay follow it), and its length once
     void TrackVideo()
     {
-        if (currentVideo == null || currentVideo.IsClip || mpvGen != gen || ++videoTicks % 2 != 0) return;
+        ShowVideoBar();   // src/app/LiteView.Replay.cs
+        if (currentVideo == null || mpvGen != gen) return;
         SendMpv("{\"command\":[\"get_property\",\"time-pos\"],\"request_id\":" + VideoPosId + "}");
+        if (++videoTicks % 4 == 1 && videoBar.Duration <= 0) SendMpv("{\"command\":[\"get_property\",\"duration\"],\"request_id\":" + VideoDurationId + "}");
     }
 
-    // PipeLoop thread: the answer
+    // PipeLoop thread: the answers
     bool VideoLine(string line, int g)
     {
-        if (line.IndexOf("\"request_id\":" + VideoPosId, StringComparison.Ordinal) < 0) return false;
+        bool isPos = line.IndexOf("\"request_id\":" + VideoPosId, StringComparison.Ordinal) >= 0;
+        if (!isPos && line.IndexOf("\"request_id\":" + VideoDurationId, StringComparison.Ordinal) < 0) return false;
         var v = Json.Parse(line);
         if (Json.S(v, "error") == "success")
         {
             var d = Json.V(v, "data");
-            double pos = d is double dd ? dd : d is long dl ? dl : -1;
-            if (pos >= 0 && pos < 1e7) Ui(g, () => { if (currentVideo != null) videoPos = (int)pos; });
+            double t = d is double dd ? dd : d is long dl ? dl : -1;
+            if (t >= 0 && t < 1e7)
+            {
+                if (isPos) Ui(g, () => { if (currentVideo != null) { videoPos = (int)t; VideoAt(t); } });   // src/app/LiteView.Replay.cs
+                else Ui(g, () => { if (currentVideo != null) videoBar.Set(videoBar.Position, t); });
+            }
         }
         return true;
     }

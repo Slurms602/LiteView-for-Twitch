@@ -278,7 +278,7 @@ partial class LiteView
             var req = new StreamRequest
             {
                 Streamlink = streamlink, Mpv = mpv, LogFile = curLog, Channel = name, Quality = q,
-                PipeName = pipeName, WindowHandle = surfaces[streamSurface].Handle.ToInt64(), StartMuted = muteNext,
+                PipeName = pipeName, WindowHandle = surfaces[streamSurface].Handle.ToInt64(), StartMuted = muteNext, BackBufferMiB = ClipBufferMiB,
             };
             VideoRequest(req);   // a video or clip (src/app/LiteView.Videos.cs)
             cmdline = StreamCommand.Build(req);

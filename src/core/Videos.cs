@@ -15,6 +15,8 @@ namespace LiteViewCore
     public sealed class VideoInfo
     {
         public string Id = "", Login = "", Name = "", Title = "", Thumb = "", Creator = "";
+        /// <summary>The channel's numeric user id ("" if Helix did not give one): its emotes and badges in the chat replay.</summary>
+        public string UserId = "";
         public VideoKind Kind;
         public int Seconds;
         public long Views;
@@ -59,9 +61,10 @@ namespace LiteViewCore
                 string? id = Json.S(v, "id"), login = Json.S(v, "user_login");
                 if (!ChannelName.IsNumericId(id) || !ChannelName.IsValidLogin(login) || !seen.Add(id!)) continue;
                 string type = Json.S(v, "type") ?? "";
+                string? uid = Json.S(v, "user_id");
                 list.Add(new VideoInfo
                 {
-                    Id = id!, Login = login!, Name = Or(HelixData.Text(Json.S(v, "user_name")), login!), Title = HelixData.Text(Json.S(v, "title")),
+                    Id = id!, Login = login!, UserId = ChannelName.IsNumericId(uid) ? uid! : "", Name = Or(HelixData.Text(Json.S(v, "user_name")), login!), Title = HelixData.Text(Json.S(v, "title")),
                     Thumb = Json.S(v, "thumbnail_url") ?? "", Kind = type == "highlight" ? VideoKind.Highlight : type == "upload" ? VideoKind.Upload : VideoKind.Archive,
                     Seconds = Duration(Json.S(v, "duration")), Views = Math.Max(0, Json.N(v, "view_count")), Created = Time(Json.S(v, "created_at")),
                 });

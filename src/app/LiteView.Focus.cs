@@ -2,9 +2,10 @@
 // clicking elsewhere (the video, the chat's messages, the followed channels, the top bar), so Space, M, I, B and the
 // rest typed into the box instead of working. None of those places take the keyboard themselves, and the video is
 // mpv's window (another process). Now a click anywhere else in the window takes the keyboard away from a text box:
-// WM_PARENTNOTIFY tells the window about every click on its own controls, and mpv sends "liteview-click" for a click on
-// the video (config/mpv/input.conf; mpv's window does not notify its parent). The chat's own row (the emote button,
-// the emote picker) keeps the box typing, and so does a click on a control that takes the keyboard itself.
+// a message filter sees every mouse button going down in the window's own controls (WinForms' controls do not all
+// notify their parents), and mpv sends "liteview-click" for a click on the video (config/mpv/input.conf). The chat's
+// own row (the emote button, the emote picker) keeps the box typing, and so does a click on a control that takes the
+// keyboard itself.
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
@@ -25,20 +26,36 @@ partial class LiteView
     [StructLayout(LayoutKind.Sequential)] struct PointStruct { public int X, Y; }
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(PointStruct p);
 
+    sealed class ClickFilter : IMessageFilter
+    {
+        readonly LiteView owner;
+        public ClickFilter(LiteView owner) { this.owner = owner; }
+        public bool PreFilterMessage(ref Message m)
+        {
+            if (m.Msg == 0x201 || m.Msg == 0x204 || m.Msg == 0x207 || m.Msg == 0x20B) owner.ClickedInside(m.HWnd);   // left, right, middle, X button down
+            return false;   // the click goes on as usual
+        }
+    }
+
     void InitFocus()
     {
         if (focusInit) return;
         focusInit = true;
         Controls.Add(keySink);
+        var filter = new ClickFilter(this);
+        Application.AddMessageFilter(filter);
+        FormClosed += (s, e) => Application.RemoveMessageFilter(filter);
     }
 
-    // WM_PARENTNOTIFY from the window procedure: a mouse button went down on one of the window's controls
-    void ClickedInside(IntPtr wParam)
+    // a mouse button went down on a window of this thread: in this window and while a text box has the keyboard, look again
+    // after the click (a control that takes the keyboard has it by then)
+    void ClickedInside(IntPtr hwnd)
     {
-        int what = (int)(wParam.ToInt64() & 0xFFFF);
-        if (what != 0x201 && what != 0x204 && what != 0x207 && what != 0x20B) return;   // left, right, middle, X button down
+        if (!(Control.FromChildHandle(GetFocus()) is TextBoxBase)) return;
+        var target = Control.FromChildHandle(hwnd);
+        if (target == null || target.FindForm() != this) return;
         var at = Cursor.Position;
-        try { BeginInvoke((Action)(() => DropTextFocus(at))); } catch (InvalidOperationException) { }   // after the click: a control that takes the keyboard has it by then
+        try { BeginInvoke((Action)(() => DropTextFocus(at))); } catch (InvalidOperationException) { }
     }
 
     // at: where the click was (null: on the video)

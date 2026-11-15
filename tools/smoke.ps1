@@ -71,6 +71,9 @@ public delegate bool EnumProc(IntPtr h, IntPtr l);
 [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
 [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
 [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+[DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr h, uint msg, IntPtr w, IntPtr l, uint flags, uint ms, out IntPtr result);
+// the window's thread answers a no-op message within ms (SMTO_ABORTIFHUNG): a busy or hung app must not hang this script
+public static bool Responds(IntPtr h, uint ms) { IntPtr r; return SendMessageTimeout(h, 0, IntPtr.Zero, IntPtr.Zero, 0x0002, ms, out r) != IntPtr.Zero; }
 public static string Title(IntPtr h) { var sb = new System.Text.StringBuilder(512); GetWindowText(h, sb, sb.Capacity); return sb.ToString(); }
 public static IntPtr Find(int pid, string prefix)
 {
@@ -125,11 +128,18 @@ if ($p.HasExited) {
     if ($null -eq $firstWindow) { $ok = $false; Note "FAIL: still running after $Seconds s without its main window (top window: '$($p.MainWindowTitle)')" }
     else
     {
-        Note ("window after {0:N1} s: '{1}'" -f $firstWindow, [Smoke.Top]::Title($main)); WindowShot $main 'window.png'
-        if ($A11y)
+        Note ("window after {0:N1} s: '{1}'" -f $firstWindow, [Smoke.Top]::Title($main))
+        # PrintWindow and screen readers wait for the window's thread: only when it answers
+        $responds = [Smoke.Top]::Responds($main, 5000)
+        if (-not $responds) { $ok = $false; Note "FAIL: the window does not respond (its thread was busy for more than 5 s)" }
+        else { WindowShot $main 'window.png' }
+        if ($A11y -and $responds)
         {
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'a11y-dump.ps1') -ProcessId $p.Id -Out (Join-Path $Out 'a11y.txt') | Out-Null
             $dump = Join-Path $Out 'a11y.txt'
+            $dumper = Start-Process powershell.exe -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                ('"' + (Join-Path $PSScriptRoot 'a11y-dump.ps1') + '"'), '-ProcessId', $p.Id, '-Out', ('"' + $dump + '"'))
+            if (-not $dumper.WaitForExit(60000)) { Stop-Process -Id $dumper.Id -Force -ErrorAction SilentlyContinue; Note "screen reader dump: no answer within 60 s" }
+            if (-not (Test-Path $dump)) { Set-Content $dump 'no dump (tools/a11y-dump.ps1 did not finish)' }
             $uia = Select-String -Path $dump -Pattern '^LIST .*\([1-9][0-9]* items\)' -Quiet         # Narrator
             $msaa = Select-String -Path $dump -Pattern '^MSAA LIST .*\([1-9][0-9]* items\)' -Quiet   # NVDA, JAWS
             if (-not ($uia -and $msaa)) { $ok = $false; Note "FAIL: screen readers see no list items (UI Automation: $uia, MSAA: $msaa; a11y.txt)" }

@@ -37,7 +37,7 @@ jobs:
 
   build-windows:
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -56,6 +56,7 @@ jobs:
           path: dist/LiteView-Enhanced-0.0.0-ci/
           retention-days: 7
       - name: Start the app (window appears, closes cleanly), then each page with made-up data
+        timeout-minutes: 25   # a stuck scene fails this step; the screenshots and logs are still uploaded
         shell: pwsh
         run: |
           $dir = 'dist/LiteView-Enhanced-0.0.0-ci'; $failed = 0
@@ -78,6 +79,7 @@ jobs:
           exit $failed
       - name: Busy chat for two minutes (memory, handles and UI lag within budget)
         if: ${{ !cancelled() }}
+        timeout-minutes: 6
         shell: pwsh
         run: |
           $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'stress' }
@@ -88,6 +90,7 @@ jobs:
           if ($smoke -or $LASTEXITCODE) { exit 1 }
       - name: Switching channels for two minutes (no leaks across switches)
         if: ${{ !cancelled() }}
+        timeout-minutes: 6
         shell: pwsh
         run: |
           $fake = (Resolve-Path fake/streamlinkw.exe).Path

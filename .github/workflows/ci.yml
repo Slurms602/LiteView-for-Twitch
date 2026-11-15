@@ -85,6 +85,17 @@ jobs:
           # budget from the first runs (docs/PERFORMANCE_BASELINE.md): about 4x the private memory seen, flat handles, no freeze
           ./tools/stress-check.ps1 -Log smoke/fixture-stress/liteview.log -Rate 300 -MaxPrivateMB 250 -MaxGrowthMB 30 -MaxHandleGrowth 100 -MaxGdiGrowth 20 -MaxUserGrowth 20 -MaxLagMs 250 -MinDecoded 100 -MaxRefused 0 -Out smoke/fixture-stress/stress.txt
           if ($smoke -or $LASTEXITCODE) { exit 1 }
+      - name: Switching channels for two minutes (no leaks across switches)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $fake = (Resolve-Path fake/streamlinkw.exe).Path
+          $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'switching'; LITEVIEW_UI_FIXTURE_STREAMS = '1' }
+          ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke/fixture-switching -Env $vars -FakeStreamlink $fake -Seconds 135 -Expect 'switch 20', 'stream 20: playing'
+          $smoke = $LASTEXITCODE
+          # from the end of warm-up (3rd sample) to the end: about 20 switches, so a leak per switch adds up
+          ./tools/stress-check.ps1 -Log smoke/fixture-switching/liteview.log -Rate 50 -SteadySamples 10 -MaxPrivateMB 300 -MaxGrowthMB 40 -MaxHandleGrowth 60 -MaxGdiGrowth 20 -MaxUserGrowth 20 -MaxThreadGrowth 10 -MaxLagMs 1500 -Out smoke/fixture-switching/stress.txt
+          if ($smoke -or $LASTEXITCODE) { exit 1 }
       - name: Screenshot and logs of the start
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

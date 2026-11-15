@@ -7,7 +7,8 @@
 // chatlog: the chat with made-up recent messages (src/app/ChatHistory.cs) and no stress lines; stress: the busy-chat
 // run (300 messages a second, scrolled back after a minute; tools/stress-check.ps1 reads its numbers). The chat scenes
 // get made-up 7TV channel emotes (generated pictures, some animated); picker: the emote picker open on them;
-// browse: the Browse tab's categories; category: the live channels of one of them.
+// browse: the Browse tab's categories; category: the live channels of one of them; switching (with STREAMS): another
+// channel every 5 s for the leak check.
 using System;
 using System.Collections.Generic;
 using System.Drawing;

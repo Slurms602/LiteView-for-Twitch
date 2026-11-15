@@ -2,8 +2,9 @@
 # from liteview.log, prints them as a table with CPU per interval, and checks them against a budget:
 #   - the generator kept up (messages per second at least 80 % of the rate),
 #   - private memory stays under -MaxPrivateMB,
-#   - over the last -SteadySamples samples (the steady state) private memory, handles, GDI and USER objects do not
-#     grow by more than their budget (a leak grows without end; a working cache levels off),
+#   - over the last -SteadySamples samples (the steady state) private memory, handles, GDI and USER objects and
+#     threads do not grow by more than their budget (a leak grows without end; a working cache levels off; for
+#     channel switching use a long window, e.g. -SteadySamples 10, so a small leak per switch adds up),
 #   - the window's thread answers within -MaxLagMs (it draws the chat, so a long wait is a visible freeze),
 #   - optionally, enough emotes were decoded and none refused (-MinDecoded, -MaxRefused).
 # The numbers in the budget come from the first CI runs (docs/PERFORMANCE_BASELINE.md). Exit code 1 = over budget.
@@ -18,6 +19,7 @@ param(
     [int]$MaxHandleGrowth = 150,
     [int]$MaxGdiGrowth = 50,
     [int]$MaxUserGrowth = 50,
+    [int]$MaxThreadGrowth = 20,
     [int]$MaxLagMs = 750,
     [int]$MinDecoded = 0,   # emotes decoded at the end (CI: the fixture's made-up 7TV emotes really drew)
     [int]$MaxRefused = -1,  # images refused by the size/format checks (-1: not checked)
@@ -63,7 +65,7 @@ else {
     if ($peak -gt $MaxPrivateMB) { Fail "private memory peaked at $peak MB (budget $MaxPrivateMB MB)" } else { Note "private memory peak: $peak MB (budget $MaxPrivateMB MB)" }
     $steady = @($samples | Select-Object -Last $SteadySamples)
     $first = $steady[0]; $last = $steady[-1]
-    foreach ($k in @(@('PrivateMB', $MaxGrowthMB, 'MB'), @('Handles', $MaxHandleGrowth, 'handles'), @('Gdi', $MaxGdiGrowth, 'GDI objects'), @('User', $MaxUserGrowth, 'USER objects'))) {
+    foreach ($k in @(@('PrivateMB', $MaxGrowthMB, 'MB'), @('Handles', $MaxHandleGrowth, 'handles'), @('Gdi', $MaxGdiGrowth, 'GDI objects'), @('User', $MaxUserGrowth, 'USER objects'), @('Threads', $MaxThreadGrowth, 'threads'))) {
         $grow = $last.($k[0]) - $first.($k[0])
         if ($grow -gt $k[1]) { Fail "$($k[0]) grew by $grow $($k[2]) over the last $SteadySamples samples (budget $($k[1]))" }
         else { Note "$($k[0]) over the last $SteadySamples samples: $($first.($k[0])) -> $($last.($k[0])) (budget +$($k[1]))" }

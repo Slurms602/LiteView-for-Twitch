@@ -97,6 +97,19 @@ partial class LiteView
                 Watch("nightowl_plays");
                 return;
             }
+            if (Fixture.SceneName == "switching")
+            {   // CI's leak run (tools/stress-check.ps1): another channel every 5 s, each with video (tests/FakeStreamlink and
+                // the real mpv), its chat, emotes and recent messages, and 50 chat messages a second on top
+                string[] chans = { "play_demo", "nightowl_plays", "pixelforge", "lofi_studio", "zed_speedruns" };
+                int k = 0;
+                Watch(chans[k++]);
+                stressRate = 50; StartStress();
+                var next = new Timer { Interval = 5000 };
+                next.Tick += (s2, e2) => { Watch(chans[k % chans.Length]); k++; Log.Info("switch " + k); };
+                FormClosing += (s2, e2) => next.Dispose();
+                next.Start();
+                return;
+            }
             if (Fixture.SceneName == "watch" || Fixture.SceneName == "offline" || Fixture.SceneName == "fail" || Fixture.SceneName == "paused")
             {   // with tests/FakeStreamlink: real mpv with a test video / Streamlink waiting / a failing stream / paused
                 Watch(Fixture.SceneName == "watch" || Fixture.SceneName == "paused" ? "play_demo" : Fixture.SceneName + "_demo");

@@ -44,7 +44,8 @@ The WebView2 page stays as a fallback (menu > Following page).
 Not done: browse by game/category, language filter, hover previews (optional in the brief).
 **Per-monitor DPI** (UI-1): still open. It needs every layout constant and custom-drawn control scaled (about 80
 places in upstream files) and a way to test at 150 % on CI (per-monitor DPI can be changed without signing out;
-system DPI cannot). Planned as its own step.
+system DPI cannot). Planned as its own step. The owner's screen is 2560x1440 at 100 %, where the text was simply too
+small: menu > Text size scales the Following page and the chat (both a step larger by default now).
 
 ## P3 - Playback and video excellence
 
@@ -59,7 +60,8 @@ measured GPU cost and image metrics); before/after comparison tool; RTX VSR inte
 
 Done (P2 branch, not yet checked on Windows): CPU use modes (Automatic / Windows decides / custom cores), opt-in
 Gaming mode, `GameFirst.exe --stop` with rollback, chat text size / timestamps / highlight words / ignored users /
-width (UI-3), keyboard shortcuts. Not done: a settings window (the top-right menu holds the settings for now),
+width (UI-3), keyboard shortcuts, text size for the Following page and chat, pause (stops the stream processes),
+chat history when joining (recent-messages.robotty.de, can be turned off). Not done: a settings window (the top-right menu holds the settings for now),
 theming, chat on the left.
 
 Measured CPU scheduling modes (Windows default / recommended / manual / gaming); opt-in Gaming Mode (foreground

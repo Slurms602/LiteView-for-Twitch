@@ -1,5 +1,6 @@
-// Chat preferences (P4): text size, timestamps, highlight words, ignored users, and the chat's width (drag its left
-// edge; UI-3). The native chat (src/chat.cs) reads ChatPrefs while it builds and draws messages.
+// Chat preferences (P4): text size, timestamps, highlight words, ignored users, recent messages when joining
+// (src/app/ChatHistory.cs), and the chat's width (drag its left edge; UI-3). The native chat (src/chat.cs) reads
+// ChatPrefs while it builds and draws messages.
 using System;
 using System.Drawing;
 using System.Windows.Forms;
@@ -8,8 +9,9 @@ using LiteViewCore;
 static class ChatPrefs
 {
     public static readonly ChatFilter Filter = new ChatFilter();
-    public static bool Timestamps;
-    public static readonly float[] Sizes = { 9f, 9.75f, 11f, 12.5f };
+    public static bool Timestamps, History = true;
+    // Normal was 9.75 pt (13 px) at first: one step bigger on the owner's 1440p screen (a saved choice keeps its name)
+    public static readonly float[] Sizes = { 9.75f, 11f, 12f, 13.5f };
     public static readonly string[] SizeNames = { "Small", "Normal", "Large", "Larger" };
 }
 
@@ -54,6 +56,8 @@ partial class LiteView
         DarkMenuColors.Apply(size.DropDown);
         var stamps = new ToolStripMenuItem("Timestamps");
         stamps.Click += (s, e) => { ChatPrefs.Timestamps = !ChatPrefs.Timestamps; SaveSettings(); };
+        var history = new ToolStripMenuItem("Recent messages when joining") { ToolTipText = "The last messages of the channel, like on Twitch, from recent-messages.robotty.de\n(the service Chatterino uses; it learns which channels you open)" };
+        history.Click += (s, e) => { ChatPrefs.History = !ChatPrefs.History; SaveSettings(); };
         var words = new ToolStripMenuItem("Highlight words...");
         words.Click += (s, e) =>
         {
@@ -68,9 +72,10 @@ partial class LiteView
         };
         var width = new ToolStripMenuItem("Reset chat width");
         width.Click += (s, e) => { chatWidth = 340; Relayout(); FitWindow(); SaveSettings(); };
-        menu.Opening += (s, e) => { stamps.Checked = ChatPrefs.Timestamps; width.Enabled = chatWidth != 340; };
+        menu.Opening += (s, e) => { stamps.Checked = ChatPrefs.Timestamps; history.Checked = ChatPrefs.History; width.Enabled = chatWidth != 340; };
+        menu.ShowItemToolTips = true;
         menu.Items.Insert(0, new ToolStripSeparator());
-        foreach (var it in new ToolStripItem[] { width, ignore, words, stamps, size }) menu.Items.Insert(0, it);
+        foreach (var it in new ToolStripItem[] { width, ignore, words, history, stamps, size }) menu.Items.Insert(0, it);
     }
 
     void LoadChatSettings(System.Collections.Generic.Dictionary<string, string> ini)
@@ -79,6 +84,7 @@ partial class LiteView
         if (int.TryParse(Native.Get(ini, "chatwidth", "340"), out v)) chatWidth = Math.Max(MinChatW, Math.Min(MaxChatW, v));
         if (int.TryParse(Native.Get(ini, "chatsize", "1"), out v) && v >= 0 && v < ChatPrefs.Sizes.Length) chatSize = v;
         ChatPrefs.Timestamps = Native.Get(ini, "timestamps", "0") == "1";
+        ChatPrefs.History = Native.Get(ini, "chathistory", "1") != "0";
         ChatPrefs.Filter.SetWords(Native.Get(ini, "highlights", ""));
         ChatPrefs.Filter.SetIgnored(Native.Get(ini, "ignored", ""));
     }
@@ -88,6 +94,7 @@ partial class LiteView
         yield return Kv("chatwidth", chatWidth.ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("chatsize", chatSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("timestamps", ChatPrefs.Timestamps ? "1" : "0");
+        yield return Kv("chathistory", ChatPrefs.History ? "1" : "0");
         yield return Kv("highlights", ChatPrefs.Filter.SaveWords());
         yield return Kv("ignored", ChatPrefs.Filter.SaveIgnored());
     }

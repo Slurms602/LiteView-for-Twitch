@@ -22,9 +22,13 @@ class BrowsePage : Control
         SelC = Color.FromArgb(53, 53, 59), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Faint = Color.FromArgb(110, 110, 122),
         Accent = Color.FromArgb(145, 71, 255), AccentHot = Color.FromArgb(119, 44, 232), Red = Color.FromArgb(235, 4, 0), Gold = Color.FromArgb(255, 200, 61),
         Shade = Color.FromArgb(200, 0, 0, 0);
-    static readonly Font FHead = new Font("Segoe UI Semibold", 15f), FTab = new Font("Segoe UI Semibold", 10f), FTitle = new Font("Segoe UI Semibold", 10f),
-        FText = new Font("Segoe UI", 9.25f), FSmall = new Font("Segoe UI Semibold", 8.25f), FMsg = new Font("Segoe UI", 10.5f), FIcon = new Font("Segoe MDL2 Assets", 10f),
-        FIconSmall = new Font("Segoe MDL2 Assets", 7f), FMenuBold = new Font("Segoe UI", 9f, FontStyle.Bold);
+    // Fonts and sizes follow the page's text size (menu > Text size): SetZoom. 100% is the original size, too small on
+    // a 1440p screen at 100% Windows scaling, so the default ("Normal") is 115%.
+    public static readonly float[] Zooms = { 1f, 1.15f, 1.3f, 1.5f };
+    public static readonly string[] ZoomNames = { "Small", "Normal", "Large", "Larger" };
+    float zoom = 1.15f;
+    Font FHead, FTab, FTitle, FText, FSmall, FMsg, FIcon, FIconSmall;
+    static readonly Font FMenuBold = new Font("Segoe UI", 9f, FontStyle.Bold);
     static readonly string Star = ((char)0xE735).ToString(), RefreshGlyph = ((char)0xE72C).ToString(), Down = ((char)0xE70D).ToString();
     const int MaxImageBytes = 1024 * 1024, MaxThumbs = 90, MaxAvatars = 600;
     static readonly TimeSpan ThumbAge = TimeSpan.FromMinutes(5), FollowedAge = TimeSpan.FromMinutes(10);
@@ -74,6 +78,7 @@ class BrowsePage : Control
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
         BackColor = Bg; TabStop = true;
+        MakeFonts();
         liveTimer.Tick += (s, e) => { if (Active) ReloadLive(); };
         searchDelay.Tick += (s, e) => { searchDelay.Stop(); DoSearch(); };
         avatarDelay.Tick += (s, e) => { avatarDelay.Stop(); FetchAvatarUrls(); };
@@ -81,7 +86,29 @@ class BrowsePage : Control
         InitAccessibility();
     }
 
-    int S(int px) { return px * DeviceDpi / 96; }   // DPI-ready (the window is not DPI-aware yet: DeviceDpi is 96)
+    int S(int px) { return (int)Math.Round(px * DeviceDpi / 96f * zoom); }   // DPI-ready (the window is not DPI-aware yet: DeviceDpi is 96)
+
+    void MakeFonts()
+    {
+        foreach (var f in new[] { FHead, FTab, FTitle, FText, FSmall, FMsg, FIcon, FIconSmall }) if (f != null) f.Dispose();
+        FHead = new Font("Segoe UI Semibold", 15f * zoom); FTab = new Font("Segoe UI Semibold", 10f * zoom); FTitle = new Font("Segoe UI Semibold", 10f * zoom);
+        FText = new Font("Segoe UI", 9.25f * zoom); FSmall = new Font("Segoe UI Semibold", 8.25f * zoom); FMsg = new Font("Segoe UI", 10.5f * zoom);
+        FIcon = new Font("Segoe MDL2 Assets", 10f * zoom); FIconSmall = new Font("Segoe MDL2 Assets", 7f * zoom);
+    }
+
+    /// <summary>The page's text and card size (one of Zooms).</summary>
+    public float Zoom
+    {
+        get { return zoom; }
+        set
+        {
+            float z = Zooms.OrderBy(x => Math.Abs(x - value)).First();
+            if (Math.Abs(z - zoom) < 0.001f) return;
+            zoom = z; MakeFonts();
+            foreach (var c in new[] { thumbs, avatars }) { foreach (var p in c.Values) if (p.Bmp != null && !p.Loading) p.Bmp.Dispose(); c.Clear(); }   // loaded again at the new size
+            DoLayout(); Invalidate();
+        }
+    }
     int Pad { get { return S(20); } }
     int Gap { get { return S(14); } }
     int HeadH { get { return S(96); } }

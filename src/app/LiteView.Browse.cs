@@ -49,6 +49,7 @@ partial class LiteView
         menuBtn.Click += (s, e) => { BuildAppMenu(); appMenu.Show(menuBtn, new Point(menuBtn.Width, menuBtn.Height), ToolStripDropDownDirection.BelowLeft); };
         new ToolTip().SetToolTip(menuBtn, "Menu");
         DarkMenuColors.Apply(appMenu); appMenu.ShowImageMargin = false;
+        InitPause();   // src/app/LiteView.Pause.cs
         bar.Controls.Add(menuBtn);
         LayoutBar();
 
@@ -66,10 +67,22 @@ partial class LiteView
                 stressRate = 15; StartStress();
                 return;
             }
-            if (Fixture.SceneName == "watch" || Fixture.SceneName == "offline" || Fixture.SceneName == "fail")
-            {   // with tests/FakeStreamlink: real mpv with a test video / Streamlink waiting / a failing stream
-                Watch(Fixture.SceneName == "watch" ? "play_demo" : Fixture.SceneName + "_demo");
+            if (Fixture.SceneName == "chatlog")
+            {   // the chat's recent messages (made-up answer from Fixture), nothing else
+                ChatPrefs.Timestamps = true;
+                Watch("nightowl_plays");
+                return;
+            }
+            if (Fixture.SceneName == "watch" || Fixture.SceneName == "offline" || Fixture.SceneName == "fail" || Fixture.SceneName == "paused")
+            {   // with tests/FakeStreamlink: real mpv with a test video / Streamlink waiting / a failing stream / paused
+                Watch(Fixture.SceneName == "watch" || Fixture.SceneName == "paused" ? "play_demo" : Fixture.SceneName + "_demo");
                 if (Fixture.SceneName == "watch") { stressRate = 10; StartStress(); }
+                if (Fixture.SceneName == "paused")
+                {
+                    var t = new Timer { Interval = 500 }; int waited = 0;   // pause 3 s after the video plays (at most 15 s)
+                    t.Tick += (s2, e2) => { waited += 500; if (waited < 3000 || (!played && waited < 15000)) return; t.Stop(); t.Dispose(); Pause(); };
+                    t.Start();
+                }
                 return;
             }
             if (Fixture.SceneName != "problem") return;
@@ -83,6 +96,7 @@ partial class LiteView
     // SetMode: browsing (true) or watching (false)
     void ShowBrowse(bool browsing)
     {
+        if (browsing) EndPause();
         browse.Visible = browsing && nativeBrowse;
         if (web != null) web.Visible = browsing && !nativeBrowse;
         browse.Run(browsing && nativeBrowse);
@@ -123,6 +137,7 @@ partial class LiteView
         DarkMenuColors.Apply(page.DropDown);
 
         var last = Toggle("Open the last channel at start", openLast, v => openLast = v);
+        var text = TextSizeMenu();
         var rec = Toggle("Remember watched channels", browse.RememberRecent, v => { browse.RememberRecent = v; if (!v) browse.Recent.Clear(); });
         var srch = Toggle("Remember searches", browse.RememberSearches, v => { browse.RememberSearches = v; if (!v) browse.Searches.Clear(); });
         var clear = new ToolStripMenuItem("Clear watched channels and searches") { Enabled = browse.Recent.Count + browse.Searches.Count > 0 };
@@ -158,9 +173,34 @@ partial class LiteView
         keys.Click += (s, e) => MessageBox.Show(this, Shortcuts, "Keyboard shortcuts");
 
         appMenu.ShowItemToolTips = true;
-        appMenu.Items.AddRange(new ToolStripItem[] { login, new ToolStripSeparator(), page, last, new ToolStripSeparator(), live, quietMenu,
+        appMenu.Items.AddRange(new ToolStripItem[] { login, new ToolStripSeparator(), page, last, text, new ToolStripSeparator(), live, quietMenu,
             new ToolStripSeparator(), rec, srch, clear, new ToolStripSeparator(), PerformanceMenu(), settings, upd, autoUpd, keys });
         AddForkMenuItems(appMenu);
+    }
+
+    // Text size of the Following page (its cards grow with it) and of the chat (also in the chat's own menu)
+    ToolStripMenuItem TextSizeMenu()
+    {
+        var m = new ToolStripMenuItem("Text size");
+        m.DropDownItems.Add(new ToolStripMenuItem("Following page") { Enabled = false });
+        for (int i = 0; i < BrowsePage.Zooms.Length; i++)
+        {
+            float z = BrowsePage.Zooms[i];
+            var it = new ToolStripMenuItem("    " + BrowsePage.ZoomNames[i]) { Checked = Math.Abs(browse.Zoom - z) < 0.001f };
+            it.Click += (s, e) => { browse.Zoom = z; SaveSettings(); };
+            m.DropDownItems.Add(it);
+        }
+        m.DropDownItems.Add(new ToolStripSeparator());
+        m.DropDownItems.Add(new ToolStripMenuItem("Chat") { Enabled = false });
+        for (int i = 0; i < ChatPrefs.Sizes.Length; i++)
+        {
+            int k = i;
+            var it = new ToolStripMenuItem("    " + ChatPrefs.SizeNames[i]) { Checked = chatSize == i };
+            it.Click += (s, e) => { chatSize = k; nchat.View.SetTextSize(ChatPrefs.Sizes[k]); SaveSettings(); };
+            m.DropDownItems.Add(it);
+        }
+        DarkMenuColors.Apply(m.DropDown);
+        return m;
     }
 
     ToolStripMenuItem Toggle(string text, bool on, Action<bool> set)
@@ -183,6 +223,7 @@ partial class LiteView
         yield return Kv("keepsearches", browse.RememberSearches ? "1" : "0");
         yield return Kv("searches", browse.RememberSearches ? browse.Searches.Save() : "");
         yield return Kv("openlast", openLast ? "1" : "0");
+        yield return Kv("pagesize", Array.FindIndex(BrowsePage.Zooms, z => Math.Abs(z - browse.Zoom) < 0.001f).ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("notify", notify ? "1" : "0");
         yield return Kv("quiet", quiet);
         yield return Kv("updates", autoUpdates ? "1" : "0");
@@ -203,6 +244,8 @@ partial class LiteView
         browse.Recent.Load(browse.RememberRecent ? Native.Get(ini, "recent", "") : "");
         browse.Searches.Load(browse.RememberSearches ? Native.Get(ini, "searches", "") : "");
         openLast = Native.Get(ini, "openlast", "0") == "1";
+        int ps;
+        if (int.TryParse(Native.Get(ini, "pagesize", "1"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ps) && ps < BrowsePage.Zooms.Length) browse.Zoom = BrowsePage.Zooms[ps];
         notify = Native.Get(ini, "notify", "0") == "1";
         int qf, qt; string q = Native.Get(ini, "quiet", "");
         quiet = QuietHours.TryParse(q, out qf, out qt) ? q : "";

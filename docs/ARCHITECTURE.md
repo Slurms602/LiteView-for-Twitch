@@ -35,6 +35,8 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/app/BrowsePage.cs` | Native Following page control (cards, lists, search, images within a budget) | fork |
 | `src/app/LiteView.Extras.cs` | Keyboard shortcuts, favourite go-live notifications, settings export/import/reset, update check | fork |
 | `src/app/LiteView.Chat.cs` | Chat preferences (`ChatPrefs`), chat width handle, the list dialog | fork |
+| `src/app/ChatHistory.cs` | `ChatPanel` (partial): the channel's recent messages when joining | fork |
+| `src/app/LiteView.Pause.cs` | Pause / play (ends and restarts the stream processes) | fork |
 | `src/app/LiteView.Performance.cs` | CPU use modes, Gaming mode | fork |
 | `src/app/LiteView.Screens.cs` | Fullscreen across monitors, RTX card detection | fork |
 | `src/app/ProblemPopup.cs`, `DarkMenu.cs` | Error details window, dark menus | fork |
@@ -76,6 +78,7 @@ fork-only half is `src/app/LiteView.Fork.cs`.
 | `Display.cs` | `Box`, RTX card names, where a window goes after fullscreen |
 | `Extras.cs` | `LiveWatch`, `QuietHours`, `SettingsImport`, `Versions` |
 | `ChatFilter.cs` | Ignored users, highlight words, timestamps |
+| `RecentMessages.cs` | Chat history request URL and filtering of the service's answer |
 | `Performance.cs` | `Scheduling` (CPU use modes), `GameDetect`, `GamingSwitch` |
 | `GuardLedger.cs` | What GameFirst changed, for `--stop` |
 | `ChatStress.cs` | Synthetic chat for the stress mode |

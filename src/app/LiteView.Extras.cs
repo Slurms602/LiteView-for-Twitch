@@ -26,6 +26,7 @@ partial class LiteView
         "F5  Refresh the Following page / restart the stream\n" +
         "Alt+Left or Backspace  Back to the Following page\n" +
         "F11  Fullscreen (Esc leaves it)\n" +
+        "Space  Pause / play (play continues at live)\n" +
         "M  Mute\n" +
         "Ctrl+Up / Ctrl+Down  Volume\n" +
         "C  Show or hide the chat\n\n" +
@@ -41,8 +42,10 @@ partial class LiteView
             if (e.Control && e.KeyCode == Keys.L) { if (watching) Browse(); search.Focus(); search.SelectAll(); }
             else if (!watching) return;
             else if (e.KeyCode == Keys.F5 && channel != null) Watch(channel);
+            else if (e.KeyCode == Keys.MediaPlayPause) TogglePause();
             else if (e.Alt && e.KeyCode == Keys.Left || e.KeyCode == Keys.Back && plain && !typing) Browse();
             else if (typing) return;
+            else if (e.KeyCode == Keys.Space && plain) TogglePause();
             else if (e.KeyCode == Keys.M && plain) muteBtn.PerformClick();
             else if (e.KeyCode == Keys.C && plain) chatOn.Checked = !chatOn.Checked;
             else if (e.Control && e.KeyCode == Keys.Up) { volBar.Set(volBar.Value + 5); SaveSettings(); }

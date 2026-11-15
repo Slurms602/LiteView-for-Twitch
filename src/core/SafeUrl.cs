@@ -10,7 +10,7 @@ namespace LiteViewCore
         /// <summary>Hosts that serve emote, badge and avatar images (and their subdomains).</summary>
         public static readonly string[] ImageHosts = { "jtvnw.net", "7tv.app", "betterttv.net", "frankerfacez.com" };
         /// <summary>Hosts that serve the emote lists (JSON APIs).</summary>
-        public static readonly string[] ApiHosts = { "api.twitch.tv", "id.twitch.tv", "7tv.io", "api.betterttv.net", "api.frankerfacez.com" };
+        public static readonly string[] ApiHosts = { "api.twitch.tv", "id.twitch.tv", "7tv.io", "api.betterttv.net", "api.frankerfacez.com", RecentMessages.Host };
 
         /// <summary>host is domain itself or a subdomain of it ("cdn.7tv.app" matches "7tv.app", "evil7tv.app" does not).</summary>
         public static bool HostIs(string? host, string domain)

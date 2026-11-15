@@ -43,6 +43,8 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Fullscreen follows the monitor: moving it with Win+Shift+Arrow, a resolution change or unplugging a monitor while
   fullscreen keeps it filling a screen, and leaving fullscreen never puts the window on a monitor that is gone.
 - GameFirst can undo what it changed: `GameFirst.exe --stop`.
+- The top right of the Following page showed a broken white box instead of the menu button until a stream was opened.
+  The Following page now shows only the menu there; quality, Chat and the player buttons appear while watching.
 
 ### Added
 
@@ -62,6 +64,11 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Keyboard: Ctrl+L go to channel, F5, Alt+Left / Backspace back to Following, M mute, Ctrl+Up/Down volume, C chat.
 - Performance > CPU use: Automatic (as before), Windows decides, or custom cores. Gaming mode (opt-in): while a
   fullscreen game is in front, a lighter picture preset, no RTX and slower emote animation; it all comes back after.
+- **Pause** (button left of the volume, Space, or the keyboard's play/pause key): stops the video and its download,
+  so it uses nothing; the chat keeps going. Play continues at live.
+- The chat shows the channel's **recent messages** when you join, like on Twitch (from recent-messages.robotty.de, the
+  service Chatterino uses; chat gear > *Recent messages when joining* turns it off).
+- Menu > **Text size** for the Following page and the chat. Both are a step larger by default than before.
 
 ### For developers
 

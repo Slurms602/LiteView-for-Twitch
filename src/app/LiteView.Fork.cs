@@ -173,7 +173,7 @@ partial class LiteView
         CheckLogin();
         if (!watching || channel == null) return;
         if (chatOn.Checked && !webChat) nchat.Reconnect();
-        Watch(channel, true);
+        if (!paused) Watch(channel, true);
     }
 
     void OnNetwork(object sender, System.Net.NetworkInformation.NetworkAvailabilityEventArgs e)
@@ -237,6 +237,7 @@ partial class LiteView
     void StartStreamProcess(string name, string q)
     {
         int g = ++gen; played = false; mpvGen = -1; canRetry = false;
+        EndPause();
         if (Fixture.On && !Fixture.Streams) { status.ForeColor = Dim; status.Text = "UI fixture: no video"; return; }   // testing only: no Streamlink, no network
         pipeName = StreamCommand.NewPipeName();
         string cmdline;
@@ -421,11 +422,21 @@ partial class LiteView
     }
 
     // the status line gets the room between what is on its left and the controls on the right
+    // (by what the mode shows, not Control.Visible: that is false for everything until the window is first shown, and
+    // the status line then covered the menu button on the Following page)
     void FitStatus()
     {
         int right = bar.Width - 6;
-        foreach (Control c in bar.Controls) if (c.Visible && c != status && c.Left > status.Left && c.Left < right) right = c.Left;
+        foreach (Control c in BarRight()) if (c.Left > status.Left && c.Left < right) right = c.Left;
         status.Width = Math.Max(0, right - status.Left - 10);
+    }
+
+    IEnumerable<Control> BarRight()
+    {
+        yield return menuBtn;
+        if (!watching) yield break;
+        foreach (var c in new Control[] { fsBtn, volBar, muteBtn, pauseBtn, picture, chatOn, quality }) yield return c;
+        if (HasNvidia) yield return rtx;
     }
 
     void OpenLogFolder()

@@ -8,8 +8,9 @@ param(
     [string]$Out = 'smoke',
     [int]$Seconds = 30,
     [string[]]$AppArgs = @(),
-    [switch]$A11y,
-    [string]$FakeStreamlink,   # CI: replace Streamlink in the copy with tests/FakeStreamlink (no Twitch needed)          # also save what screen readers see (tools/a11y-dump.ps1) as a11y.txt
+    [switch]$A11y,             # also save what screen readers see (tools/a11y-dump.ps1) as a11y.txt
+    [string]$FakeStreamlink,   # CI: replace Streamlink in the copy with tests/FakeStreamlink (no Twitch needed)
+    [string[]]$Expect = @(),   # regular expressions that must each match a line of liteview.log (what the scene must have done)
     [hashtable]$Env = @{}   # e.g. @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'followed' } (made-up data, docs/TESTING.md)
 )
 $ErrorActionPreference = 'Stop'
@@ -129,6 +130,9 @@ if (-not (Test-Path $log)) { $ok = $false; Note "FAIL: no liteview.log" }
 else {
     $errors = @(Select-String -Path $log -Pattern ' ERROR ' -SimpleMatch | Select-Object -First 5)
     if ($errors.Count -gt 0) { $ok = $false; Note "FAIL: errors in liteview.log:"; foreach ($e in $errors) { Note ("  " + $e.Line) } }
+    foreach ($x in $Expect) {
+        if (Select-String -Path $log -Pattern $x -Quiet) { Note "log has: $x" } else { $ok = $false; Note "FAIL: liteview.log has no line matching: $x" }
+    }
 }
 Get-ChildItem $app -File -Filter '*.ini' | Copy-Item -Destination $Out
 Note ("logs: " + ((Get-ChildItem $Out -File | Select-Object -ExpandProperty Name) -join ', '))

@@ -101,6 +101,10 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 40 | Start GameFirst.exe, then `GameFirst.exe --stop` | `gamefirst.log`: "guard stopped (--stop): settings of N process(es) put back" |
 | 41 | Quality box after a stream starts | Lists that stream's qualities (e.g. 1080p60, 720p60, 480p, 360p, 160p, Audio only) |
 | 42 | Narrator (Win+Ctrl+Enter) on the Following page; arrow keys | Each channel is read: name, live, viewers, game, title |
+| 43 | Start LiteView (Following page) | Top right shows only the menu button (⋯), no white line or quality box; quality, Chat and the player buttons appear when a stream plays |
+| 44 | Menu > Text size > Following page / Chat | Normal is a bit larger than before; each size applies at once and is kept after a restart |
+| 45 | Pause button (left of the speaker), Space, or the keyboard's play/pause key while watching | The video stops ("Paused"); Task Manager: no Streamlink or mpv; the chat keeps going; Play or Space starts again at live |
+| 46 | Open a busy channel | The last ~50 messages are in the chat above "Welcome to the chat room!" (no duplicates); chat gear > *Recent messages when joining* off: none |
 
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
 
@@ -109,8 +113,10 @@ Report results (pass/fail, with `liteview.log` and the diagnostics file for fail
 `LITEVIEW_UI_FIXTURE=1` makes LiteView answer its own Twitch requests with made-up channels and generated pictures
 (`src/app/Fixture.cs`): no network for the Twitch API, no real login (the token file is not read or written), no
 Streamlink, anonymous chat, and the title says *UI fixture*. `LITEVIEW_UI_FIXTURE_SCENE` picks the screen: `live`,
-`followed`, `recent`, `history`, `search:<text>`, `problem`, `chat`, and with `LITEVIEW_UI_FIXTURE_STREAMS=1`
-plus `smoke.ps1 -FakeStreamlink` also `watch`, `offline`, `fail`. CI runs every scene with `tools/smoke.ps1` and
+`followed`, `recent`, `history`, `search:<text>`, `problem`, `chat`, `chatlog` (the chat's recent messages), and with
+`LITEVIEW_UI_FIXTURE_STREAMS=1` plus `smoke.ps1 -FakeStreamlink` also `watch`, `offline`, `fail`, `paused`. `smoke.ps1
+-Expect <regex>` also requires lines in `liteview.log` (CI: the chatlog scene must log 6 recent messages, the paused
+scene must play and then pause). CI runs every scene with `tools/smoke.ps1` and
 uploads the screenshots (`smoke-<commit>` artifact), so UI changes can be looked at without a Windows PC:
 
 ```powershell

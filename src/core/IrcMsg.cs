@@ -56,6 +56,9 @@ namespace LiteViewCore
             var parts = mid.Split(Space, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 0) return null;
             m.Cmd = parts[0]; m.Chan = parts.Length > 1 ? parts[1].TrimStart('#') : null;
+            // RFC 1459: the last parameter needs no ":" when it is one word ("PRIVMSG #chan word"). Twitch always sends
+            // the ":", but the chat history service (RecentMessages) writes one-word messages without it.
+            if (m.Text == null && parts.Length > 2) m.Text = parts[parts.Length - 1];
             return m;
         }
 

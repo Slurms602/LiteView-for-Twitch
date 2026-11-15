@@ -30,6 +30,7 @@ What LiteView Enhanced trusts, what it does not, and how each boundary is protec
 | B13 | Imported settings files | Not trusted | Only known keys with one-line values ≤ 20 000 characters; files over 1 MB refused; lists re-validated when loaded (channel names) |
 | B14 | `LITEVIEW_UI_FIXTURE=1` (testing only) | - | Made-up answers from an in-process handler: no Twitch API traffic, the token file untouched, Streamlink not started, chat anonymous, the title says so |
 | B15 | Gaming mode detection | - | Reads only the foreground window (owner process id, class name, rectangle) and Windows' notification state; no process lists, no files |
+| B16 | Chat history (`recent-messages.robotty.de`, on by default, chat gear > *Recent messages when joining*) | Not trusted; **learns which channels you open** (as the emote services already learn the channel id) | HTTPS, host allow-listed, JSON cap as B1; channel name validated before it goes in the URL; only `PRIVMSG`/`USERNOTICE` lines of the channel asked for, no CR/LF/NUL, at most 50; each line then goes through the same parsing and display limits as live chat (B2); no login or token is sent |
 
 ## Authentication
 

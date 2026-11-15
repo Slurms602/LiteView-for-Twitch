@@ -266,6 +266,10 @@ class ChatView : Control
         Invalidate();
     }
 
+    // fork: the chat history (src/app/ChatHistory.cs) goes above what arrived live; scroll counts from the bottom, so
+    // what is on screen stays where it is
+    public void Prepend(List<Msg> list) { if (list.Count == 0) return; Msgs.InsertRange(0, list); Invalidate(); }
+
     public void Redo(Func<Msg, bool> which) { foreach (var m in Msgs) if (which(m)) { m.LW = -1; Drop(m); } Invalidate(); }
 
     // an image arrived: redraw the lines on screen that use it
@@ -490,7 +494,7 @@ class ChatView : Control
 }
 
 // The chat column: header, messages, input. Joins one channel at a time.
-class ChatPanel : Panel
+partial class ChatPanel : Panel   // fork: partial for the chat history (src/app/ChatHistory.cs)
 {
     public readonly ChatView View = new ChatView();
     readonly Panel head = new Panel(), foot = new Panel();
@@ -604,9 +608,10 @@ class ChatPanel : Panel
         irc.Start(ch);
         drain.Start();
         LoadGlobals();
+        StartHistory(ch);   // fork: the channel's recent messages (src/app/ChatHistory.cs)
     }
 
-    public void Part() { irc.Stop(); drain.Stop(); channel = null; View.Clear(); }
+    public void Part() { irc.Stop(); drain.Stop(); StopHistory(); channel = null; View.Clear(); }
 
     public void Reconnect() { if (channel != null) { var c = channel; channel = null; Join(c); } }
 
@@ -647,6 +652,7 @@ class ChatPanel : Panel
                 var b = await Badges("chat/badges?broadcaster_id=" + id);
                 if (ch == channel) badges = b;
             }
+            if (ch == channel) Post(() => HistoryReady(ch));   // fork: emotes and badges are here, the history can be shown
         });
     }
 
@@ -831,15 +837,7 @@ class ChatPanel : Panel
         if (im == null) return;
         switch (im.Cmd)
         {
-            case "PRIVMSG": if (!ChatPrefs.Filter.IsIgnored(im.Nick)) inbox.Enqueue(Build(im, im.Text, im.Nick)); break;   // fork: ignored users
-            case "USERNOTICE":
-            {
-                var m = Build(im, im.Text ?? "", im.Tag("login")); m.Style = 2;
-                var sys = new List<Piece>();
-                foreach (var w in (im.Tag("system-msg") ?? "").Split(' ')) if (w.Length > 0) sys.Add(new Piece { Kind = 0, Text = w, C = ChatView.Fg });
-                if (im.Text == null) m.P = sys; else { sys.Add(new Piece { Kind = 0, Text = "•", C = ChatView.Dim }); m.P = sys.Concat(m.P).ToList(); }
-                inbox.Enqueue(m); break;
-            }
+            case "PRIVMSG": case "USERNOTICE": { var m = ChatLine(im); if (m != null) inbox.Enqueue(m); break; }   // fork: ChatLine, shared with the history
             case "ROOMSTATE":
                 if (ChannelName.IsNumericId(im.Tag("room-id")) && roomId == null) { roomId = im.Tag("room-id"); LoadChannel(roomId); }   // digits only: it goes into API URLs
                 break;
@@ -872,6 +870,17 @@ class ChatPanel : Panel
                 break;
             }
         }
+    }
+
+    // A chat message or a sub/raid notice (null: from an ignored user). Live lines and the history both come here.
+    Msg ChatLine(IrcMsg im)
+    {
+        if (im.Cmd == "PRIVMSG") return ChatPrefs.Filter.IsIgnored(im.Nick) ? null : Build(im, im.Text ?? "", im.Nick);   // fork: ignored users
+        var m = Build(im, im.Text ?? "", im.Tag("login")); m.Style = 2;
+        var sys = new List<Piece>();
+        foreach (var w in (im.Tag("system-msg") ?? "").Split(' ')) if (w.Length > 0) sys.Add(new Piece { Kind = 0, Text = w, C = ChatView.Fg });
+        if (im.Text == null) m.P = sys; else { sys.Add(new Piece { Kind = 0, Text = "•", C = ChatView.Dim }); m.P = sys.Concat(m.P).ToList(); }
+        return m;
     }
 
     void Post(Action a) { try { if (IsHandleCreated) BeginInvoke(a); } catch { } }

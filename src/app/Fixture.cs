@@ -3,7 +3,8 @@
 // written, the window title says "UI fixture", and LITEVIEW_UI_FIXTURE_SCENE picks what is shown after start:
 // live (default), followed, recent, history, search:<text>, problem (the details of src/app/ProblemPopup.cs), or chat
 // (the watch view with synthetic chat; no video: Streamlink is not started in fixture mode), and with
-// LITEVIEW_UI_FIXTURE_STREAMS=1 (CI replaces Streamlink with tests/FakeStreamlink) watch, offline or fail.
+// LITEVIEW_UI_FIXTURE_STREAMS=1 (CI replaces Streamlink with tests/FakeStreamlink) watch, offline, fail or paused;
+// chatlog: the chat with made-up recent messages (src/app/ChatHistory.cs) and no stress lines.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -94,6 +95,20 @@ static class Fixture
                         ",\"game_name\":\"" + (Live.Contains(l) ? Games[Array.IndexOf(Live, l)] : "") + "\",\"title\":\"" + (Live.Contains(l) ? Titles[Array.IndexOf(Live, l)] : "") +
                         "\",\"thumbnail_url\":\"https://static-cdn.jtvnw.net/jtv_user_pictures/fixture-" + l + "-profile_image-300x300.png\"}")) + "]}");
                 }
+            }
+            if (u.Host == RecentMessages.Host)   // chat history: made-up lines, one of them in the no-colon form the real service uses
+            {
+                string ch = path.Substring(path.LastIndexOf('/') + 1);
+                long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                var said = new[]
+                {
+                    new[] { "early_bird", "#1E90FF", ":good morning chat" }, new[] { "pixel_pal", "#FF7F50", ":that last run was so close" },
+                    new[] { "quiet_owl", "#9ACD32", "gg" }, new[] { "fixture_viewer", "#8A2BE2", ":hello from the history" },
+                    new[] { "night_shift", "#DAA520", ":is this the recent messages test?" }, new[] { "early_bird", "#1E90FF", ":yes, made-up lines" },
+                };
+                var lines = said.Select((x, i) => "@badges=;color=" + x[1] + ";display-name=" + Display(x[0]) + ";emotes=;id=fixture-history-" + i +
+                    ";tmi-sent-ts=" + (now - (said.Length - i) * 45000) + ";historical=1 :" + x[0] + "!" + x[0] + "@" + x[0] + ".tmi.twitch.tv PRIVMSG #" + ch + " " + x[2]);
+                return Json("{\"messages\":[" + string.Join(",", lines.Select(l => "\"" + l + "\"")) + "],\"error\":null,\"error_code\":null}");
             }
             if (u.Host == "static-cdn.jtvnw.net")
             {

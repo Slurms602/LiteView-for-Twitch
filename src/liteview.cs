@@ -167,7 +167,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     void LayoutBar()
     {
         int x = bar.Width - 6;
-        foreach (Control c in new Control[] { menuBtn, fsBtn, volBar, muteBtn, rtx, picture, chatOn, quality })
+        foreach (Control c in new Control[] { menuBtn, fsBtn, volBar, muteBtn, pauseBtn, rtx, picture, chatOn, quality })
         {
             x -= c.Width + 6;
             c.Location = new Point(x, (BarH - c.Height) / 2);
@@ -179,6 +179,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     {
         watching = watch;
         back.Visible = liveDot.Visible = title.Visible = fsBtn.Visible = muteBtn.Visible = volBar.Visible = picture.Visible = watch; rtx.Visible = watch && HasNvidia;
+        quality.Visible = chatOn.Visible = pauseBtn.Visible = watch;   // fork: the Following page has only the menu on the right
         search.Visible = !watch;
         status.Location = new Point(watch ? title.Right + 14 : search.Right + 14, 12);
         if (web != null) web.Visible = !watch;
@@ -562,6 +563,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                     SendMpv("{\"command\":[\"observe_property\",1,\"volume\"]}");
                     SendMpv("{\"command\":[\"observe_property\",2,\"mute\"]}");
                     SendMpv("{\"command\":[\"observe_property\",3,\"height\"]}");
+                    SendMpv("{\"command\":[\"observe_property\",4,\"pause\"]}");   // fork: mpv paused (its Space key, its controls): pause properly
                     Ui(g, () => { appliedPic = appliedVf = null; videoH = 0; mpvGen = g; });
                     using (var rd = new StreamReader(pipe))
                     {
@@ -590,6 +592,10 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                                     if (!double.TryParse(d.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out num)) continue;
                                     int hh = (int)Math.Max(0, Math.Min(100000, num));
                                     Ui(g, () => { videoH = hh; ApplyEnhance(false); });
+                                }
+                                else if (line.Contains("\"name\":\"pause\""))
+                                {
+                                    if (d.Groups[1].Value == "true") Ui(g, () => { if (!paused) Pause(); });   // fork: src/app/LiteView.Pause.cs
                                 }
                                 else if (line.Contains("\"name\":\"mute\""))
                                 {

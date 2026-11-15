@@ -29,6 +29,7 @@ class FollowBar : Control
     string message;
     public string Current;
     public event Action<string> Pick;
+    public event Action<string, string, Point> ItemMenu;   // fork: right-click on a channel (login, name, where; src/app/LiteView.SideMenu.cs)
     public event Action LoginRequested, Toggled;
 
     public FollowBar()
@@ -200,6 +201,7 @@ class FollowBar : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         int h = RowAt(e.Location);
+        if (e.Button == MouseButtons.Right) { if (h >= 0 && ItemMenu != null) ItemMenu(live[h].Login, live[h].Name ?? live[h].Login, e.Location); return; }   // fork: a menu, not a switch
         if (h == -1) { Collapsed = !collapsed; if (Toggled != null) Toggled(); }
         else if (h == -3) { if (LoginRequested != null) LoginRequested(); }
         else if (h >= 0 && Pick != null) Pick(live[h].Login);

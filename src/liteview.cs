@@ -84,7 +84,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
 
         Text = "LiteView for Twitch"; BackColor = Bg; ForeColor = Fg; Font = new Font("Segoe UI", 9.5f);
         KeyPreview = true; StartPosition = FormStartPosition.Manual; MinimumSize = new Size(640, 400);
-        try { Icon = Icon.ExtractAssociatedIcon(mpv); } catch { }
+        Icon = AppIcon.Load() ?? Icon;   // fork: LiteView's own icon, no longer mpv's (src/app/AppIcon.cs)
 
         // top bar
         bar.Dock = DockStyle.Top; bar.Height = BarH; bar.BackColor = Bar;
@@ -109,10 +109,10 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
             SendMpv("{\"command\":[\"set_property\",\"volume\"," + v + "]}"); UpdateMute(); };
         volBar.MouseUp += (s, e) => SaveSettings();
         new ToolTip().SetToolTip(volBar, "Volume (or the mouse wheel on the video)");
-        DarkCombo(picture, Pictures, 128); picture.SelectedIndexChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); };
+        DarkCombo(picture, Pictures, 128); picture.SelectedIndexChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); PictureChosen(); };   // fork: PictureChosen gives back a heavier preset's memory
         new ToolTip().SetToolTip(picture, "Enhance: AMD FSR 1 upscaling + AMD CAS sharpening, any graphics card (light).\nHigh: FSRCNNX neural upscaling + Adaptive Sharpen (more GPU).\nUltra: NLMeans noise clean-up, bigger FSRCNNX, KrigBilateral colour, SSimDownscaler, motion smoothing,\nsharpened like High (most GPU).\nHigh and Ultra: menu > Playback > Sharpness. B: the original picture, to compare. I: stats with the GPU time.");
         rtx.Text = "RTX"; rtx.ForeColor = Dim; rtx.AutoSize = true; rtx.CheckedChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); };
-        new ToolTip().SetToolTip(rtx, "NVIDIA RTX Video AI clean-up. With High/Ultra it cleans the stream first and FSRCNNX upscales after it;\nwith Off/Enhance RTX does the upscaling. Uses a lot more GPU (Ultra + RTX: about 25% of an RTX 5080).\nNeeds RTX Video Enhancement > Super Resolution on in the NVIDIA app.");
+        new ToolTip().SetToolTip(rtx, RtxTip);   // fork: src/app/LiteView.Picture.cs
         new ToolTip().SetToolTip(chatOn, "Show the chat. Right-click: native chat or Twitch web chat, log in or out.");
         new ToolTip().SetToolTip(fsBtn, "Fullscreen (or double-click the video). Esc to leave.");
         bar.Controls.AddRange(new Control[] { back, liveDot, title, search, status, quality, chatOn, picture, rtx, muteBtn, volBar, fsBtn });
@@ -206,6 +206,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     // Keep the video area 16:9 while the window is resized (no black bars).
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == 0x0210) ClickedInside(m.WParam);   // fork: WM_PARENTNOTIFY, a click anywhere in the window (src/app/LiteView.Focus.cs)
         if (m.Msg == 0x0214 && watching && !fullscreen)   // WM_SIZING
         {
             var r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
@@ -406,6 +407,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         if (watching && !webChat && chatOn.Checked) nchat.Reconnect();
         side.Reload();
         browse.LoginChanged();
+        foreach (var x in extras) if (!x.IsDisposed) x.LoginChanged();   // fork: the extra windows' chats (src/app/ExtraPlayer.cs)
         status.ForeColor = Dim; status.Text = Tw.Login != null ? "Logged in as " + Tw.Login : "";
     }
 
@@ -516,10 +518,11 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             SendMpv("{\"command\":[\"set_property\",\"interpolation\"," + (ultra ? "true" : "false") + "]}");
             if (ultra) SendMpv("{\"command\":[\"set_property\",\"tscale\",\"oversample\"]}");
             appliedPic = pic + "/" + sharpness;
+            PictureApplied(pic);   // fork: the heaviest preset this player used (src/app/LiteView.Picture.cs)
         }
         double s = videoH > 0 ? Math.Max(1.0, Math.Round((double)video.Height / videoH, 2)) : 1.0;
         bool useRtx = rtx.Checked && HasNvidia && !gamingActive && !comparing;
-        string vf = !useRtx ? "off" : pic >= 2 ? "1.05" : s > 1.04 ? s.ToString("0.00", CultureInfo.InvariantCulture) : "off";
+        string vf = RtxScale(useRtx, s);   // fork: RTX enlarges only when the video is enlarged enough (src/app/LiteView.Picture.cs)
         double prev, now;
         bool near = vf != "off" && double.TryParse(appliedVf, NumberStyles.Float, CultureInfo.InvariantCulture, out prev)
             && double.TryParse(vf, NumberStyles.Float, CultureInfo.InvariantCulture, out now) && Math.Abs(prev - now) < 0.04;

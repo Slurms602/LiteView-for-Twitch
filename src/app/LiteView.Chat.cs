@@ -103,6 +103,13 @@ partial class LiteView
         nchat.View.SetTextSize(ChatPrefs.Sizes[chatSize]);
         if (browse != null) browse.ReFont();
         side.Invalidate();
+        // the window's controls (GDI): the whole window's font (buttons, boxes, the status line), the title, notes
+        Font = UiFont.ForControls(FontKind.Text, 9.5f);
+        title.Font = UiFont.ForControls(FontKind.Semi, 10.5f);
+        pausedNote.Font = UiFont.ForControls(FontKind.Text, 12f);
+        nchat.SetControlFonts();
+        foreach (var w in extras) if (!w.IsDisposed) w.SetFonts();
+        if (watching) { status.Location = new Point(title.Right + 14, 12); LayoutBar(); }
     }
 
     System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string, string>> ChatSettings()

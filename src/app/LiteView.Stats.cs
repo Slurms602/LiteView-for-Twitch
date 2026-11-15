@@ -45,6 +45,7 @@ partial class LiteView
         {
             if (line.IndexOf("\"liteview-stats\"", StringComparison.Ordinal) >= 0) { Ui(g, ToggleStats); return true; }
             if (line.IndexOf("\"liteview-compare\"", StringComparison.Ordinal) >= 0) { Ui(g, ToggleCompare); return true; }
+            if (line.IndexOf("\"liteview-click\"", StringComparison.Ordinal) >= 0) { Ui(g, () => DropTextFocus(null)); return true; }   // src/app/LiteView.Focus.cs
         }
         return false;
     }
@@ -91,9 +92,9 @@ partial class LiteView
         if (s.Dropped >= 0) row("Dropped", s.Dropped + " frames" + (s.DecoderDropped > 0 ? " (+" + s.DecoderDropped + " by the decoder)" : ""));
         row("Buffer", PlaybackStats.Seconds(s.BufferSeconds));
         string pic = ((string)picture.SelectedItem ?? "").Replace("Picture: ", "");
-        if (rtx.Checked && rtx.Visible) pic += " + RTX";
-        if (gamingActive) pic += "  (Gaming mode: lowered)";
         if (pic.StartsWith("High", StringComparison.Ordinal) || pic.StartsWith("Ultra", StringComparison.Ordinal)) pic += ", sharpness " + sharpness.ToString().ToLowerInvariant();
+        if (gamingActive) pic += "  (Gaming mode: lowered)";
+        if (rtx.Checked && rtx.Visible && !comparing && !gamingActive && rtxNote.Length > 0) pic += "; " + rtxNote;
         if (comparing) pic = "original (B returns to " + pic + ")";
         row("Picture", pic);
         if (gpuGen == gen && gpuMs > 0)

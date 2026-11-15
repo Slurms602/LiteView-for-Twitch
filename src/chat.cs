@@ -502,7 +502,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
 {
     public readonly ChatView View = new ChatView();
     readonly Panel head = new Panel(), foot = new Panel();
-    static readonly Font HeadFont = new Font("Segoe UI Semibold", 9f);
+    static Font HeadFont { get { return UiFont.Get(FontKind.Semi, 9f); } }   // fork: UiFont
     readonly Button gear = new Button();
     readonly TextBox input = new TextBox();
     readonly LinkLabel loginLink = new LinkLabel();
@@ -578,7 +578,8 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         irc.Status += s => inbox.Enqueue(Sys(s));
         drain.Tick += (s, e) => Drain();
         // a decoded image is counted in the frame budget when it arrives, even if it is never drawn
-        Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { Images.Used(e); Images.Trim(); View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
+        imageLoaded = e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { Images.Used(e); Images.Trim(); View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
+        Images.Loaded += imageLoaded;   // fork: kept, so a closed extra window's chat lets go of it (src/app/ChatReply.cs)
         InitPickerAccess(); InitReply();   // fork: the emote picker by keyboard (src/app/PickerAccess.cs), replies (src/app/ChatReply.cs)
         UpdateLogin();
     }

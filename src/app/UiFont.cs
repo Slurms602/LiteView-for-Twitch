@@ -3,12 +3,17 @@
 // Windows fills in missing characters only for its own fonts, so text with a character Inter lacks (Chinese, emoji,
 // ...) is drawn in Segoe UI: per word in the chat, per string elsewhere (Txt). Smoothing follows Windows: ClearType
 // when it is on (like the browser draws Twitch), else grey.
+// The window's own controls (the top bar's title and status, buttons, the chat's text box) draw with GDI, which does
+// not see a GDI+ private font; the files are also added for GDI, privately to this process (AddFontResourceEx with
+// FR_PRIVATE: nothing is installed), and those controls use Inter only when GDI then really picks it (GetTextFace).
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Text;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 using LiteViewCore;
 
@@ -28,6 +33,15 @@ static class UiFont
     public static bool Available { get { return inter != null; } }
     public static bool On { get { return UseInter && inter != null; } }
     public static readonly TextRenderingHint Hint;
+    static readonly bool gdi;   // GDI (the window's controls) draws Inter too
+
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] static extern int AddFontResourceEx(string name, uint flags, IntPtr reserved);
+    [DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc, IntPtr obj);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] static extern int GetTextFace(IntPtr dc, int count, StringBuilder name);
+    const uint FrPrivate = 0x10;
 
     static UiFont()
     {
@@ -49,6 +63,14 @@ static class UiFont
             if (inter == null || interSemi == null) { inter = interSemi = null; Log.Warn("font: Inter's families are incomplete, using Segoe UI"); return; }
             interNames.Add(inter.Name); interNames.Add(interSemi.Name);
             Log.Info("font: Inter loaded (" + cover.RangeCount + " character ranges), smoothing " + (Hint == TextRenderingHint.ClearTypeGridFit ? "ClearType" : "grey"));
+            try
+            {
+                int added = 0;
+                foreach (var file in new[] { reg, bold, semi }) if (AddFontResourceEx(file, FrPrivate, IntPtr.Zero) > 0) added++;
+                gdi = added == 3 && GdiPicks(inter) && GdiPicks(interSemi);
+            }
+            catch (Exception ex) when (ex is DllNotFoundException || ex is EntryPointNotFoundException || ex is ArgumentException || ex is ExternalException) { gdi = false; }
+            Log.Info(gdi ? "font: the window's controls use Inter too" : "font: the window's controls stay in Segoe UI (GDI does not see Inter)");
         }
         catch (Exception ex) { inter = interSemi = null; Log.Warn("font: Inter could not be loaded (" + ex.GetType().Name + "), using Segoe UI"); }
     }
@@ -62,6 +84,37 @@ static class UiFont
             return new Font(inter, pt, k == FontKind.Bold ? FontStyle.Bold : FontStyle.Regular);
         }
         return new Font(k == FontKind.Text ? "Segoe UI" : "Segoe UI Semibold", pt);
+    }
+
+    // GDI's font for the family's name really is it (not a substitute)
+    static bool GdiPicks(FontFamily family)
+    {
+        using (var f = new Font(family, 10f, FontStyle.Regular))
+        {
+            IntPtr hf = f.ToHfont(), dc = CreateCompatibleDC(IntPtr.Zero);
+            try
+            {
+                IntPtr old = SelectObject(dc, hf);
+                var sb = new StringBuilder(64);
+                GetTextFace(dc, sb.Capacity, sb);
+                SelectObject(dc, old);
+                return string.Equals(sb.ToString(), family.Name, StringComparison.OrdinalIgnoreCase);
+            }
+            finally { DeleteDC(dc); DeleteObject(hf); }
+        }
+    }
+
+    /// <summary>A shared font for a window control (GDI draws it): the chosen family when GDI sees it, else Segoe UI.</summary>
+    public static Font ForControls(FontKind k, float pt)
+    {
+        if (On && !gdi)
+        {
+            string key = "g" + (int)k + ":" + pt.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+            Font f;
+            if (!cache.TryGetValue(key, out f)) { f = new Font(k == FontKind.Text ? "Segoe UI" : "Segoe UI Semibold", pt, k == FontKind.Bold ? FontStyle.Bold : FontStyle.Regular); cache[key] = f; }
+            return f;
+        }
+        return Get(k, pt);
     }
 
     /// <summary>A shared font of the chosen family (never dispose it).</summary>

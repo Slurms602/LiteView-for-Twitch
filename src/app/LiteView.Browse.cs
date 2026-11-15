@@ -132,13 +132,25 @@ partial class LiteView
             }
             if (Fixture.SceneName == "presets") { PresetShots(); return; }   // src/app/LiteView.Picture.cs
             if (Fixture.SceneName == "window")
-            {   // a second channel in an extra window (with tests/FakeStreamlink), next to the main one
+            {   // a second channel in an extra window with its chat (with tests/FakeStreamlink), next to the main one; then
+                // its volume bar moved, which mpv confirms through the pipe ("window: mpv volume 35")
                 Watch("nightowl_plays");
-                var t = new Timer { Interval = 3000 };
-                t.Tick += (s2, e2) => { t.Stop(); t.Dispose(); OpenWindow("pixelforge", "Pixelforge"); };
+                popOptions.Chat = true;
+                var t = new Timer { Interval = 3000 }; int ticks = 0;
+                t.Tick += (s2, e2) =>
+                {
+                    ticks++;
+                    if (ticks == 1) { OpenWindow("pixelforge", "Pixelforge"); return; }
+                    if (ticks < 4) return;
+                    t.Stop(); t.Dispose();
+                    foreach (var x in extras) x.FixtureVolume(35);
+                };
                 t.Start();
                 return;
             }
+            if (Fixture.SceneName == "focus") { FocusScene(); return; }        // src/app/LiteView.Focus.cs
+            if (Fixture.SceneName == "sidemenu") { SideMenuScene(); return; }  // src/app/LiteView.SideMenu.cs
+            if (Fixture.SceneName == "release") { ReleaseScene(); return; }    // src/app/LiteView.Picture.cs
             if (Fixture.SceneName == "preview")
             {   // a hover preview of the first live card (with tests/FakeStreamlink), as if the mouse rested on it
                 var t = new Timer { Interval = 500 }; int waited = 0;
@@ -327,6 +339,7 @@ partial class LiteView
         yield return Kv("updatechecked", updateChecked);
         foreach (var kv in ChatSettings()) yield return kv;
         foreach (var kv in PerformanceSettings()) yield return kv;
+        foreach (var kv in popOptions.Save()) yield return kv;   // extra windows (src/app/ExtraPlayer.cs)
     }
 
     void LoadForkSettings(Dictionary<string, string> ini)
@@ -356,6 +369,7 @@ partial class LiteView
         updateChecked = Native.Get(ini, "updatechecked", "");
         LoadChatSettings(ini);
         LoadPerformanceSettings(ini);
+        popOptions = PopOptions.Load((k, d) => Native.Get(ini, k, d));
     }
 
     static KeyValuePair<string, string> Kv(string k, string v) { return new KeyValuePair<string, string>(k, v); }

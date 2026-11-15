@@ -135,3 +135,30 @@ partial class ChatPanel
         return m;
     }
 }
+
+// the chat's own controls (GDI) in the chosen font (UiFont.ForControls; the window's font setting)
+partial class ChatPanel
+{
+    /// <summary>UI fixture (CI): the keyboard in the chat box.</summary>
+    public void FixtureFocusInput() { if (input.Visible) input.Focus(); else { input.Visible = true; input.Focus(); } }
+
+    public void SetControlFonts()
+    {
+        input.Font = UiFont.ForControls(FontKind.Text, 10.5f);
+        replyText.Font = UiFont.ForControls(FontKind.Text, 9f);
+        loginLink.Font = UiFont.ForControls(FontKind.Text, 9.5f);
+        head.Invalidate();
+    }
+}
+
+// a chat that closes (an extra window's) stops hearing about images
+partial class ChatPanel
+{
+    Action<Emote> imageLoaded;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && imageLoaded != null) { Images.Loaded -= imageLoaded; imageLoaded = null; }
+        base.Dispose(disposing);
+    }
+}

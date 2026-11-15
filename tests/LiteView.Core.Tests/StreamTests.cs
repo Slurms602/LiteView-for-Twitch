@@ -99,6 +99,53 @@ public class WinArgsTests
         Assert.Throws<ArgumentException>(() => StreamCommand.Build(new StreamRequest { Channel = "xqc", PipeName = "p", Preview = true, Video = "1" }));
     }
 
+    [Fact]
+    public void AnExtraWindowStartsAtItsOwnVolume()
+    {
+        var p = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Volume = 35 }));
+        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --volume=35", p[p.IndexOf("--player-args") + 1]);
+        var high = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Volume = 900 }));
+        Assert.EndsWith("--volume=100", high[high.IndexOf("--player-args") + 1]);
+        var none = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7 }));
+        Assert.DoesNotContain("--volume", none[none.IndexOf("--player-args") + 1]);
+    }
+
+    [Fact]
+    public void ExtraWindowSettingsRoundTrip()
+    {
+        var d = PopOptions.Load((k, def) => def);
+        Assert.True(d.OnTop); Assert.False(d.Chat); Assert.False(d.Fit);
+        Assert.Equal("720p60", d.Quality); Assert.Equal(PopOptions.DefaultVolume, d.Volume);
+        var o = new PopOptions { OnTop = false, Chat = true, Fit = true, Quality = "main", Volume = 15 };
+        var saved = new System.Collections.Generic.Dictionary<string, string>();
+        foreach (var kv in o.Save()) saved[kv.Key] = kv.Value;
+        var back = PopOptions.Load((k, def) => saved.TryGetValue(k, out var v) ? v : def);
+        Assert.False(back.OnTop); Assert.True(back.Chat); Assert.True(back.Fit); Assert.Equal("main", back.Quality); Assert.Equal(15, back.Volume);
+        foreach (var k in saved.Keys) Assert.Contains(k, SettingsImport.Keys);
+    }
+
+    [Theory]
+    [InlineData("calc.exe", "-5", "720p60", 60)]
+    [InlineData("1080p60 --x", "250", "720p60", 100)]
+    [InlineData("360p", "abc", "360p", 60)]
+    public void ExtraWindowSettingsRejectJunk(string q, string vol, string wantQ, int wantV)
+    {
+        var o = PopOptions.Load((k, def) => k == "popquality" ? q : k == "popvolume" ? vol : def);
+        Assert.Equal(wantQ, o.Quality); Assert.Equal(wantV, o.Volume);
+    }
+
+    [Theory]
+    [InlineData("main", "1080p60", "1080p60")]
+    [InlineData("main", "Best", "Best")]
+    [InlineData("main", "936p60", "936p60")]
+    [InlineData("main", "evil --arg", "720p60")]
+    [InlineData("main", null, "720p60")]
+    [InlineData("480p", "1080p60", "480p")]
+    public void ExtraWindowQualityFollowsTheMainWindowWhenAsked(string setting, string? main, string want)
+    {
+        Assert.Equal(want, new PopOptions { Quality = setting }.QualityFor(main));
+    }
+
     [Theory]
     [InlineData("12a", "")]
     [InlineData("1 --player=calc", "")]

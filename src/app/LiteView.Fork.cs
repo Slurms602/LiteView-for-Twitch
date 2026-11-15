@@ -63,7 +63,7 @@ partial class LiteView
     void InitFork()
     {
         Shown += (s, e) => windowShown = true;
-        InitSwitch(); InitStats(); InitStartup();
+        InitSwitch(); InitStats(); InitStartup(); InitFocus(); InitSideMenu();
         if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>

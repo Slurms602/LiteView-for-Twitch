@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using LiteViewCore;
 using Xunit;
@@ -128,6 +129,27 @@ public class GpuTimeTests
 
 public class PicturePresetTests
 {
+    [Theory]
+    [InlineData(1.0, null)]
+    [InlineData(1.05, null)]   // a 1080p stream in a window on a 1440p screen: RTX only softened it (owner's screenshots)
+    [InlineData(1.24, null)]
+    [InlineData(1.25, "1.25")]
+    [InlineData(1.3333, "1.33")]   // 1080p in fullscreen at 1440p
+    [InlineData(2.0, "2.00")]      // 720p at 1440p
+    [InlineData(9.0, "4.00")]
+    [InlineData(double.NaN, null)]
+    public void RtxOnlyWhenTheVideoIsEnlargedEnough(double scale, string? want)
+    {
+        Assert.Equal(want, PicturePreset.RtxScale(scale));
+    }
+
+    [Fact]
+    public void PresetNames()
+    {
+        Assert.Equal(new[] { "Off", "Enhance", "High", "Ultra" }, new[] { 0, 1, 2, 3 }.Select(PicturePreset.Name).ToArray());
+        Assert.Equal("Off", PicturePreset.Name(-1));
+    }
+
     static string ShaderDir()
     {
         for (var d = new System.IO.DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)

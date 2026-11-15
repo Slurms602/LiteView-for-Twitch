@@ -53,6 +53,16 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   than High without looking harsher.
 - The "Replying to" line above replies in the chat was empty at the larger text sizes. A reply also no longer
   repeats "@name" at its start (like Twitch).
+- After typing in the chat box, clicking anywhere else (the video, the chat's messages, the followed channels, the top
+  bar) now gives the keyboard back to the window, so Space, M, I, B and the other keys work again.
+- Choosing a lighter picture preset after Ultra (or High) now gives back the memory the heavier one needed: the player
+  restarts behind the picture a moment later (seamless switching; the picture does not stop). It kept about 1 GB with
+  Ultra until a pause or the next channel.
+- **RTX** made the picture softer when the video was shown at about its own size (a 1080p stream in the window on a
+  1440p screen: it was enlarged only 1.05x). RTX now enlarges only when the video is enlarged at least 1.25x (a 720p
+  or 936p stream, or 1080p in fullscreen on a 1440p screen), and then does the whole enlarging, with the preset's
+  sharpening after it; otherwise it waits. The stats (I) say which, and that RTX's own GPU work is not in "GPU per
+  frame" (mpv cannot measure it).
 
 ### Added
 
@@ -97,15 +107,22 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   continue where the video was.
 - **Colour emoji** in the chat (drawn with DirectWrite like the browser does; where that is not available they stay
   as before).
-- **More streams at once**: right-click a channel > *Watch in a new window* plays it in a separate window (720p,
-  without chat, its own sound: M and the mouse wheel on its video), up to 3 next to the main one.
+- **More streams at once**: right-click a channel > *Watch in a new window* plays it in a separate window, up to 3
+  next to the main one. Each has a bar with mute and its own volume (kept for the next window), the chat beside the
+  video (button), on top of other windows or not (pin button; on by default, for picture in picture), and a menu with
+  the quality (720p60 by default, or the same as the main window, Best, 1080p60, 480p, 360p), *Keep the video's
+  shape* (resizing keeps it 16:9, no black bars; off by default) and *Watch in the main window*.
+- Right-click a channel in the **followed column** while watching: watch it, watch it in a new window, its videos or
+  clips, favourite, open on twitch.tv, copy link (a right-click no longer switches to it).
+- LiteView has **its own icon** (a purple chat bubble with a play button) instead of mpv's.
 - **Previews on hover**: rest the mouse on a live channel's card on the Following page and it plays there, muted, at
   the lowest quality (menu > Playback turns it off).
 - Menu > **Start and tray**: start with Windows (no administrator rights), start minimised, minimise to the tray
   (all off unless you turn them on), and *Open the last channel at start* (moved here).
 - The chat and the Following page use **Inter**, the font of Twitch's own site, drawn with ClearType when Windows
   uses it. Words with characters Inter does not have (Chinese, emoji, ...) are drawn in Segoe UI as before.
-  Menu > Text size > Font switches back to Segoe UI.
+  Menu > Text size > Font switches back to Segoe UI. The top bar (channel, status line, buttons), the chat box and the
+  extra windows use it too.
 
 ### For developers
 

@@ -121,6 +121,8 @@ namespace LiteViewCore
         public int StartSeconds;
         /// <summary>A hover preview on the Following page: the lowest quality, muted, no retries, mpv ignores mouse and keys.</summary>
         public bool Preview;
+        /// <summary>The player's starting volume, 0-100 (an extra window has its own); -1: mpv.conf's.</summary>
+        public int Volume = -1;
     }
 
     public static class StreamCommand
@@ -139,7 +141,8 @@ namespace LiteViewCore
             if (r.Preview && (video || clip)) throw new ArgumentException("previews are of live streams");
             string playerArgs = "--wid=" + r.WindowHandle.ToString(CultureInfo.InvariantCulture) + " --input-ipc-server=" + r.PipeName + (r.StartMuted || r.Preview ? " --mute=yes" : "")
                 + (r.Preview ? " --osc=no --osd-level=0 --input-cursor=no --input-vo-keyboard=no" : "")
-                + (video && r.StartSeconds > 0 ? " --start=+" + Math.Min(r.StartSeconds, 999999).ToString(CultureInfo.InvariantCulture) : "");
+                + (video && r.StartSeconds > 0 ? " --start=+" + Math.Min(r.StartSeconds, 999999).ToString(CultureInfo.InvariantCulture) : "")
+                + (r.Volume >= 0 ? " --volume=" + Math.Min(r.Volume, 100).ToString(CultureInfo.InvariantCulture) : "");
             var a = new List<string> { r.Streamlink, "--player", r.Mpv, "--player-args", playerArgs };
             if (video || clip)
                 // mpv opens the video's playlist (or the clip's file) itself, so it can seek: arrow keys, its seek bar

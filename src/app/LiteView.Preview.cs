@@ -105,14 +105,19 @@ partial class LiteView
     }
 }
 
-// Extra windows (src/app/ExtraPlayer.cs): one more channel each, at most ExtraPlayer.MaxExtra
+// Extra windows (src/app/ExtraPlayer.cs): one more channel each, at most ExtraPlayer.MaxExtra. Not owned by the main
+// window (an owned window hides when the main one is minimised, and always stays above it): on top of every window or
+// a normal one, as chosen; they close with LiteView.
 partial class LiteView
 {
     readonly List<ExtraPlayer> extras = new List<ExtraPlayer>();
+    PopOptions popOptions = new PopOptions();
+    bool extrasInit;
 
     void OpenWindow(string login, string name)
     {
         if (!ChannelName.IsValidLogin(login) || (Fixture.On && !Fixture.Streams)) return;
+        if (!extrasInit) { extrasInit = true; FormClosed += (s, e) => { foreach (var x in extras.ToArray()) if (!x.IsDisposed) x.Close(); }; }
         extras.RemoveAll(x => x.IsDisposed);
         var open = extras.Find(x => x.Login == login);
         if (open != null) { if (open.WindowState == FormWindowState.Minimized) open.WindowState = FormWindowState.Normal; open.Activate(); return; }
@@ -122,8 +127,10 @@ partial class LiteView
         int slot = 1;
         while (extras.Exists(x => x.Tag is int && (int)x.Tag == slot)) slot++;
         string log = Path.Combine(Path.GetDirectoryName(slLog), Path.GetFileNameWithoutExtension(slLog) + "-window" + slot + ".log");
-        var w = new ExtraPlayer(login, string.IsNullOrEmpty(name) ? login : name, log,
-            (lf, h) => LaunchPlayer(new StreamRequest { Channel = login, LogFile = lf, WindowHandle = h.ToInt64(), Quality = "720p60" }, ChildPriorityFlag)) { Tag = slot, Owner = this, Icon = Icon };
+        var w = new ExtraPlayer(login, string.IsNullOrEmpty(name) ? login : name, log, popOptions, () => quality.SelectedItem as string, SaveSettings,
+            r => LaunchPlayer(r, ChildPriorityFlag)) { Tag = slot, Icon = Icon };
+        w.LoginRequested += Login;
+        w.WatchHere += () => { Activate(); Watch(login); };
         w.FormClosed += (s, e) => extras.Remove(w);
         extras.Add(w);
         w.Show();

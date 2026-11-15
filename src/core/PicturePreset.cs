@@ -15,6 +15,22 @@ namespace LiteViewCore
     {
         public static readonly string[] SharpnessNames = { "Off", "Soft", "Normal (default)", "Strong" };
 
+        /// <summary>RTX Video Super Resolution only when the video is enlarged at least this much (below, it only softened the picture).</summary>
+        public const double RtxMinScale = 1.25;
+
+        /// <summary>d3d11vpp's scale for RTX ("1.33"), or null: RTX waits (the video is shown at about its own size).</summary>
+        public static string? RtxScale(double scale)
+        {
+            if (double.IsNaN(scale) || scale < RtxMinScale) return null;
+            return System.Math.Min(scale, 4.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>The preset's name (0 Off, 1 Enhance, 2 High, 3 Ultra), as in the picture box.</summary>
+        public static string Name(int picture)
+        {
+            switch (picture) { case 1: return "Enhance"; case 2: return "High"; case 3: return "Ultra"; default: return "Off"; }
+        }
+
         /// <summary>The shader files (in config/mpv/shaders) for a preset: 0 Off, 1 Enhance, 2 High, 3 Ultra.</summary>
         public static List<string> Shaders(int picture, Sharpness sharp)
         {

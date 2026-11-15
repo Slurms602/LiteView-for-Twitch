@@ -43,6 +43,7 @@ partial class LiteView
     // ---------- command line ----------
 
     static int stressRate;   // --chat-stress=<messages per second>
+    static bool stressGc;    // CI leak check: a full garbage collection before each sample, so only real leaks grow
 
     static void ParseArgs(string[] args)
     {
@@ -67,7 +68,9 @@ partial class LiteView
             retry.Stop();
             if (watching && retryGen == gen && channel != null && slProc == null) Watch(channel, true);
         };
-        status.Click += (s, e) => { if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
+        InitProblems();
+        InitScreens();
+        status.Click += (s, e) => { if (problemTitle != null) ShowProblemDetails(); else if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPower;
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetwork;
         FormClosed += (s, e) =>
@@ -75,7 +78,7 @@ partial class LiteView
             Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPower;
             System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= OnNetwork;
         };
-        Log.Info("window ready; CPU mask " + (mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X")) + ", NVIDIA " + HasNvidia);
+        Log.Info("window ready; CPU " + CpuChoice().Why + ", NVIDIA RTX " + HasNvidia);
     }
 
     void QueueMpv(int g, string json)
@@ -123,28 +126,48 @@ partial class LiteView
     {
         var gen0 = new ChatStress("stress", Environment.TickCount);
         List<string> emotes = new List<string>(); string emotesFor = null;
-        double due = 0; var sw = Stopwatch.StartNew(); long lastLog = 0, lastCount = 0;
+        double due = 0; var sw = Stopwatch.StartNew(); long lastLog = 0, lastCount = 0, fedAt = -1;
         Text = Text + "  -  chat stress " + stressRate + "/s";
         Log.Info("chat stress mode: " + stressRate + " messages per second");
         int busy = 0;
+        // UI lag: how long a message posted to the window's thread waits before it runs (the longest in each 10 s).
+        // One probe at a time; a probe that has not run yet counts with the time it has waited so far.
+        object lagLock = new object(); long probeSent = -1, lagMax = 0;
+        Func<long> takeLag = () => { lock (lagLock) { long v = lagMax; lagMax = 0; return v; } };
         stressTimer = new System.Threading.Timer(_ =>
         {
             if (Interlocked.Exchange(ref busy, 1) == 1) return;   // the previous tick is still feeding
             try
             {
+                lock (lagLock)
+                {
+                    long t = sw.ElapsedMilliseconds;
+                    if (probeSent >= 0) lagMax = Math.Max(lagMax, t - probeSent);
+                    else if (IsHandleCreated && !IsDisposed)
+                    {
+                        probeSent = t;
+                        try { BeginInvoke((Action)(() => { lock (lagLock) { lagMax = Math.Max(lagMax, sw.ElapsedMilliseconds - probeSent); probeSent = -1; } })); }
+                        catch (InvalidOperationException) { probeSent = -1; }   // the window is closing
+                    }
+                }
                 string ch = nchat.Channel;
-                if (!watching || webChat || ch == null) return;
-                if (ch != emotesFor || sw.ElapsedMilliseconds % 5000 < 60) { emotes = nchat.EmoteNames(); emotesFor = ch; }
-                due += stressRate / 20.0;
+                long at = sw.ElapsedMilliseconds;
+                if (!watching || webChat || ch == null) { fedAt = at; return; }
+                if (ch != emotesFor || at % 5000 < 60) { emotes = nchat.EmoteNames(); emotesFor = ch; }
+                // by the time that passed, not per tick: Windows runs a 50 ms timer in 15.6 ms steps (about every 62 ms);
+                // after a stall at most one second's worth at once
+                if (fedAt < 0) fedAt = at;
+                due = Math.Min(stressRate, due + stressRate * (at - fedAt) / 1000.0); fedAt = at;
                 for (; due >= 1; due--) nchat.Inject(gen0.Next(emotes).Replace(" #stress", " #" + ch));
                 long now = sw.ElapsedMilliseconds;
                 if (now - lastLog >= 10000)
                 {
+                    if (stressGc) { GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); }
                     using (var me = Process.GetCurrentProcess())
                         Log.Info("stress: " + gen0.Count + " messages (" + ((gen0.Count - lastCount) * 1000 / Math.Max(1, now - lastLog)) + "/s), working set "
                             + me.WorkingSet64 / (1024 * 1024) + " MB, private " + me.PrivateMemorySize64 / (1024 * 1024) + " MB, threads " + me.Threads.Count
                             + ", handles " + me.HandleCount + ", GDI " + GetGuiResources(me.Handle, 0) + ", USER " + GetGuiResources(me.Handle, 1)
-                            + ", CPU " + (int)me.TotalProcessorTime.TotalSeconds + " s, emotes: " + Images.Stats());
+                            + ", CPU " + me.TotalProcessorTime.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s, UI lag max " + takeLag() + " ms, emotes: " + Images.Stats());
                     lastLog = now; lastCount = gen0.Count;
                 }
             }
@@ -171,7 +194,7 @@ partial class LiteView
         CheckLogin();
         if (!watching || channel == null) return;
         if (chatOn.Checked && !webChat) nchat.Reconnect();
-        Watch(channel, true);
+        if (!paused) Watch(channel, true);
     }
 
     void OnNetwork(object sender, System.Net.NetworkInformation.NetworkAvailabilityEventArgs e)
@@ -235,6 +258,8 @@ partial class LiteView
     void StartStreamProcess(string name, string q)
     {
         int g = ++gen; played = false; mpvGen = -1; canRetry = false;
+        EndPause();
+        if (Fixture.On && !Fixture.Streams) { status.ForeColor = Dim; status.Text = "UI fixture: no video"; return; }   // testing only: no Streamlink, no network
         pipeName = StreamCommand.NewPipeName();
         string cmdline;
         try
@@ -245,15 +270,15 @@ partial class LiteView
                 PipeName = pipeName, WindowHandle = video.Handle.ToInt64(),
             });
         }
-        catch (ArgumentException ex) { status.Text = "Cannot play this channel."; Log.Error("stream command", ex); return; }
+        catch (ArgumentException ex) { ShowProblem("Cannot play this channel", ex.Message, null); Log.Error("stream command", ex); return; }
         try { File.Delete(slLog); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         job = CreateJobObject(IntPtr.Zero, null);
-        if (job == IntPtr.Zero) { status.Text = "Could not start Streamlink."; Log.Error("CreateJobObject failed"); return; }
+        if (job == IntPtr.Zero) { ShowProblem("Could not start Streamlink", "Windows refused to create a job object (error " + Marshal.GetLastWin32Error() + ").", () => Watch(channel)); Log.Error("CreateJobObject failed"); return; }
         var lim = new JOBLIMITS { flags = 0x2000 };   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: closing LiteView also ends its stream
         if (!SetInformationJobObject(job, 9, ref lim, Marshal.SizeOf(typeof(JOBLIMITS)))) Log.Warn("job: kill-on-close could not be set");
         var si = new Native.STARTUPINFO(); si.cb = Marshal.SizeOf(si);
         Native.PROCESS_INFORMATION pi;
-        if (CreateProcessW(streamlink, new StringBuilder(cmdline), IntPtr.Zero, IntPtr.Zero, false, Native.CREATE_SUSPENDED | Native.BELOW_NORMAL, IntPtr.Zero, root, ref si, out pi))
+        if (CreateProcessW(streamlink, new StringBuilder(cmdline), IntPtr.Zero, IntPtr.Zero, false, Native.CREATE_SUSPENDED | ChildPriorityFlag, IntPtr.Zero, root, ref si, out pi))
         {
             if (mask != 0) Native.SetProcessAffinityMask(pi.hProcess, new UIntPtr(mask));
             if (!AssignProcessToJobObject(job, pi.hProcess)) Log.Warn("job: Streamlink could not be added");
@@ -269,7 +294,7 @@ partial class LiteView
         else
         {
             int err = Marshal.GetLastWin32Error();
-            status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "Could not start Streamlink.";
+            ShowProblem("Could not start Streamlink", "Windows error " + err + " starting\n" + streamlink + "\n\nAn antivirus quarantine or a damaged unzip can cause this: unzip LiteView again.", () => Watch(channel));
             Log.Error("stream " + g + ": CreateProcess failed, error " + err);
             canRetry = true;
         }
@@ -289,6 +314,38 @@ partial class LiteView
             status.ForeColor = Dim;
             if (StreamOutcome.Waiting(lines)) status.Text = "Offline - it starts by itself when the channel goes live";
             else if (err.Length > 0) status.Text = "Retrying: " + err;
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    // The quality box shows what this stream really offers (P3), read from Streamlink's "Available streams:" log line
+    // once per stream: no extra request to Twitch. The chosen quality stays selected even if this stream lacks it
+    // (Streamlink then plays the best one).
+    int variantsGen = -1, variantTicks;
+
+    void CheckVariants()
+    {
+        if (variantsGen == gen || slProc == null || ++variantTicks % 2 != 0) return;
+        if ((DateTime.Now - slStart).TotalSeconds > 60) { variantsGen = gen; return; }   // never printed: keep the list
+        try
+        {
+            if (!File.Exists(slLog)) return;
+            var found = Quality.Available(ReadShared(slLog));
+            if (found.Count == 0) return;
+            variantsGen = gen;
+            var choices = Quality.ChoicesFor(found);
+            string cur = (string)quality.SelectedItem ?? "Best";
+            if (!choices.Contains(cur)) choices.Add(cur);
+            if (choices.SequenceEqual(quality.Items.Cast<string>())) return;
+            qualityRebuild = true;
+            try
+            {
+                quality.BeginUpdate();
+                quality.Items.Clear(); quality.Items.AddRange(choices.ToArray()); quality.SelectedItem = cur;
+                quality.EndUpdate();
+            }
+            finally { qualityRebuild = false; }
+            Log.Info("stream " + gen + ": variants " + string.Join(" ", found));
         }
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
@@ -313,32 +370,118 @@ partial class LiteView
         Log.Warn("stream " + gen + ": Streamlink exited (code " + code + ", after " + (int)ran.TotalSeconds + " s, " + end + ")" + (err.Length > 0 ? ": " + Redact.ForSharing(err) : ""));
         bool wasPlaying = played;
         StopStream();   // also ends an mpv left behind if Streamlink died
-        status.ForeColor = Color.FromArgb(255, 140, 140);
-        status.Text = StreamOutcome.Describe(end, err);
         if (wasPlaying) playBackoff.Ended(ran);
-        ScheduleRetry(end);
+        ScheduleRetry(end, StreamOutcome.Describe(end, err), err);
     }
 
     // Offline: look again every minute. Errors: retry with growing waits (2 s ... 60 s, with jitter),
     // and after MaxQuickRetries failures in a row stop and let the user click the status to try again.
-    void ScheduleRetry(StreamEnd end)
+    void ScheduleRetry(StreamEnd end, string summary, string err)
     {
         canRetry = channel != null;
-        if (!watching || channel == null || end == StreamEnd.Fatal) { if (canRetry) status.Text += "  -  click to try again"; return; }
+        string ch = channel;
+        Action again = ch != null ? () => { if (channel == ch) Watch(ch); } : (Action)null;
+        if (!watching || channel == null || end == StreamEnd.Fatal) { ShowProblem(summary, StreamDetail(err), again); return; }
         TimeSpan wait;
         if (end == StreamEnd.Offline) wait = TimeSpan.FromSeconds(60);
         else
         {
-            if (playBackoff.Attempt >= MaxQuickRetries) { status.Text += "  -  click to try again"; Log.Warn("stream: giving up after " + MaxQuickRetries + " quick retries"); return; }
+            if (playBackoff.Attempt >= MaxQuickRetries)
+            {
+                Log.Warn("stream: giving up after " + MaxQuickRetries + " quick retries");
+                ShowProblem(summary + "  -  stopped retrying", StreamDetail(err) + "\n\nLiteView tried " + MaxQuickRetries + " times in a row.", again);
+                return;
+            }
             wait = playBackoff.Next();
         }
         retryGen = gen;
         retry.Interval = (int)Math.Max(500, Math.Min(int.MaxValue, wait.TotalMilliseconds));
         retry.Start();
-        status.Text += "  -  trying again in " + Math.Max(1, (int)Math.Round(wait.TotalSeconds)) + " s";
+        string next = "  -  trying again in " + Math.Max(1, (int)Math.Round(wait.TotalSeconds)) + " s";
+        if (end == StreamEnd.Offline) { status.ForeColor = Dim; status.Text = summary + next; }   // not an error
+        else ShowProblem(summary + next, StreamDetail(err), again);
     }
 
     void CancelRetry() { retry.Stop(); canRetry = false; playBackoff.Reset(); }
+
+    // ---------- problems (UI-5) ----------
+    // An error shows as "⚠ summary" in the status line (shortened to fit); a click opens the whole message with
+    // Try again / Open log folder / Copy details (src/app/ProblemPopup.cs). Any other status text ends it.
+
+    static readonly Color ErrorC = Color.FromArgb(255, 140, 140);
+    static readonly string WarnSign = ((char)0x26A0).ToString();
+    string problemTitle, problemDetail; Action problemRetry; bool settingProblem;
+    readonly ToolTip statusTip = new ToolTip();
+
+    void InitProblems()
+    {
+        status.AutoSize = false; status.AutoEllipsis = true; status.Height = 20;
+        status.TextChanged += (s, e) =>
+        {
+            if (settingProblem) return;
+            problemTitle = null; problemRetry = null; status.Cursor = Cursors.Default; statusTip.SetToolTip(status, null);
+            FitStatus();
+        };
+    }
+
+    void ShowProblem(string summary, string detail, Action retry)
+    {
+        problemTitle = summary; problemDetail = detail; problemRetry = retry;
+        settingProblem = true;
+        try { status.ForeColor = ErrorC; status.Text = WarnSign + " " + summary; }
+        finally { settingProblem = false; }
+        status.Cursor = Cursors.Hand;
+        statusTip.SetToolTip(status, "Click for details");
+        FitStatus();
+    }
+
+    void ShowProblemDetails()
+    {
+        if (problemTitle == null) return;
+        var r = problemRetry;
+        new ProblemPopup(problemTitle, problemDetail, r, OpenLogFolder) { Icon = Icon }.ShowBelow(status, this);
+    }
+
+    // the status line gets the room between what is on its left and the controls on the right
+    // (by what the mode shows, not Control.Visible: that is false for everything until the window is first shown, and
+    // the status line then covered the menu button on the Following page)
+    void FitStatus()
+    {
+        int right = bar.Width - 6;
+        foreach (Control c in BarRight()) if (c.Left > status.Left && c.Left < right) right = c.Left;
+        status.Width = Math.Max(0, right - status.Left - 10);
+    }
+
+    IEnumerable<Control> BarRight()
+    {
+        yield return menuBtn;
+        if (!watching) yield break;
+        foreach (var c in new Control[] { fsBtn, volBar, muteBtn, pauseBtn, picture, chatOn, quality }) yield return c;
+        if (HasNvidia) yield return rtx;
+    }
+
+    void OpenLogFolder()
+    {
+        try { using (Process.Start("explorer.exe", WinArgs.Quote(root))) { } } catch (Exception ex) { Log.Error("open folder", ex); }
+    }
+
+    // the end of streamlink.log, without credentials or channel names, for the details of a stream problem
+    string StreamDetail(string err)
+    {
+        var sb = new StringBuilder();
+        if (err.Length > 0) sb.Append(Redact.ForSharing(err)).Append("\n\n");
+        try
+        {
+            if (File.Exists(slLog))
+            {
+                var tail = ReadShared(slLog).Where(l => l.Trim().Length > 0).Reverse().Take(12).Reverse().ToList();
+                if (tail.Count > 0) { sb.Append("Last lines of streamlink.log:\n"); foreach (var l in tail) sb.Append(Redact.ForSharing(l)).Append('\n'); }
+            }
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+        if (sb.Length == 0) sb.Append("Streamlink wrote no error. See liteview.log.");
+        return sb.ToString().TrimEnd();
+    }
 
     // ---------- diagnostics ----------
 
@@ -347,7 +490,7 @@ partial class LiteView
         var diag = new ToolStripMenuItem("Export diagnostics...");
         diag.Click += (s, e) => ExportDiagnostics();
         var logs = new ToolStripMenuItem("Open log folder");
-        logs.Click += (s, e) => { try { using (Process.Start("explorer.exe", WinArgs.Quote(root))) { } } catch (Exception ex) { Log.Error("open folder", ex); } };
+        logs.Click += (s, e) => OpenLogFolder();
         var site = new ToolStripMenuItem("Sign out of twitch.tv in LiteView");
         site.Click += (s, e) => SignOutOfWebsite();
         menu.Items.Add(new ToolStripSeparator());
@@ -407,7 +550,7 @@ partial class LiteView
             add("Streamlink", await FirstLine(slCon != null && File.Exists(slCon) ? slCon : streamlink, "--version"));
             add("CPU logical processors", Environment.ProcessorCount);
             add("CPU pinning", mask == 0 ? "none (Windows decides)" : "0x" + mask.ToString("X"));
-            add("NVIDIA driver present", HasNvidia);
+            add("NVIDIA RTX card (RTX option)", HasNvidia);
             using (var gr = CreateGraphics()) add("Display DPI (this window)", gr.DpiX);
             add("Screens", string.Join("; ", Screen.AllScreens.Select(sc => sc.Bounds.Width + "x" + sc.Bounds.Height + " at " + sc.Bounds.X + "," + sc.Bounds.Y + (sc.Primary ? " (primary)" : ""))));
             add("Logged in to Twitch", Tw.Token != null ? "yes" : "no");
@@ -436,7 +579,7 @@ partial class LiteView
             status.Text = "Diagnostics saved: " + Path.GetFileName(path);
             using (Process.Start("explorer.exe", "/select," + WinArgs.Quote(path))) { }
         }
-        catch (Exception ex) { Log.Error("diagnostics", ex); status.Text = "Could not save diagnostics: " + ex.Message; }
+        catch (Exception ex) { Log.Error("diagnostics", ex); ShowProblem("Could not save diagnostics", ex.Message, ExportDiagnostics); }
     }
 
     static string ImagesStats() { return Images.Stats(); }

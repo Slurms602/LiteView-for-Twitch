@@ -42,7 +42,8 @@ namespace LiteViewCore
                     + ":tmi.twitch.tv USERNOTICE #" + channel + (rnd.Next(2) == 0 ? "" : " :" + Text(emotes, 6));
             string user = User(), id = Guid.NewGuid().ToString("D");
             Remember(recentIds, id); Remember(recentUsers, user);
-            var tags = new StringBuilder("badge-info=;badges=" + Pick(Badges) + ";color=" + Pick(Colors) + ";display-name=" + user + ";emotes=;id=" + id);
+            var tags = new StringBuilder("badge-info=;badges=" + Pick(Badges) + ";color=" + Pick(Colors) + ";display-name=" + user + ";emotes=;id=" + id
+                + ";tmi-sent-ts=" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
             if (roll < 60) tags.Append(";reply-parent-display-name=" + User() + ";reply-parent-msg-body=" + Esc(Text(emotes, 8)));
             int len = roll < 100 ? 80 : roll < 300 ? 25 : 8;   // a few very long messages, some medium, most short
             return "@" + tags + " :" + user + "!" + user + "@" + user + ".tmi.twitch.tv PRIVMSG #" + channel + " :" + Text(emotes, len);

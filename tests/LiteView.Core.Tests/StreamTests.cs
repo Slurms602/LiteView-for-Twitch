@@ -188,3 +188,30 @@ public class BackoffTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new Backoff(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1), TimeSpan.Zero));
     }
 }
+
+public class VariantTests
+{
+    const string Line = "[cli][info] Available streams: audio_only, 160p (worst), 360p, 480p, 720p60, 1080p60, 1440p60 (best)";
+
+    [Fact]
+    public void AvailableStreamsComeFromTheLastLogLine()
+    {
+        Assert.Equal(new[] { "audio_only", "160p", "360p", "480p", "720p60", "1080p60", "1440p60" },
+            Quality.Available(new[] { "[cli][info] Available streams: 720p (best)", "x", Line }));
+        Assert.Empty(Quality.Available(new[] { "[cli][info] Found matching plugin twitch" }));
+        Assert.Equal(new[] { "720p60" }, Quality.Available(new[] { "Available streams: 720p60, 1080p60;calc.exe, best, 99999p, p60, audio" }));
+    }
+
+    [Fact]
+    public void ChoicesAreBestThenHighToLowThenAudio()
+    {
+        Assert.Equal(new[] { "Best", "1440p60", "1080p60", "720p60", "480p", "360p", "160p", "Audio only" }, Quality.ChoicesFor(Quality.Available(new[] { Line })));
+        Assert.Equal(new[] { "Best", "720p60", "720p" }, Quality.ChoicesFor(new[] { "720p", "720p60" }));
+        Assert.Equal(new[] { "Best" }, Quality.ChoicesFor(new string[0]));
+    }
+
+    [Theory]
+    [InlineData("1440p60", "1440p60,1440p,best")] [InlineData("360p", "360p,best")] [InlineData("1080p60", "1080p60,1080p,best")]
+    [InlineData("Best", "best")] [InlineData("1080p60 --player=calc", "best")] [InlineData("0p", "best")] [InlineData(null, "best")]
+    public void Selectors(string? choice, string selector) { Assert.Equal(selector, Quality.Selector(choice)); }
+}

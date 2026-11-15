@@ -15,8 +15,8 @@ What LiteView Enhanced trusts, what it does not, and how each boundary is protec
 
 | # | Boundary | Trusted? | Protection |
 |---|---|---|---|
-| B1 | Twitch API answers (`api.twitch.tv`, `id.twitch.tv`) | Authentic (TLS) but parsed as untrusted data | HTTPS only; 16 MB cap on JSON; numeric ids and logins validated before use in URLs or commands; validate answer must match our client id |
-| B2 | Twitch IRC (`wss://irc-ws.chat.twitch.tv`) | Server authentic; **message content is user-written** | 1 MB cap per WebSocket message; 16 KB per line; text cut to 2000 characters for layout; `room-id` must be digits; only the real `RECONNECT` command reconnects (REL-1) |
+| B1 | Twitch API answers (`api.twitch.tv`, `id.twitch.tv`) | Authentic (TLS) but parsed as untrusted data | HTTPS only; 16 MB cap on JSON; numeric ids and logins validated before use in URLs or commands (the Browse tab's category id too; its language is one of a fixed list of codes); validate answer must match our client id |
+| B2 | Twitch IRC (`wss://irc-ws.chat.twitch.tv`) | Server authentic; **message content is user-written** | 1 MB cap per WebSocket message; 16 KB per line; text cut to 2000 characters for layout; `room-id` must be digits; only the real `RECONNECT` command reconnects (REL-1); a message id from a received line goes into a reply tag only when it is a UUID (`IrcProtocol.ReplyTag`) |
 | B3 | Third-party emote services (7TV, BTTV, FFZ) | Not trusted | API hosts allow-listed (HTTPS); image hosts allow-listed (`*.7tv.app`, `*.betterttv.net`, `*.frankerfacez.com`, `*.jtvnw.net`); 4 MB per image; PNG/GIF/JPEG only, size from the header checked before decoding (≤ 2048 px a side, ≤ 2 MP); frames ≤ 400 and ≤ 8 MB decoded per image; drawn width ≤ 5× height; 4 downloads at once; 128 MB of decoded frames in total (SEC-7, SEC-8) |
 | B4 | Web content in WebView2 (twitch.tv and whatever it loads) | Not trusted | Main-frame navigation only to `https://*.twitch.tv`; other web links go to the system browser when the user clicked them; other schemes blocked; permissions denied; downloads cancelled; dev tools, autofill, password saving and host objects off; no extensions (SEC-1, SEC-4) |
 | B5 | Page → app messages | Not trusted | Only from `https://*.twitch.tv`, only `watch:<per-run secret>:<login>`, login validated (SEC-5) |
@@ -25,7 +25,12 @@ What LiteView Enhanced trusts, what it does not, and how each boundary is protec
 | B8 | mpv IPC pipe | Local, same user | Random name per stream; we are the client; replies parsed defensively (length cap, numbers clamped). mpv 0.42.0 restricts the pipe to the current user at the same or higher integrity level and rejects remote clients (`input/ipc-win.c`, read 2026-11-12) |
 | B9 | Local files next to the exe (`liteview.ini`, `liteview.token`, `liteview.emotes`, logs) | The user's own | ini parse is tolerant and size-capped; atomic writes; token DPAPI-encrypted for the Windows user |
 | B10 | Downloaded dependencies at build time | Must be authentic | Streamlink and mpv: pinned URLs + SHA-256; NuGet: nuget.org only, signed packages required, versions pinned, hashes in `packages.lock.json`, restore in locked mode; WebView2 DLLs: Microsoft Authenticode check |
-| B11 | GameFirst and other processes | Other apps are not ours | Default list is LiteView's own player processes only; other apps only when the user lists them (SEC-14) |
+| B11 | GameFirst and other processes | Other apps are not ours | Default list is LiteView's own player processes only; other apps only when the user lists them (SEC-14); `--stop` restores what it changed, checking each process's start time so a reused process id is never touched |
+| B12 | Update check (`api.github.com`) | Not trusted | Only when asked (menu) or opted in (daily); 1 MB cap; only a newer, non-pre-release version is offered; only a `https://github.com/...` release page is opened in the browser; nothing is downloaded or run |
+| B13 | Imported settings files | Not trusted | Only known keys with one-line values ≤ 20 000 characters; files over 1 MB refused; lists re-validated when loaded (channel names) |
+| B14 | `LITEVIEW_UI_FIXTURE=1` (testing only) | - | Made-up answers from an in-process handler: no Twitch API traffic, the token file untouched, Streamlink not started, chat anonymous, the title says so |
+| B15 | Gaming mode detection | - | Reads only the foreground window (owner process id, class name, rectangle) and Windows' notification state; no process lists, no files |
+| B16 | Chat history (`recent-messages.robotty.de`, on by default, chat gear > *Recent messages when joining*) | Not trusted; **learns which channels you open** (as the emote services already learn the channel id) | HTTPS, host allow-listed, JSON cap as B1; channel name validated before it goes in the URL; only `PRIVMSG`/`USERNOTICE` lines of the channel asked for, no CR/LF/NUL, at most 50; each line then goes through the same parsing and display limits as live chat (B2); no login or token is sent |
 
 ## Authentication
 
@@ -51,12 +56,11 @@ What LiteView Enhanced trusts, what it does not, and how each boundary is protec
 
 | Risk | Why it remains | Plan |
 |---|---|---|
-| The Following page runs Twitch's full website in WebView2, with its third-party scripts | Upstream's browsing UI; navigation, messages and permissions are restricted | Native browsing (P2) removes it from normal use |
+| The Twitch website Following page (now an opt-in fallback) runs Twitch's full website in WebView2 | Kept for anyone who prefers it; navigation, messages and permissions are restricted | LiteView's own page is the default and needs no browser |
 | Web chat (optional) runs Twitch's popout chat | Kept as a fallback | Same restrictions as above |
 | Upstream's Twitch client id | Needs the owner's dev.twitch.tv registration | Before a public release |
 | GDI+ still decodes PNG/GIF/JPEG from the network | No managed decoder in .NET Framework | Inputs are size-checked first; consider WIC with limits later |
 | No code signing of LiteView.exe | No certificate | Releases are not described as signed; checksums are published (`FILES.sha256`, `<zip>.sha256`) |
-| GameFirst does not undo its changes when it exits | Upstream design | P4: per-app policies with rollback |
 
 ## Reporting
 

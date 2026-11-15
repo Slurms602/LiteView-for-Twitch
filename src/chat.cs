@@ -206,9 +206,10 @@ class ChatView : Control
 {
     public static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
         MentionBg = Color.FromArgb(62, 22, 26), NoticeBg = Color.FromArgb(31, 31, 35), Accent = Color.FromArgb(145, 71, 255), LinkC = Color.FromArgb(191, 148, 255);
-    static readonly Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);
+    static Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);   // fork: SetTextSize
     public readonly List<Msg> Msgs = new List<Msg>();
     public event Action<string> NameClicked;
+    public event Action<Msg, Point> MessageMenu;   // fork: right-click on a message (src/app/ChatReply.cs)
     int scroll, gen; readonly List<Place> anims = new List<Place>(); readonly List<KeyValuePair<Place, int>> animY = new List<KeyValuePair<Place, int>>();
     readonly System.Windows.Forms.Timer animTick = new System.Windows.Forms.Timer { Interval = 33 };
     readonly Stopwatch clock = Stopwatch.StartNew();
@@ -222,11 +223,37 @@ class ChatView : Control
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         BackColor = Bg;
         animTick.Tick += (s, e) => Animate();
+        Model().Attach();   // fork: UI Automation (src/app/ListAccessible.cs)
         spaceW = Txt.Width("x x", F) - Txt.Width("xx", F);
         textH = Txt.Height(F);
     }
 
     public void ToBottom() { if (scroll > 0) { scroll = 0; Invalidate(); } }
+
+    public void SetAnimInterval(int ms) { animTick.Interval = Math.Max(16, ms); }   // fork: Gaming Mode slows animated emotes
+
+    // fork: screen readers read the messages as text, emotes by name (UI-4, src/app/ListAccessible.cs)
+    ListModel a11y;
+    protected override AccessibleObject CreateAccessibilityInstance() { return new ListAccessible(Model()); }
+    ListModel Model()
+    {
+        return a11y ?? (a11y = new ListModel
+        {
+            Owner = this, Name = () => "Chat messages", Count = () => Msgs.Count, Selected = () => -1, Open = null,
+            Item = i => (Msgs[i].Reply != null ? Msgs[i].Reply + ". " : "") + string.Join(" ", Msgs[i].P.Where(p => p.Kind != 2).Select(p => p.Kind == 1 ? (p.E.Name ?? "emote") : p.Text)) + (Msgs[i].Deleted ? " (deleted)" : ""),
+        });
+    }
+
+    // fork (chat text size, src/app/LiteView.Chat.cs): new fonts, then every message is laid out again
+    public void SetTextSize(float pt)
+    {
+        if (Math.Abs(F.Size - pt) < 0.01f) return;
+        F = new Font("Segoe UI", pt); FB = new Font("Segoe UI Semibold", pt); FS = new Font("Segoe UI", pt - 1f);
+        widths.Clear();
+        spaceW = Txt.Width("x x", F) - Txt.Width("xx", F);
+        textH = Txt.Height(F);
+        Redo(m => true);
+    }
 
     public void Clear() { foreach (var m in Msgs) Drop(m); Msgs.Clear(); scroll = 0; Invalidate(); }
 
@@ -239,6 +266,10 @@ class ChatView : Control
         if (Msgs.Count > max) { for (int i = 0; i < Msgs.Count - max; i++) Drop(Msgs[i]); Msgs.RemoveRange(0, Msgs.Count - max); }
         Invalidate();
     }
+
+    // fork: the chat history (src/app/ChatHistory.cs) goes above what arrived live; scroll counts from the bottom, so
+    // what is on screen stays where it is
+    public void Prepend(List<Msg> list) { if (list.Count == 0) return; Msgs.InsertRange(0, list); Invalidate(); }
 
     public void Redo(Func<Msg, bool> which) { foreach (var m in Msgs) if (which(m)) { m.LW = -1; Drop(m); } Invalidate(); }
 
@@ -441,6 +472,7 @@ class ChatView : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         if (pausedBox.Contains(e.Location)) { scroll = 0; Invalidate(); return; }
+        if (e.Button == MouseButtons.Right) { Msg rm; Hit(e.Location, out rm); if (rm != null && MessageMenu != null) MessageMenu(rm, e.Location); return; }   // fork
         Msg m; var pl = Hit(e.Location, out m);
         if (pl == null) return;
         if (pl.P.Kind == 4) { var u = SafeUrl.FromChatWord(pl.P.Text); if (u != null) Launcher.Open(u); }   // upstream: Process.Start(raw word)
@@ -464,7 +496,7 @@ class ChatView : Control
 }
 
 // The chat column: header, messages, input. Joins one channel at a time.
-class ChatPanel : Panel
+partial class ChatPanel : Panel   // fork: partial for the chat history (src/app/ChatHistory.cs)
 {
     public readonly ChatView View = new ChatView();
     readonly Panel head = new Panel(), foot = new Panel();
@@ -545,6 +577,7 @@ class ChatPanel : Panel
         drain.Tick += (s, e) => Drain();
         // a decoded image is counted in the frame budget when it arrives, even if it is never drawn
         Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { Images.Used(e); Images.Trim(); View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
+        InitPickerAccess(); InitReply();   // fork: the emote picker by keyboard (src/app/PickerAccess.cs), replies (src/app/ChatReply.cs)
         UpdateLogin();
     }
 
@@ -575,12 +608,13 @@ class ChatPanel : Panel
         chatters.Clear(); me = null; joinedAs = Tw.Login;
         UpdateLogin();
         inbox.Enqueue(Sys("Welcome to the chat room!"));
+        StartHistory(ch); CancelReply();   // fork: the channel's recent messages (src/app/ChatHistory.cs), before the first live line; no reply across channels
         irc.Start(ch);
         drain.Start();
         LoadGlobals();
     }
 
-    public void Part() { irc.Stop(); drain.Stop(); channel = null; View.Clear(); }
+    public void Part() { irc.Stop(); drain.Stop(); StopHistory(); CancelReply(); channel = null; View.Clear(); }
 
     public void Reconnect() { if (channel != null) { var c = channel; channel = null; Join(c); } }
 
@@ -621,6 +655,7 @@ class ChatPanel : Panel
                 var b = await Badges("chat/badges?broadcaster_id=" + id);
                 if (ch == channel) badges = b;
             }
+            if (ch == channel) Post(() => HistoryReady(ch));   // fork: emotes and badges are here, the history can be shown
         });
     }
 
@@ -805,15 +840,7 @@ class ChatPanel : Panel
         if (im == null) return;
         switch (im.Cmd)
         {
-            case "PRIVMSG": inbox.Enqueue(Build(im, im.Text, im.Nick)); break;
-            case "USERNOTICE":
-            {
-                var m = Build(im, im.Text ?? "", im.Tag("login")); m.Style = 2;
-                var sys = new List<Piece>();
-                foreach (var w in (im.Tag("system-msg") ?? "").Split(' ')) if (w.Length > 0) sys.Add(new Piece { Kind = 0, Text = w, C = ChatView.Fg });
-                if (im.Text == null) m.P = sys; else { sys.Add(new Piece { Kind = 0, Text = "•", C = ChatView.Dim }); m.P = sys.Concat(m.P).ToList(); }
-                inbox.Enqueue(m); break;
-            }
+            case "PRIVMSG": case "USERNOTICE": { var m = ChatLine(im); if (m != null) inbox.Enqueue(m); break; }   // fork: ChatLine, shared with the history
             case "ROOMSTATE":
                 if (ChannelName.IsNumericId(im.Tag("room-id")) && roomId == null) { roomId = im.Tag("room-id"); LoadChannel(roomId); }   // digits only: it goes into API URLs
                 break;
@@ -821,7 +848,7 @@ class ChatPanel : Panel
             {
                 if (im.Cmd == "USERSTATE") me = im;
                 string text;
-                if (im.Cmd == "USERSTATE" && pending.TryDequeue(out text)) inbox.Enqueue(Build(im, text, Tw.Login));
+                if (im.Cmd == "USERSTATE" && pending.TryDequeue(out text)) inbox.Enqueue(Echo(im, text));   // fork: Echo = Build + the reply line (src/app/ChatReply.cs)
                 break;
             }
             case "NOTICE":
@@ -835,17 +862,29 @@ class ChatPanel : Panel
             case "CLEARMSG":
             {
                 string id = im.Tag("target-msg-id");
-                if (id != null) Post(() => View.Redo(m => { if (m.Id != id) return false; m.Deleted = true; return true; }));
+                if (id != null) Post(() => { HistoryModerated(id, null); View.Redo(m => { if (m.Id != id) return false; m.Deleted = true; return true; }); });   // fork: also the history not shown yet
                 break;
             }
             case "CLEARCHAT":
             {
                 string who = im.Text;
+                Post(() => HistoryModerated(null, who));   // fork: also the history not shown yet (null: all of it)
                 if (who == null) inbox.Enqueue(Sys("Chat was cleared by a moderator"));
                 else Post(() => View.Redo(m => { if (m.Login != who || m.Deleted) return false; m.Deleted = true; return true; }));
                 break;
             }
         }
+    }
+
+    // A chat message or a sub/raid notice (null: from an ignored user). Live lines and the history both come here.
+    Msg ChatLine(IrcMsg im)
+    {
+        if (im.Cmd == "PRIVMSG") return ChatPrefs.Filter.IsIgnored(im.Nick) ? null : Build(im, im.Text ?? "", im.Nick);   // fork: ignored users
+        var m = Build(im, im.Text ?? "", im.Tag("login")); m.Style = 2;
+        var sys = new List<Piece>();
+        foreach (var w in (im.Tag("system-msg") ?? "").Split(' ')) if (w.Length > 0) sys.Add(new Piece { Kind = 0, Text = w, C = ChatView.Fg });
+        if (im.Text == null) m.P = sys; else { sys.Add(new Piece { Kind = 0, Text = "•", C = ChatView.Dim }); m.P = sys.Concat(m.P).ToList(); }
+        return m;
     }
 
     void Post(Action a) { try { if (IsHandleCreated) BeginInvoke(a); } catch { } }
@@ -871,6 +910,7 @@ class ChatPanel : Panel
         m.NameColor = ParseColor(im.Tag("color"), login);
         if (login != null) chatters[m.Display] = 0;
         var bd = badges; var gb = globalBadges;
+        if (ChatPrefs.Timestamps) { string ts = ChatFilter.Stamp(im.Tag("tmi-sent-ts")); m.P.Add(new Piece { Kind = 6, Text = ts.Length > 0 ? ts : DateTime.Now.ToString("HH:mm"), C = ChatView.Dim }); }   // fork
         foreach (var b in (im.Tag("badges") ?? "").Split(','))
         {
             if (b.Length == 0) continue;
@@ -926,6 +966,7 @@ class ChatPanel : Panel
         Words(m, text.Substring(pos), tc, login == Tw.Login && login != null && im.Tag("emotes") == null);
         if (Tw.Login != null && login != Tw.Login && Regex.IsMatch(text, @"(^|\W)@?" + Regex.Escape(Tw.Login) + @"(\W|$)", RegexOptions.IgnoreCase)) m.Style = 1;
         if (m.Reply != null && Tw.Login != null && im.Tag("reply-parent-user-login") == Tw.Login && login != Tw.Login) m.Style = 1;
+        if (m.Style == 0 && login != null && login != Tw.Login && ChatPrefs.Filter.Highlights(text)) m.Style = 1;   // fork: highlight words
         return m;
     }
 
@@ -948,6 +989,7 @@ class ChatPanel : Panel
     {
         var list = new List<Msg>(); Msg m;
         while (inbox.TryDequeue(out m)) list.Add(m);
+        DropHistoryEchoes(list); CheckReply();   // fork: a live copy of a message the history already showed (src/app/ChatHistory.cs); a reply to a message deleted meanwhile ends
         if (list.Count > 150) list = list.GetRange(list.Count - 150, 150);   // a flood: keep the newest
         View.Add(list);
         Images.Trim();
@@ -962,9 +1004,9 @@ class ChatPanel : Panel
             e.SuppressKeyPress = true;
             string t = IrcProtocol.CleanOutgoing(input.Text);   // no CR/LF/control characters, at most 500
             if (t.Length == 0 || channel == null || Tw.Token == null || Tw.Login == null) return;
-            if (irc.Send("PRIVMSG #" + channel + " :" + t))
+            if (irc.Send(ReplyPrefix() + "PRIVMSG #" + channel + " :" + t))   // fork: ReplyPrefix (src/app/ChatReply.cs)
             {
-                pending.Enqueue(t);
+                pending.Enqueue(ReplySent(t));   // fork: the text, with its reply line when it is a reply
                 var d = third; var used = t.Split(' ').Where(w => w.Length > 0 && (d.ContainsKey(w) || twitchEmotes.ContainsKey(w))).Distinct().Reverse().ToList();
                 if (used.Count > 0) Used(used);
                 sent.Add(t); if (sent.Count > 50) sent.RemoveAt(0); sentPos = sent.Count;

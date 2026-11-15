@@ -26,22 +26,33 @@ Windows pass and one green CI run.
 2. Register the fork's own Twitch application; switch the client id (SEC-16).
 3. Website sign-out (SEC-17): **implemented** (gear menu); needs the Windows check.
 4. Integration tests with fakes. **Done for Twitch login/API and the chat connection** (`TwitchClient`, `Irc` moved
-   into `src/core`). Still to do: fake Streamlink/mpv executables (exit codes, messages, a hung pipe), which need
-   the Win32 process code to run on a Windows CI runner.
-5. Chat stress tool: **done** (`--chat-stress=N`, logs memory/handles/emote cache every 10 s). Still to do: run it on
-   Windows and set the emote budget and any chat limits from the numbers (RES-7).
-6. Status/errors: a clearer error area than the status line (UI-5), with retry and "open log".
+   into `src/core`). **Done for the stream path too**: `tests/FakeStreamlink` stands in for Streamlink on the Windows
+   runner (plays a generated video in the real mpv, waits like an offline channel, or fails), CI runs all three.
+5. Chat stress tool: **done** (`--chat-stress=N`, logs memory/handles/emote cache/UI lag every 10 s). CI runs it for
+   two minutes at 300 messages a second with a budget (`tools/stress-check.ps1`, numbers in `PERFORMANCE_BASELINE.md`).
+   Still to do: a long run on the owner's PC with a real busy channel.
+6. Status/errors (UI-5): **implemented** (⚠ in the status line, details with Try again / Open log folder / Copy).
 7. Sleep/resume and network changes: **implemented** (chat liveness PING, restart on resume, reconnect when the
    network returns); needs the Windows check.
 
 ## P2 - Native Twitch interface
 
-Native Following page from Helix (`streams/followed`, `users`, `games`, thumbnails), search (`search/channels`),
-favourites, recently watched, offline followed channels, list virtualisation, cached responses with rate-limit
-awareness, stale-request protection. Keep the WebView2 page as a fallback during the migration.
-**Per-monitor DPI** (UI-1): scale every layout constant and custom-drawn control, then declare PerMonitorV2.
+**Implemented** (branch `p2-native`, screenshots from CI with made-up data, not yet used on the owner's PC):
+native Following page from Helix (`streams/followed`, `channels/followed`, `users`, `search/channels`,
+`streams?user_login`): live cards, all followed, recently watched, search with history, favourites, sorting,
+virtualised drawing, image budget, cached search with stale-answer protection, no polling while hidden or minimised.
+The WebView2 page stays as a fallback (menu > Following page).
+Browse tab (CI-checked): the most watched categories (`games/top`) with box art, each category's live channels and
+all of Twitch's (`streams?game_id`), language filter. Not done: hover previews (optional in the brief).
+**Per-monitor DPI** (UI-1): still open. It needs every layout constant and custom-drawn control scaled (about 80
+places in upstream files) and a way to test at 150 % on CI (per-monitor DPI can be changed without signing out;
+system DPI cannot). Planned as its own step. The owner's screen is 2560x1440 at 100 %, where the text was simply too
+small: menu > Text size scales the Following page and the chat (both a step larger by default now).
 
 ## P3 - Playback and video excellence
+
+Done: fullscreen follows the monitor (UI-2), RTX option only with an RTX card (EXT-6), the quality box lists each
+stream's real variants (from Streamlink's log, no extra request).
 
 Quality list from the stream's real variants; persistent mpv vs. restart benchmark for channel switching;
 fullscreen across monitors (UI-2); preset review with objective comparisons (720p/1080p sources to 1080p/1440p/4K,
@@ -49,12 +60,23 @@ measured GPU cost and image metrics); before/after comparison tool; RTX VSR inte
 
 ## P4 - Performance and customisation
 
+Done (P2 branch, not yet checked on Windows): CPU use modes (Automatic / Windows decides / custom cores), opt-in
+Gaming mode, `GameFirst.exe --stop` with rollback, chat text size / timestamps / highlight words / ignored users /
+width (UI-3), keyboard shortcuts, text size for the Following page and chat, pause (stops the stream processes),
+chat history when joining (recent-messages.robotty.de, can be turned off). Chat on the left (chat gear menu). Not done: a settings window (the top-right menu holds the settings for
+now), theming.
+
 Measured CPU scheduling modes (Windows default / recommended / manual / gaming); opt-in Gaming Mode (foreground
 game detection with non-invasive APIs, lower preset, restore); GameFirst per-app policies with rollback;
 chat customisation (fonts, sizes, density, timestamps, highlights, ignore list, chat side and width); shortcuts;
 a settings window; theming (DUP-2).
 
 ## P5 - Product polish
+
+Done (P2 branch): live notifications for favourites with quiet hours (tray), settings export / import / reset,
+update check (opens the release page only) and a release workflow (draft release with the zip's SHA-256).
+Done: screen readers read the Following page, the followed column and the chat (UI Automation for Narrator, MSAA
+for NVDA / JAWS; CI checks both), and so can the emote picker, which also works by keyboard now (Ctrl+E).
 
 Accessibility for the custom-drawn controls (UI-4); notifications for favourite channels with quiet hours;
 settings export/import/reset by category; safe update checking (no silent replacement, verified downloads);

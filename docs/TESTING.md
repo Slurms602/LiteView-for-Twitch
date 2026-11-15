@@ -6,7 +6,7 @@
 dotnet test LiteView.sln -c Release
 ```
 
-228 unit tests (xUnit, `tests/LiteView.Core.Tests`) cover the pure logic in `src/core`. They run on any OS and need
+350 unit tests (xUnit, `tests/LiteView.Core.Tests`) cover the pure logic in `src/core`. They run on any OS and need
 no network, credentials or Twitch account.
 
 | Area | Test class | What it checks |
@@ -26,6 +26,9 @@ no network, credentials or Twitch account.
 | CPU topology | `TopologyTests` | X3D dual-die, equal dies (9900X: no pinning), multi-group, buffer parsing |
 | JSON | `JsonTests` | Value shapes the app reads, numbers, escapes and surrogates, malformed input, depth limit |
 | Twitch login and API (fake Twitch) | `TwitchClientTests` | Refresh and save; rejected vs unreachable refresh; log out during a refresh; a stale validation after a new login; two expired requests refresh once (one-time refresh tokens); token of another app; offline validation keeps the session; 429 wait; oversized answers; unknown hosts never contacted; stalled download ends at the deadline; device flow; log out revokes |
+| Random input | `FuzzTests` | Seeded random and mutated input for every parser of outside data (IRC lines, JSON incl. 200 000 levels deep, the chat history answer, image headers, links, channel names, Helix answers, Streamlink's log, settings files, chat preferences): nothing throws, and the results keep their promises (no line breaks in IRC text, only allowed hosts and schemes, valid logins, bounded sizes, no half characters) |
+| Browse tab | `CategoryTests` | Categories need a numeric id and a name, box art only from allowed hosts; only a numeric category and a known language code reach the request |
+| Chat history | `RecentMessagesTests` | Only chat lines of the channel asked for, no CR/LF/NUL, at most 50; the one-word form without ":" |
 | Chat connection (fake server) | `IrcClientTests` | Anonymous and logged-in handshake; PING/PONG; RECONNECT uses the current token; chat text ending in RECONNECT is text; oversized message reconnects; backoff grows and resets after a healthy connection; Stop; one-line Send; bad channel |
 
 CI (`.github/workflows/ci.yml`) runs the build with warnings as errors, the tests, a secret scan, a vulnerable
@@ -39,8 +42,20 @@ does the same on your own PC without touching that folder.
 The race tests (log out during a refresh, stale validation) and the RECONNECT/backoff tests were checked to fail
 when the fix they guard is removed.
 
-**Not automated yet** (P1): fake Streamlink/mpv processes (process start, job object and pipe code are Win32 and
-need a Windows runner), UI tests, the chat stress test, long-run leak tests.
+CI also starts the packaged app on the Windows runner in several scenes with made-up data (see *UI fixture mode*),
+including the whole watch path with `tests/FakeStreamlink` standing in for Streamlink (the real mpv plays a generated
+video; offline and failing streams too), and reads the Following page, the Browse tab, the followed column, the chat
+and the emote picker through UI Automation and MSAA (`tools/a11y-dump.ps1`): what Narrator and NVDA would read.
+
+A last CI step runs the chat at 300 messages a second for two minutes (fixture scene `stress`, with made-up 7TV
+emotes, the second minute scrolled back so 2000 messages are kept) and checks the `stress:` lines with
+`tools/stress-check.ps1`: private memory under its budget, no growth of memory, handles or GDI/USER objects over the
+last 30 s (four samples), the generator keeping its rate, emotes decoded and none refused, and the window's thread never waiting
+longer than its budget (UI lag). The table goes to `smoke/fixture-stress/stress.txt` in the artifact. Another step
+switches channel every 5 s for two minutes (scene `switching`, with video through FakeStreamlink and 50 chat messages a
+second) and checks that handles, GDI/USER objects, threads and memory do not grow from the 3rd sample to the last.
+
+**Not automated yet**: real Twitch playback, chat stress beyond two minutes, hour-long leak tests, display scaling.
 
 ## Manual pass on Windows (required for the P0 milestone)
 
@@ -67,12 +82,66 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 16 | Gear → *Export diagnostics...* | Explorer opens with the file selected; the file has no token, no `oauth:`, no channel names |
 | 17 | Close LiteView while watching | No `mpv.exe` / `streamlinkw.exe` left; `liteview.ini` and `liteview.ini.bak` present; reopening restores window position |
 | 18 | GameFirst.exe with the shipped ini | `gamefirst.log` lists only mpv, streamlink, streamlinkw; Chrome is untouched |
-| 19 | Display scaling 100 % and 150 % | Same as upstream (DPI support is P2, not part of this milestone) |
+| 19 | Display scaling 100 % and 150 % | Same as upstream (DPI support is still open, UI-1) |
 | 20 | Gear → *Sign out of twitch.tv in LiteView*, then ◀ Following | The Following page shows Twitch logged out; chat login unchanged |
 | 21 | Sleep the PC for a few minutes while watching, wake it | Chat and the stream come back by themselves (at the live edge) |
 | 22 | `LiteView.exe <busy channel> --chat-stress=200` for 15 minutes | `stress:` lines in `liteview.log`; memory and GDI objects level off (send the log) |
 
+### P2 branch (native Following page and the rest)
+
+| # | Check | Expected |
+|---|---|---|
+| 23 | Start while logged in (*Log in with Twitch*) | LiteView's own Following page: live channels as cards with previews, avatars, uptime and viewers |
+| 24 | Click a card; ◀ Following | It plays; back on the page the scroll position is kept and *Recently watched* lists it |
+| 25 | Sort menu; right-click a channel > Add to favourites | Order changes; the favourite moves first with a ★ |
+| 26 | *All followed* tab | Every followed channel, live ones first, offline ones "Following since ..." |
+| 27 | Type in *Go to channel...* (e.g. part of a name) | Results after a short pause, live ones first; Enter still opens what you typed; click the empty box later: recent searches |
+| 28 | Arrow keys / Enter / F5 / Ctrl+F on the page | Selection moves, Enter watches, F5 refreshes, Ctrl+F focuses the search box |
+| 29 | Menu > Following page > Twitch website, then back | The website page appears; switching back closes the browser (no `msedgewebview2.exe` while browsing natively) |
+| 30 | Minimise for 5 minutes on the Following page | No requests while minimised (no `following page` errors); on restore it refreshes |
+| 31 | Open an offline channel, wait for the error, click the ⚠ status | Details with the Streamlink lines; *Try again* restarts; *Open log folder* works |
+| 32 | Fullscreen, then Win+Shift+Right (two monitors); Esc | It fills the other monitor; leaving fullscreen restores the window |
+| 33 | RTX box | Shows on an RTX card (your 5080); diagnostics say "NVIDIA RTX card: true" |
+| 34 | Keyboard shortcuts (menu > Keyboard shortcuts) while watching | Each one works; typing in chat is not affected |
+| 35 | Favourite a channel, menu > Notify me when a favourite goes live; wait for it to go live (or favourite one that is about to) | A Windows notification; clicking it opens the channel; none during quiet hours |
+| 36 | Settings > Export, change something, Import the file | LiteView restarts with the exported settings; the login is kept |
+| 37 | Chat gear: text sizes, timestamps, a highlight word, an ignored user; drag the chat's left edge | Each applies at once; the width is kept after a restart |
+| 38 | Performance > Gaming mode > Automatic; start a fullscreen game with a stream on the other monitor | After about 10 s the status says Gaming mode and the picture is lighter; 15 s after leaving the game it is back |
+| 39 | Performance > CPU use > Windows decides (restart) | `liteview.log` "window ready; CPU Windows decides"; Task Manager: LiteView, Streamlink and mpv at Normal priority |
+| 40 | Start GameFirst.exe, then `GameFirst.exe --stop` | `gamefirst.log`: "guard stopped (--stop): settings of N process(es) put back" |
+| 41 | Quality box after a stream starts | Lists that stream's qualities (e.g. 1080p60, 720p60, 480p, 360p, 160p, Audio only) |
+| 42 | Narrator (Win+Ctrl+Enter) on the Following page; arrow keys | Each channel is read: name, live, viewers, game, title |
+| 43 | Start LiteView (Following page) | Top right shows only the menu button (⋯), no white line or quality box; quality, Chat and the player buttons appear when a stream plays |
+| 44 | Menu > Text size > Following page / Chat | Normal is a bit larger than before; each size applies at once and is kept after a restart |
+| 45 | Pause button (left of the speaker), Space, or the keyboard's play/pause key while watching | The video stops ("Paused"); Task Manager: no Streamlink or mpv; the chat keeps going; Play or Space starts again at live |
+| 46 | Open a busy channel | The last ~50 messages are in the chat above "Welcome to the chat room!" (no duplicates); chat gear > *Recent messages when joining* off: none |
+| 47 | Following page > *Browse*; click a category; *Language*: one you watch; Backspace | The most watched categories with their box art; the category's live channels, most watched first; only that language; back to the categories at the same place |
+| 48 | In the chat box Ctrl+E; type part of a name; Down; arrow keys; Enter; Esc | The picker opens with the search box; Down moves into the grid (purple frame); Enter inserts the emote and the picker stays; Esc closes it and the chat box has the keyboard. Space, M and C do not pause, mute or hide the chat while in the grid |
+| 49 | Narrator in the emote picker grid (item 48) | Each emote is read with its set, e.g. "Pog, 7TV channel" |
+| 50 | Chat gear > *Chat on the left*; drag the chat's right edge; restart | Chat between the followed column and the video, the video still fills its area; the width follows the drag; both kept after a restart; unticking puts it back on the right |
+| 51 | Watch a live channel for a few minutes | Next to the channel name: viewers, uptime, category and title; the numbers update about once a minute; hovering shows the whole title |
+| 52 | Right-click someone's chat message > *Reply to ...*; type; Enter | "Replying to @name: ..." above the chat box; the message shows as a reply on twitch.tv and in LiteView; Esc or ✕ cancels; switching channel, or the message being deleted, ends it; sub and raid notices have no Reply |
+
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
+
+## UI fixture mode (screenshots without a Twitch account)
+
+`LITEVIEW_UI_FIXTURE=1` makes LiteView answer its own Twitch requests with made-up channels and generated pictures
+(`src/app/Fixture.cs`): no network for the Twitch API, no real login (the token file is not read or written), no
+Streamlink, anonymous chat, and the title says *UI fixture*. `LITEVIEW_UI_FIXTURE_SCENE` picks the screen: `live`,
+`followed`, `recent`, `history`, `search:<text>`, `browse`, `category` (the Browse tab and one category), `problem`,
+`chat`, `chatleft` (the chat on the left), `chatlog` (the chat's recent messages), `reply` (replying to one of them), `picker` (the emote picker, keyboard on an emote), `stress` (the
+two-minute busy chat), and with
+`LITEVIEW_UI_FIXTURE_STREAMS=1` plus `smoke.ps1 -FakeStreamlink` also `watch`, `offline`, `fail`, `paused`. `smoke.ps1
+-Expect <regex>` also requires lines in `liteview.log` (CI: the chatlog scene must log 6 recent messages, the paused
+scene must play and then pause), and `-A11yExpect <regex>` lines in what screen readers see (CI: the picker and Browse
+lists with their items). The chat scenes have made-up 7TV channel emotes (generated, a quarter of them animated). CI runs every scene with `tools/smoke.ps1` and
+uploads the screenshots (`smoke-<commit>` artifact), so UI changes can be looked at without a Windows PC:
+
+```powershell
+$env:LITEVIEW_UI_FIXTURE = '1'; $env:LITEVIEW_UI_FIXTURE_SCENE = 'followed'
+tools\smoke.ps1 -Dir dist\LiteView-Enhanced-0.1.0 -Out smoke\followed
+```
 
 ## Chat stress mode (Windows)
 
@@ -83,7 +152,9 @@ dist\LiteView-Enhanced-0.1.0\LiteView.exe <a channel with many 7TV emotes> --cha
 While you watch with the native chat, LiteView adds 200 synthetic messages per second (the channel's own emotes,
 long messages, Unicode, links, replies, deletions, timeouts, sub notices) on top of the real chat. The title bar says
 *chat stress*. Every 10 seconds `liteview.log` gets a `stress:` line: messages per second, working set, private
-memory, threads, handles, GDI/USER objects, CPU seconds and the emote cache. Run it for 10-30 minutes, scroll the
+memory, threads, handles, GDI/USER objects, CPU seconds, the longest wait of the window's thread (UI lag) and the
+emote cache. `tools\stress-check.ps1 -Log liteview.log -Rate 200` turns them into a table with CPU per interval and
+checks them against the same budget as CI. Run it for 10-30 minutes, scroll the
 chat up and down now and then, and keep the log. Healthy: memory and GDI objects level off; the chat stays smooth;
 the emote cache stays within its budget. The generator is `src/core/ChatStress.cs` (tested in `ChatStressTests`).
 

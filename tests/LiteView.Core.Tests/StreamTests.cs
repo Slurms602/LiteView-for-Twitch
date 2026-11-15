@@ -68,6 +68,15 @@ public class WinArgsTests
         }, argv);
     }
 
+    [Fact]
+    public void ASeamlessSwitchStartsThePlayerMuted()
+    {
+        var argv = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, StartMuted = true }));
+        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --mute=yes", argv[argv.IndexOf("--player-args") + 1]);
+        argv = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7 }));
+        Assert.DoesNotContain("mute", argv[argv.IndexOf("--player-args") + 1]);
+    }
+
     [Theory]
     [InlineData("xqc --player-args=calc")]
     [InlineData("a b")]

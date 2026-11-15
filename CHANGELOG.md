@@ -48,6 +48,11 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Names and titles on the Following page and sent chat messages no longer end in half an emoji; a `/me` message
   longer than Twitch allows keeps its action form.
 - A broken emote size from an emote service can no longer give an emote a negative width.
+- **Ultra was oversharpened**: it sharpened twice (NLMeans' sharpening variant and the strong Adaptive Sharpen).
+  It now cleans up the stream's compression noise without sharpening and sharpens once, like High, so it is cleaner
+  than High without looking harsher.
+- The "Replying to" line above replies in the chat was empty at the larger text sizes. A reply also no longer
+  repeats "@name" at its start (like Twitch).
 
 ### Added
 
@@ -79,6 +84,18 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Chat gear menu: **Chat on the left** (between the followed channels and the video; drag its right edge for the width).
 - Emote picker by keyboard: **Ctrl+E** in the chat box opens it; Down goes from its search into the grid, arrow keys
   choose, Enter inserts, typing searches again, Esc closes. Screen readers read each emote and its set.
+- **Seamless channel switching**: the playing stream keeps playing until the next channel shows its first picture,
+  then it switches at once (no black wait). Also for a quality change. Menu > Playback turns it off.
+- **Stats on the video** (I, or menu > Playback): the stream's quality, codec, hardware or software decoding, dropped
+  frames, buffer, how long it took to open, the GPU time the picture preset costs per frame (measured by mpv), and
+  CPU and memory of LiteView and the player.
+- Menu > Playback > **Sharpness** for High and Ultra (Off, Soft, Normal, Strong), and **B** to see the original
+  picture and back, to compare.
+- Menu > **Start and tray**: start with Windows (no administrator rights), start minimised, minimise to the tray
+  (all off unless you turn them on), and *Open the last channel at start* (moved here).
+- The chat and the Following page use **Inter**, the font of Twitch's own site, drawn with ClearType when Windows
+  uses it. Words with characters Inter does not have (Chinese, emoji, ...) are drawn in Segoe UI as before.
+  Menu > Text size > Font switches back to Segoe UI.
 
 ### For developers
 
@@ -88,6 +105,9 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   GDI/USER objects and UI lag against a budget (`tools/stress-check.ps1`).
 - Random-input tests (`FuzzTests`) for every parser of outside data: IRC, JSON, the chat history, image headers,
   links, channel names, Helix answers, Streamlink's log, settings files.
+- CI's channel-switching run checks that each switch keeps the old stream until the new one plays and that no
+  player is left behind (`players` in the `stress:` lines, `-MaxPlayers`), and prints how long streams took to
+  their first frame. Fixture scene `stats` screenshots the stats overlay.
 
 - Twitch login/API and the chat connection moved into the tested library and are tested against a simulated
   Twitch and chat server; JSON is read by a small built-in reader instead of `JavaScriptSerializer`.

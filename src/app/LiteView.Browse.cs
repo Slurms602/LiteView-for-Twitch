@@ -118,6 +118,14 @@ partial class LiteView
                 next.Start();
                 return;
             }
+            if (Fixture.SceneName == "stats")
+            {   // with tests/FakeStreamlink: the stats overlay on the test video, 2 s after its first frame
+                Watch("play_demo");
+                var t = new Timer { Interval = 500 }; int waited = 0;
+                t.Tick += (s2, e2) => { waited += 500; if (firstFrameGen != gen && waited < 15000) return; if (waited < 2000) return; t.Stop(); t.Dispose(); if (!statsOn) ToggleStats(); };
+                t.Start();
+                return;
+            }
             if (Fixture.SceneName == "watch" || Fixture.SceneName == "offline" || Fixture.SceneName == "fail" || Fixture.SceneName == "paused")
             {   // with tests/FakeStreamlink: real mpv with a test video / Streamlink waiting / a failing stream / paused
                 // watch: a made-up live channel, so the status line has its viewers, uptime and title (FakeStreamlink plays any name)
@@ -182,7 +190,6 @@ partial class LiteView
         page.DropDownItems.AddRange(new ToolStripItem[] { pn, pw });
         DarkMenuColors.Apply(page.DropDown);
 
-        var last = Toggle("Open the last channel at start", openLast, v => openLast = v);
         var text = TextSizeMenu();
         var rec = Toggle("Remember watched channels", browse.RememberRecent, v => { browse.RememberRecent = v; if (!v) browse.Recent.Clear(); });
         var srch = Toggle("Remember searches", browse.RememberSearches, v => { browse.RememberSearches = v; if (!v) browse.Searches.Clear(); });
@@ -219,7 +226,7 @@ partial class LiteView
         keys.Click += (s, e) => MessageBox.Show(this, Shortcuts, "Keyboard shortcuts");
 
         appMenu.ShowItemToolTips = true;
-        appMenu.Items.AddRange(new ToolStripItem[] { login, new ToolStripSeparator(), page, last, text, new ToolStripSeparator(), live, quietMenu,
+        appMenu.Items.AddRange(new ToolStripItem[] { login, new ToolStripSeparator(), page, StartMenu(), PlaybackMenu(), text, new ToolStripSeparator(), live, quietMenu,
             new ToolStripSeparator(), rec, srch, clear, new ToolStripSeparator(), PerformanceMenu(), settings, upd, autoUpd, keys });
         AddForkMenuItems(appMenu);
     }
@@ -280,6 +287,10 @@ partial class LiteView
         yield return Kv("keepsearches", browse.RememberSearches ? "1" : "0");
         yield return Kv("searches", browse.RememberSearches ? browse.Searches.Save() : "");
         yield return Kv("openlast", openLast ? "1" : "0");
+        yield return Kv("seamless", seamless ? "1" : "0");
+        yield return Kv("startmin", startMin ? "1" : "0");
+        yield return Kv("sharpness", PicturePreset.Save(sharpness));
+        yield return Kv("totray", toTray ? "1" : "0");
         yield return Kv("pagesize", Array.FindIndex(BrowsePage.Zooms, z => Math.Abs(z - browse.Zoom) < 0.001f).ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("notify", notify ? "1" : "0");
         yield return Kv("quiet", quiet);
@@ -302,6 +313,10 @@ partial class LiteView
         browse.Recent.Load(browse.RememberRecent ? Native.Get(ini, "recent", "") : "");
         browse.Searches.Load(browse.RememberSearches ? Native.Get(ini, "searches", "") : "");
         openLast = Native.Get(ini, "openlast", "0") == "1";
+        seamless = Native.Get(ini, "seamless", "1") != "0";
+        startMin = Native.Get(ini, "startmin", "0") == "1";
+        sharpness = PicturePreset.ParseSharpness(Native.Get(ini, "sharpness", "normal"));
+        toTray = Native.Get(ini, "totray", "0") == "1";
         int ps;
         if (int.TryParse(Native.Get(ini, "pagesize", "1"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ps) && ps < BrowsePage.Zooms.Length) browse.Zoom = BrowsePage.Zooms[ps];
         notify = Native.Get(ini, "notify", "0") == "1";

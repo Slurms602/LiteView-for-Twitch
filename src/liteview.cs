@@ -110,7 +110,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         volBar.MouseUp += (s, e) => SaveSettings();
         new ToolTip().SetToolTip(volBar, "Volume (or the mouse wheel on the video)");
         DarkCombo(picture, Pictures, 128); picture.SelectedIndexChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); };
-        new ToolTip().SetToolTip(picture, "Enhance: AMD FSR 1 upscaling + sharpening, any graphics card (light).\nHigh: FSRCNNX neural upscaling, any graphics card (more GPU).\nHigh: + Adaptive Sharpen on the final picture.\nUltra: best possible - NLMeans clean-up, bigger FSRCNNX, KrigBilateral colour, SSimDownscaler, strong sharpening, motion smoothing (most GPU).\nBoth add AMD CAS sharpening at 1:1 and debanding.");
+        new ToolTip().SetToolTip(picture, "Enhance: AMD FSR 1 upscaling + AMD CAS sharpening, any graphics card (light).\nHigh: FSRCNNX neural upscaling + Adaptive Sharpen (more GPU).\nUltra: NLMeans noise clean-up, bigger FSRCNNX, KrigBilateral colour, SSimDownscaler, motion smoothing,\nsharpened like High (most GPU).\nHigh and Ultra: menu > Playback > Sharpness. B: the original picture, to compare. I: stats with the GPU time.");
         rtx.Text = "RTX"; rtx.ForeColor = Dim; rtx.AutoSize = true; rtx.CheckedChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); };
         new ToolTip().SetToolTip(rtx, "NVIDIA RTX Video AI clean-up. With High/Ultra it cleans the stream first and FSRCNNX upscales after it;\nwith Off/Enhance RTX does the upscaling. Uses a lot more GPU (Ultra + RTX: about 25% of an RTX 5080).\nNeeds RTX Video Enhancement > Super Resolution on in the NVIDIA app.");
         new ToolTip().SetToolTip(chatOn, "Show the chat. Right-click: native chat or Twitch web chat, log in or out.");
@@ -324,7 +324,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         if (!webChat) DropWeb();   // native chat: no browser at all while watching
         else if (webReady) { hiddenAt = DateTime.Now; web.CoreWebView2.Navigate("about:blank"); }   // nothing runs behind the video
 
-        StopStream();
+        HandOverOrStop();   // fork: the playing stream keeps playing until the next one shows (src/app/LiteView.Switch.cs); upstream: StopStream()
         string missing = MissingPlayerFiles();
         if (missing != null) { ShowProblem(missing, missing + "\n\nLiteView plays streams with the Streamlink and mpv copies in its twitch folder. An antivirus may have removed a file: unzip LiteView again into a new folder.", null); Log.Error(missing); }
         else StartStreamProcess(name, (string)quality.SelectedItem);
@@ -447,6 +447,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     }
     void StopStream()
     {
+        KillOutgoing();     // fork: also a stream that was still playing while this one opened (src/app/LiteView.Switch.cs)
         streamOn.Reset();   // the mpv pipe thread goes idle
         if (job != IntPtr.Zero) { TerminateJobObject(job, 0); Native.CloseHandle(job); job = IntPtr.Zero; }
         slPid = 0;
@@ -458,6 +459,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         if (!watching) { tick.Stop(); return; }
         ResyncMpv();
         CheckVariants();   // fork: the quality box lists this stream's real variants
+        CheckHandOver();   // fork: an old stream still playing ends when the next one takes too long
         if ((DateTime.Now - lastResize).TotalMilliseconds > 600) ApplyEnhance(false);
         if (slPid == 0 || slProc == null) return;
         bool alive = false;
@@ -488,8 +490,9 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     // Picture chain (shaders sent once per stream / setting; RTX re-sent after resizes):
     //   Enhance: AMD FSR 1 upscale + AMD CAS at 1:1 + debanding
     //   High:    FSRCNNX (8) upscale + Adaptive Sharpen on the final picture + debanding
-    //   Ultra:   KrigBilateral colour + NLMeans clean-up/sharpen + FSRCNNX (16) + SSimDownscaler
-    //            + strong Adaptive Sharpen + debanding + high-quality scaling + motion smoothing
+    //   Ultra:   KrigBilateral colour + NLMeans clean-up + FSRCNNX (16) + SSimDownscaler
+    //            + Adaptive Sharpen + debanding + high-quality scaling + motion smoothing
+    //   fork: the shader lists are in src/core/PicturePreset.cs (one sharpener at most, strength = menu > Sharpness)
     //   The FSRCNNX copies run for ANY upscale, so they work windowed/maximized too, not only fullscreen.
     //   RTX (NVIDIA): with High/Ultra it does its AI clean-up (a 1.05x step, the smallest that switches it
     //   on) and FSRCNNX upscales after it; with Off/Enhance RTX does the whole upscale.
@@ -498,15 +501,12 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     void ApplyEnhance(bool force)
     {
         if (!watching) return;
-        int pic = GamingPicture(Math.Max(0, picture.SelectedIndex));   // fork: Gaming Mode may lower it
-        if (force || appliedPic != pic.ToString())
+        int pic = comparing ? 0 : GamingPicture(Math.Max(0, picture.SelectedIndex));   // fork: Gaming Mode may lower it; B shows the original (src/app/LiteView.Picture.cs)
+        if (force || appliedPic != pic + "/" + sharpness)
         {
             bool ultra = pic == 3;
             SendMpv("{\"command\":[\"apply-profile\",\"" + (ultra ? "high-quality" : "fast") + "\"]}");
-            var list = new List<string>();
-            if (pic == 1) { list.Add("FSR.glsl"); list.Add("CAS.glsl"); }
-            else if (pic == 2) { list.Add("FSRCNNX_x2_8-0-4-1_any.glsl"); list.Add("adaptive-sharpen.glsl"); }
-            else if (ultra) { list.Add("KrigBilateral.glsl"); list.Add("nlmeans_sharpen_denoise.glsl"); list.Add("FSRCNNX_x2_16-0-4-1_any.glsl"); list.Add("SSimDownscaler.glsl"); list.Add("adaptive-sharpen_strong.glsl"); }
+            var list = PicturePreset.Shaders(pic, sharpness);   // fork: upstream's lists, Ultra sharpened once (src/core/PicturePreset.cs)
             SendMpv("{\"command\":[\"change-list\",\"glsl-shaders\",\"clr\",\"\"]}");
             foreach (var n in list) SendMpv("{\"command\":[\"change-list\",\"glsl-shaders\",\"append\",\"" + Shader(n) + "\"]}");
             SendMpv("{\"command\":[\"set_property\",\"deband\"," + (pic > 0 ? "true" : "false") + "]}");
@@ -514,10 +514,10 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             SendMpv("{\"command\":[\"set_property\",\"video-sync\",\"" + (ultra ? "display-resample" : "audio") + "\"]}");
             SendMpv("{\"command\":[\"set_property\",\"interpolation\"," + (ultra ? "true" : "false") + "]}");
             if (ultra) SendMpv("{\"command\":[\"set_property\",\"tscale\",\"oversample\"]}");
-            appliedPic = pic.ToString();
+            appliedPic = pic + "/" + sharpness;
         }
         double s = videoH > 0 ? Math.Max(1.0, Math.Round((double)video.Height / videoH, 2)) : 1.0;
-        bool useRtx = rtx.Checked && HasNvidia && !gamingActive;
+        bool useRtx = rtx.Checked && HasNvidia && !gamingActive && !comparing;
         string vf = !useRtx ? "off" : pic >= 2 ? "1.05" : s > 1.04 ? s.ToString("0.00", CultureInfo.InvariantCulture) : "off";
         double prev, now;
         bool near = vf != "off" && double.TryParse(appliedVf, NumberStyles.Float, CultureInfo.InvariantCulture, out prev)
@@ -560,11 +560,12 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                     if (g != gen) continue;
                     lock (pipeLock) { mpvPipe = pipe; mpvPipeGen = g; }
                     SendMpv("{\"command\":[\"set_property\",\"volume\"," + volume + "]}");
-                    SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}");
+                    SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted || muteNext ? "true" : "false") + "]}");   // fork: muted while the old stream still plays
                     SendMpv("{\"command\":[\"observe_property\",1,\"volume\"]}");
                     SendMpv("{\"command\":[\"observe_property\",2,\"mute\"]}");
                     SendMpv("{\"command\":[\"observe_property\",3,\"height\"]}");
                     SendMpv("{\"command\":[\"observe_property\",4,\"pause\"]}");   // fork: mpv paused (its Space key, its controls): pause properly
+                    SendMpv(FirstFrameQuery);   // fork: already playing? (src/app/LiteView.Switch.cs)
                     Ui(g, () => { appliedPic = appliedVf = null; videoH = 0; mpvGen = g; });
                     using (var rd = new StreamReader(pipe))
                     {
@@ -572,6 +573,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                         while ((line = rd.ReadLine()) != null)
                         {
                             if (line.Length > 65536) continue;
+                            if (ForkPipeLine(line, g)) continue;   // fork: first frame (src/app/LiteView.Switch.cs), stats (src/app/LiteView.Stats.cs)
                             if (line.Contains("client-message"))
                             {
                                 if (line.Contains("fs-toggle")) Ui(g, ToggleFullscreen);
@@ -601,7 +603,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                                 else if (line.Contains("\"name\":\"mute\""))
                                 {
                                     bool m = d.Groups[1].Value == "true";
-                                    Ui(g, () => { if (mpvResync) return; muted = m; UpdateMute(); });
+                                    Ui(g, () => { if (mpvResync || muteNext) return; muted = m; UpdateMute(); });   // fork: muteNext, the new stream's own mute while it opens
                                 }
                             }
                         }

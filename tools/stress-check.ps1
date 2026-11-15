@@ -6,7 +6,9 @@
 #     threads do not grow by more than their budget (a leak grows without end; a working cache levels off; for
 #     channel switching use a long window, e.g. -SteadySamples 10, so a small leak per switch adds up),
 #   - the window's thread answers within -MaxLagMs (it draws the chat, so a long wait is a visible freeze),
-#   - optionally, enough emotes were decoded and none refused (-MinDecoded, -MaxRefused).
+#   - optionally, enough emotes were decoded and none refused (-MinDecoded, -MaxRefused),
+#   - optionally, never more than -MaxPlayers mpv processes at a sample (channel switching: an old stream's player
+#     ends once the next one plays, so at most 2 while one opens).
 # The numbers in the budget come from the first CI runs (docs/PERFORMANCE_BASELINE.md). Exit code 1 = over budget.
 #     tools\stress-check.ps1 -Log smoke\fixture-stress\liteview.log -Rate 300
 param(
@@ -23,12 +25,13 @@ param(
     [int]$MaxLagMs = 750,
     [int]$MinDecoded = 0,   # emotes decoded at the end (CI: the fixture's made-up 7TV emotes really drew)
     [int]$MaxRefused = -1,  # images refused by the size/format checks (-1: not checked)
+    [int]$MaxPlayers = -1,  # mpv processes at any sample (-1: not checked)
     [string]$Out
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$re = 'stress: (\d+) messages \((\d+)/s\), working set (\d+) MB, private (\d+) MB, threads (\d+), handles (\d+), GDI (\d+), USER (\d+), CPU ([0-9.]+) s, UI lag max (\d+) ms, emotes: (.*)$'
+$re = 'stress: (\d+) messages \((\d+)/s\), working set (\d+) MB, private (\d+) MB, threads (\d+), handles (\d+), GDI (\d+), USER (\d+), CPU ([0-9.]+) s, UI lag max (\d+) ms(?:, players (\d+))?, emotes: (.*)$'
 $rows = New-Object System.Collections.Generic.List[object]
 foreach ($line in Get-Content $Log) {
     $m = [regex]::Match($line, $re)
@@ -37,7 +40,7 @@ foreach ($line in Get-Content $Log) {
     $rows.Add([pscustomobject]@{
         Phase = $null; Messages = [long]$g[1].Value; PerSecond = [int]$g[2].Value; WorkingMB = [int]$g[3].Value; PrivateMB = [int]$g[4].Value
         Threads = [int]$g[5].Value; Handles = [int]$g[6].Value; Gdi = [int]$g[7].Value; User = [int]$g[8].Value; CpuS = [double]::Parse($g[9].Value, [Globalization.CultureInfo]::InvariantCulture)
-        LagMs = [int]$g[10].Value; Emotes = $g[11].Value.Trim() })
+        LagMs = [int]$g[10].Value; Players = $(if ($g[11].Success) { [int]$g[11].Value } else { -1 }); Emotes = $g[12].Value.Trim() })
 }
 $samples = @($rows | Where-Object { $null -eq $_.Phase })
 
@@ -46,14 +49,14 @@ function Note([string]$s) { $report.Add($s); Write-Host $s }
 $ok = $true
 function Fail([string]$s) { $script:ok = $false; Note "FAIL: $s" }
 
-Note ("{0,4} {1,9} {2,6} {3,8} {4,8} {5,7} {6,7} {7,5} {8,5} {9,6} {10,7}  {11}" -f 's', 'messages', 'per s', 'work MB', 'priv MB', 'threads', 'handles', 'GDI', 'USER', 'CPU %', 'lag ms', 'emotes')
+Note ("{0,4} {1,9} {2,6} {3,8} {4,8} {5,7} {6,7} {7,5} {8,5} {9,6} {10,7} {11,3}  {12}" -f 's', 'messages', 'per s', 'work MB', 'priv MB', 'threads', 'handles', 'GDI', 'USER', 'CPU %', 'lag ms', 'mpv', 'emotes')
 $t = 0; $prevCpu = $null
 foreach ($r in $rows) {
     if ($null -ne $r.Phase) { Note "     -- $($r.Phase)"; continue }
     $t += 10
     $cpu = if ($null -eq $prevCpu) { '' } else { [string][int][Math]::Round(($r.CpuS - $prevCpu) * 10) }   # % of one core over the 10 s
     $prevCpu = $r.CpuS
-    Note ("{0,4} {1,9} {2,6} {3,8} {4,8} {5,7} {6,7} {7,5} {8,5} {9,6} {10,7}  {11}" -f $t, $r.Messages, $r.PerSecond, $r.WorkingMB, $r.PrivateMB, $r.Threads, $r.Handles, $r.Gdi, $r.User, $cpu, $r.LagMs, $r.Emotes)
+    Note ("{0,4} {1,9} {2,6} {3,8} {4,8} {5,7} {6,7} {7,5} {8,5} {9,6} {10,7} {11,3}  {12}" -f $t, $r.Messages, $r.PerSecond, $r.WorkingMB, $r.PrivateMB, $r.Threads, $r.Handles, $r.Gdi, $r.User, $cpu, $r.LagMs, $(if ($r.Players -ge 0) { $r.Players } else { '' }), $r.Emotes)
 }
 
 if ($samples.Count -lt $MinSamples) { Fail "only $($samples.Count) samples (need $MinSamples): the run was too short or the stress mode did not start" }
@@ -80,7 +83,19 @@ else {
             if ($MaxRefused -ge 0 -and $ref -gt $MaxRefused) { Fail "$ref images refused (budget $MaxRefused)" }
         }
     }
+    if ($MaxPlayers -ge 0) {
+        $most = ($samples | Measure-Object Players -Maximum).Maximum
+        if ($most -lt 0) { Fail "no player counts in the log" }
+        elseif ($most -gt $MaxPlayers) { Fail "$most mpv players ran at once (budget $MaxPlayers): an old stream's player did not end" } else { Note "most mpv players at once: $most (budget $MaxPlayers)" }
+    }
     if ($lag -gt $MaxLagMs) { Fail "the window's thread waited up to $lag ms (budget $MaxLagMs ms)" } else { Note "longest UI wait: $lag ms (budget $MaxLagMs ms)" }
+}
+# channel switching: how long each stream took to its first frame, and how many switches kept the old one playing
+$opens = @(Select-String -Path $Log -Pattern 'stream \d+: first frame after ([0-9.]+) s(; the last stream played until then)?' | ForEach-Object {
+    [pscustomobject]@{ S = [double]::Parse($_.Matches[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture); Seamless = $_.Matches[0].Groups[2].Success } })
+if ($opens.Count -gt 0) {
+    $sorted = @($opens | Sort-Object S)
+    Note ("first frame: {0} streams, median {1:0.0} s, slowest {2:0.0} s; {3} switches kept the old stream playing until then" -f $opens.Count, $sorted[[int][Math]::Floor($sorted.Count / 2)].S, $sorted[-1].S, @($opens | Where-Object Seamless).Count)
 }
 Note ($(if ($ok) { 'PASS' } else { 'FAIL' }))
 if ($Out) { $report | Set-Content $Out -Encoding utf8 }

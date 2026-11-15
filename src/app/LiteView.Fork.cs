@@ -43,7 +43,8 @@ partial class LiteView
     // ---------- command line ----------
 
     static int stressRate;   // --chat-stress=<messages per second>
-    static bool stressGc;    // CI leak check: a full garbage collection before each sample, so only real leaks grow
+    static bool stressGc;
+    static bool autostarted;    // CI leak check: a full garbage collection before each sample, so only real leaks grow
 
     static void ParseArgs(string[] args)
     {
@@ -54,6 +55,7 @@ partial class LiteView
                 int eq = a.IndexOf('='), r;
                 stressRate = eq > 0 && int.TryParse(a.Substring(eq + 1), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out r) ? Math.Max(1, Math.Min(5000, r)) : 100;
             }
+            else if (a.Equals("--autostart", StringComparison.OrdinalIgnoreCase)) autostarted = true;   // Windows started it (src/app/LiteView.Startup.cs)
             else if (!a.StartsWith("--", StringComparison.Ordinal) && startChannel == null) startChannel = a;
         }
     }
@@ -61,6 +63,7 @@ partial class LiteView
     void InitFork()
     {
         Shown += (s, e) => windowShown = true;
+        InitSwitch(); InitStats(); InitStartup();
         if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>
@@ -122,6 +125,14 @@ partial class LiteView
 
     System.Threading.Timer stressTimer;
 
+    // mpv processes running (CI: an old stream's player must end once the next one plays: at most 2, while one opens)
+    static int Players()
+    {
+        var ps = Process.GetProcessesByName("mpv");
+        foreach (var p in ps) p.Dispose();
+        return ps.Length;
+    }
+
     void StartStress()
     {
         var gen0 = new ChatStress("stress", Environment.TickCount);
@@ -167,7 +178,7 @@ partial class LiteView
                         Log.Info("stress: " + gen0.Count + " messages (" + ((gen0.Count - lastCount) * 1000 / Math.Max(1, now - lastLog)) + "/s), working set "
                             + me.WorkingSet64 / (1024 * 1024) + " MB, private " + me.PrivateMemorySize64 / (1024 * 1024) + " MB, threads " + me.Threads.Count
                             + ", handles " + me.HandleCount + ", GDI " + GetGuiResources(me.Handle, 0) + ", USER " + GetGuiResources(me.Handle, 1)
-                            + ", CPU " + me.TotalProcessorTime.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s, UI lag max " + takeLag() + " ms, emotes: " + Images.Stats());
+                            + ", CPU " + me.TotalProcessorTime.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s, UI lag max " + takeLag() + " ms, players " + Players() + ", emotes: " + Images.Stats());
                     lastLog = now; lastCount = gen0.Count;
                 }
             }
@@ -266,12 +277,12 @@ partial class LiteView
         {
             cmdline = StreamCommand.Build(new StreamRequest
             {
-                Streamlink = streamlink, Mpv = mpv, LogFile = slLog, Channel = name, Quality = q,
-                PipeName = pipeName, WindowHandle = video.Handle.ToInt64(),
+                Streamlink = streamlink, Mpv = mpv, LogFile = curLog, Channel = name, Quality = q,
+                PipeName = pipeName, WindowHandle = surfaces[streamSurface].Handle.ToInt64(), StartMuted = muteNext,
             });
         }
         catch (ArgumentException ex) { ShowProblem("Cannot play this channel", ex.Message, null); Log.Error("stream command", ex); return; }
-        try { File.Delete(slLog); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { File.Delete(curLog); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         job = CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero) { ShowProblem("Could not start Streamlink", "Windows refused to create a job object (error " + Marshal.GetLastWin32Error() + ").", () => Watch(channel)); Log.Error("CreateJobObject failed"); return; }
         var lim = new JOBLIMITS { flags = 0x2000 };   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: closing LiteView also ends its stream
@@ -308,12 +319,12 @@ partial class LiteView
         if (++openingTicks % 4 != 0) return;
         try
         {
-            if (!File.Exists(slLog)) return;
-            var lines = ReadShared(slLog);
+            if (!File.Exists(curLog)) return;
+            var lines = ReadShared(curLog);
             string err = StreamOutcome.LastError(lines);
             status.ForeColor = Dim;
-            if (StreamOutcome.Waiting(lines)) status.Text = "Offline - it starts by itself when the channel goes live";
-            else if (err.Length > 0) status.Text = "Retrying: " + err;
+            if (StreamOutcome.Waiting(lines)) { EndHandOver(); status.Text = "Offline - it starts by itself when the channel goes live"; }
+            else if (err.Length > 0) { EndHandOver(); status.Text = "Retrying: " + err; }
         }
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
@@ -329,8 +340,8 @@ partial class LiteView
         if ((DateTime.Now - slStart).TotalSeconds > 60) { variantsGen = gen; return; }   // never printed: keep the list
         try
         {
-            if (!File.Exists(slLog)) return;
-            var found = Quality.Available(ReadShared(slLog));
+            if (!File.Exists(curLog)) return;
+            var found = Quality.Available(ReadShared(curLog));
             if (found.Count == 0) return;
             variantsGen = gen;
             var choices = Quality.ChoicesFor(found);
@@ -364,7 +375,7 @@ partial class LiteView
     {
         var ran = DateTime.Now - slStart;
         string err = "";
-        try { if (File.Exists(slLog)) err = StreamOutcome.LastError(ReadShared(slLog)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { if (File.Exists(curLog)) err = StreamOutcome.LastError(ReadShared(curLog)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         var end = StreamOutcome.Classify(err, ran, played);
         int code = int.MinValue; try { code = slProc.ExitCode; } catch (InvalidOperationException) { }
         Log.Warn("stream " + gen + ": Streamlink exited (code " + code + ", after " + (int)ran.TotalSeconds + " s, " + end + ")" + (err.Length > 0 ? ": " + Redact.ForSharing(err) : ""));
@@ -472,9 +483,9 @@ partial class LiteView
         if (err.Length > 0) sb.Append(Redact.ForSharing(err)).Append("\n\n");
         try
         {
-            if (File.Exists(slLog))
+            if (File.Exists(curLog))
             {
-                var tail = ReadShared(slLog).Where(l => l.Trim().Length > 0).Reverse().Take(12).Reverse().ToList();
+                var tail = ReadShared(curLog).Where(l => l.Trim().Length > 0).Reverse().Take(12).Reverse().ToList();
                 if (tail.Count > 0) { sb.Append("Last lines of streamlink.log:\n"); foreach (var l in tail) sb.Append(Redact.ForSharing(l)).Append('\n'); }
             }
         }
@@ -570,7 +581,7 @@ partial class LiteView
             }
             add("Emote image cache", ImagesStats());
             var tail = new List<string>(Log.Tail(300));
-            try { if (File.Exists(slLog)) { tail.Add("--- streamlink.log (last 60 lines) ---"); tail.AddRange(ReadShared(slLog).Where(l => l.Length > 0).Reverse().Take(60).Reverse()); } }
+            try { if (File.Exists(curLog)) { tail.Add("--- streamlink.log (last 60 lines) ---"); tail.AddRange(ReadShared(curLog).Where(l => l.Length > 0).Reverse().Take(60).Reverse()); } }
             catch (IOException) { }
             string text = Diagnostics.Report(f, IniStore.Read(iniPath), tail);
             string path = Path.Combine(root, "diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".txt");

@@ -31,6 +31,8 @@ partial class LiteView
         "M  Mute\n" +
         "Ctrl+Up / Ctrl+Down  Volume\n" +
         "C  Show or hide the chat\n" +
+        "I  Playback stats on the video (codec, decoding, dropped frames, buffer, GPU time, CPU, memory)\n" +
+        "B  The original picture without enhancement, to compare (B again: back)\n" +
         "Ctrl+E  Emotes (in the chat box; arrow keys choose, Enter inserts)\n\n" +
         "On the Following page: arrow keys choose, Enter watches, the menu key opens the channel menu.\n" +
         "With the video clicked, mpv's keys apply (double-click or F: fullscreen, M: mute, wheel: volume).";
@@ -50,6 +52,8 @@ partial class LiteView
             else if (e.KeyCode == Keys.Space && plain) TogglePause();
             else if (e.KeyCode == Keys.M && plain) muteBtn.PerformClick();
             else if (e.KeyCode == Keys.C && plain) chatOn.Checked = !chatOn.Checked;
+            else if (e.KeyCode == Keys.I && plain) ToggleStats();
+            else if (e.KeyCode == Keys.B && plain) ToggleCompare();
             else if (e.Control && e.KeyCode == Keys.Up) { volBar.Set(volBar.Value + 5); SaveSettings(); }
             else if (e.Control && e.KeyCode == Keys.Down) { volBar.Set(volBar.Value - 5); SaveSettings(); }
             else return;
@@ -75,25 +79,9 @@ partial class LiteView
     void ApplyNotify()
     {
         notifyTimer.Enabled = notify;
-        if (notify && tray == null)
-        {
-            tray = new NotifyIcon { Icon = Icon ?? SystemIcons.Application, Text = "LiteView - notifies when favourites go live", Visible = true };
-            tray.BalloonTipClicked += (s, e) => { ShowWindow(); if (notifyLogin != null) Watch(notifyLogin); };
-            tray.DoubleClick += (s, e) => ShowWindow();
-            var m = new ContextMenuStrip(); DarkMenuColors.Apply(m); m.ShowImageMargin = false;
-            m.Items.Add("Open LiteView", null, (s, e) => ShowWindow());
-            m.Items.Add("Turn off live notifications", null, (s, e) => { notify = false; ApplyNotify(); SaveSettings(); });
-            tray.ContextMenuStrip = m;
-        }
-        else if (!notify && tray != null) { tray.Visible = false; tray.Dispose(); tray = null; }
+        UpdateTray();   // src/app/LiteView.Startup.cs: also there for "minimise to the tray"
         if (!notify) favWatch.Reset();
         else CheckFavourites();
-    }
-
-    void ShowWindow()
-    {
-        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-        Activate();
     }
 
     async void CheckFavourites()
@@ -183,6 +171,7 @@ partial class LiteView
             "Reset all settings", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
         try { File.Delete(iniPath); File.Delete(iniPath + ".bak"); }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { ShowProblem("Could not reset the settings", ex.Message, null); return; }
+        if (StartsWithWindows()) SetStartWithWindows(false);   // part of the settings, though kept in the registry
         Log.Info("settings reset");
         RestartWithoutSaving();
     }

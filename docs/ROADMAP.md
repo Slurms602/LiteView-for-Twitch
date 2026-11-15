@@ -53,6 +53,15 @@ small: menu > Text size scales the Following page and the chat (both a step larg
 
 Done: fullscreen follows the monitor (UI-2), RTX option only with an RTX card (EXT-6), the quality box lists each
 stream's real variants (from Streamlink's log, no extra request).
+Done (branch `p3-playback`, CI-checked): **seamless switching** instead of a persistent mpv. The gap a switch shows is
+Streamlink opening the next stream (Python, Twitch's API, the first segments: seconds), not mpv starting, so keeping
+one mpv would hide little of it; keeping the old stream playing until the new one's first frame hides all of it
+(measured per switch in `liteview.log`, "first frame after X s"; CI checks every switch hands over and no player is
+left). **Stats overlay** (I) with mpv's own GPU time per frame (vo-passes), which is how a preset's GPU cost is
+measured on a real card. **Preset review**: Ultra sharpened twice (NLMeans' sharpening variant + strong Adaptive
+Sharpen; the owner found it oversharpened); now NLMeans only denoises and Ultra sharpens once like High; Sharpness
+setting; **B** compares with the original picture. Open: image metrics of the presets against a known original
+(planned as a CI scene), RTX VSR review on the owner's card.
 
 Quality list from the stream's real variants; persistent mpv vs. restart benchmark for channel switching;
 fullscreen across monitors (UI-2); preset review with objective comparisons (720p/1080p sources to 1080p/1440p/4K,
@@ -63,8 +72,9 @@ measured GPU cost and image metrics); before/after comparison tool; RTX VSR inte
 Done (P2 branch, not yet checked on Windows): CPU use modes (Automatic / Windows decides / custom cores), opt-in
 Gaming mode, `GameFirst.exe --stop` with rollback, chat text size / timestamps / highlight words / ignored users /
 width (UI-3), keyboard shortcuts, text size for the Following page and chat, pause (stops the stream processes),
-chat history when joining (recent-messages.robotty.de, can be turned off). Chat on the left (chat gear menu). Not done: a settings window (the top-right menu holds the settings for
-now), theming.
+chat history when joining (recent-messages.robotty.de, can be turned off). Chat on the left (chat gear menu). The
+chat and Following page in Inter (Twitch's font) with ClearType. Not done: a settings window (the top-right menu holds
+the settings for now), theming.
 
 Measured CPU scheduling modes (Windows default / recommended / manual / gaming); opt-in Gaming Mode (foreground
 game detection with non-invasive APIs, lower preset, restore); GameFirst per-app policies with rollback;

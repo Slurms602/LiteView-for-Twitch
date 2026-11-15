@@ -79,6 +79,22 @@ namespace LiteViewCore
             return list;
         }
 
+        /// <summary>The variant Streamlink opened ("Opening stream: 1080p60 (hls)" -> "1080p60"; the last such line), or "".</summary>
+        public static string Opened(IEnumerable<string> logLines)
+        {
+            string found = "";
+            foreach (var l in logLines)
+            {
+                int i = l.IndexOf("Opening stream: ", StringComparison.Ordinal);
+                if (i < 0) continue;
+                string n = l.Substring(i + 16).Trim();
+                int sp = n.IndexOf(' ');
+                if (sp > 0) n = n.Substring(0, sp);
+                if (n == "audio_only" || Variant.IsMatch(n)) found = n;
+            }
+            return found;
+        }
+
         /// <summary>The quality box for a stream: Best, its video variants from high to low, Audio only when it has one.</summary>
         public static List<string> ChoicesFor(IList<string> available)
         {
@@ -97,6 +113,8 @@ namespace LiteViewCore
     {
         public string Streamlink = "", Mpv = "", LogFile = "", Channel = "", Quality = "Best", PipeName = "";
         public long WindowHandle;
+        /// <summary>The player starts muted (seamless switching: the old stream still plays).</summary>
+        public bool StartMuted;
     }
 
     public static class StreamCommand
@@ -108,7 +126,7 @@ namespace LiteViewCore
         {
             if (!ChannelName.IsValidLogin(r.Channel)) throw new ArgumentException("not a channel name: " + r.Channel);
             if (!IsPipeName(r.PipeName)) throw new ArgumentException("bad pipe name");
-            string playerArgs = "--wid=" + r.WindowHandle.ToString(CultureInfo.InvariantCulture) + " --input-ipc-server=" + r.PipeName;
+            string playerArgs = "--wid=" + r.WindowHandle.ToString(CultureInfo.InvariantCulture) + " --input-ipc-server=" + r.PipeName + (r.StartMuted ? " --mute=yes" : "");
             var a = new List<string>
             {
                 r.Streamlink,

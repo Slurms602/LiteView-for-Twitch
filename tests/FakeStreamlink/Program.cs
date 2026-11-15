@@ -41,6 +41,7 @@ static class FakeStreamlink
             Log("[cli][error] Unable to open URL: https://usher.ttvnw.net/api/channel/hls/" + channel + ".m3u8 (made-up failure from the CI stand-in)");
             return 1;
         }
+        Thread.Sleep(1500);   // Streamlink needs a moment to open a stream (Python, Twitch's API, the first segments): seamless switching has something to hide
         Log("[cli][info] Available streams: audio_only, 160p (worst), 360p, 480p, 720p60, 1080p60 (best)");
         Log("[cli][info] Opening stream: 1080p60 (hls)");
         Log("[cli][info] Starting player: " + player);

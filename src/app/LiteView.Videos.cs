@@ -74,17 +74,48 @@ partial class LiteView
         return true;
     }
 
-    // OnStreamExited: a video that played to (near) its end ended; true = handled (no retry)
-    bool VideoEnded(bool wasPlaying)
+    // OnStreamExited: true = handled here (no automatic retry). A video ended when mpv said so (its end-file event with
+    // reason "eof"); one Twitch will not give (subscribers only, deleted: Streamlink finds no stream) is not retried
+    // every minute like an offline channel; any other exit is retried like a stream, from where it was.
+    bool VideoExit(bool wasPlaying, StreamEnd end, string err)
     {
-        if (currentVideo == null || !wasPlaying) return false;
-        bool atEnd = currentVideo.IsClip || currentVideo.Seconds <= 0 || videoPos >= currentVideo.Seconds - 30;
-        if (!atEnd) return false;   // stopped in the middle: retried like a stream, from where it was
-        Log.Info("video ended");
-        StopStream();
-        videoPos = 0; canRetry = true;
-        status.ForeColor = Dim;
-        status.Text = (currentVideo.IsClip ? "The clip ended" : "The video ended") + "  -  click here or press F5 to play it again";
+        if (currentVideo == null) return false;
+        string what = currentVideo.IsClip ? "clip" : "video";
+        if (wasPlaying && videoEofGen == gen)
+        {
+            Log.Info(what + " ended");
+            StopStream();
+            videoPos = 0; canRetry = true;
+            status.ForeColor = Dim;
+            status.Text = "The " + what + " ended  -  click here or press F5 to play it again";
+            return true;
+        }
+        if (!wasPlaying && end == StreamEnd.Offline)
+        {
+            Log.Warn(what + " cannot be played");
+            StopStream(); canRetry = true;
+            ShowProblem("This " + what + " cannot be played", "Twitch did not give LiteView this " + what + ". It may be for subscribers only, deleted, or still being processed." + (err.Length > 0 ? "\n\n" + err : ""), Replay);
+            return true;
+        }
+        return false;
+    }
+
+    int videoEofGen = -1, videoExitGen = -1, videoExitTicks;
+
+    // OnStreamExited: a video's player ended but mpv's end-file event has not arrived on the UI thread yet: wait up to
+    // two ticks (about a second) for it, so a video that played to its end is not taken for a failure
+    bool WaitForVideoEnd()
+    {
+        if (currentVideo == null || !played || videoEofGen == gen) return false;
+        if (videoExitGen != gen) { videoExitGen = gen; videoExitTicks = 0; }
+        return ++videoExitTicks <= 2;
+    }
+
+    // PipeLoop thread: mpv's end-file event; "eof" means the video played to its end
+    bool VideoEndLine(string line, int g)
+    {
+        if (line.IndexOf("\"event\":\"end-file\"", StringComparison.Ordinal) < 0) return false;
+        if (line.IndexOf("\"reason\":\"eof\"", StringComparison.Ordinal) >= 0) Ui(g, () => videoEofGen = gen);
         return true;
     }
 

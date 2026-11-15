@@ -61,7 +61,12 @@ def overshoot(out, truth):
 
 
 def detail(img):
-    return ImageStat.Stat(img.filter(ImageFilter.FIND_EDGES)).mean[0]
+    # mean absolute difference to the right and lower neighbour (gradient energy), inside the picture
+    w, h = img.size
+    inner = (1, 1, w - 1, h - 1)
+    dx = ImageChops.difference(img, ImageChops.offset(img, 1, 0)).crop(inner)
+    dy = ImageChops.difference(img, ImageChops.offset(img, 0, 1)).crop(inner)
+    return ImageStat.Stat(dx).mean[0] + ImageStat.Stat(dy).mean[0]
 
 
 def main():

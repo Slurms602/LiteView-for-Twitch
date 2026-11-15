@@ -44,7 +44,9 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/app/LiteView.Stats.cs`, `LiteView.Picture.cs` | Stats overlay (mpv OSD), Sharpness, B compare, the Playback menu | fork |
 | `src/app/BrowseVideos.cs`, `LiteView.Videos.cs` | A channel's videos and clips on the Following page; playing one (seek, resume, end) | fork |
 | `src/app/BrowsePreview.cs`, `LiteView.Preview.cs` | Hover previews: when to ask (page), playing one in a disabled box over the card (main window) | fork |
+| `src/app/ExtraPlayer.cs` | Extra windows: one more channel each (own Streamlink + mpv job, no chat); `LaunchPlayer` in `LiteView.Preview.cs` starts them | fork |
 | `src/app/LiteView.Startup.cs` | Start with Windows (Run key), start minimised, tray | fork |
+| `src/app/ColorEmoji.cs` | Colour emoji: Direct2D + DirectWrite through their COM vtables into cached bitmaps; the chat's emoji pieces | fork |
 | `src/app/UiFont.cs` | Inter (bundled in `fonts\`) or Segoe UI for the drawn text; Segoe UI for what Inter lacks | fork |
 | `src/app/LiteView.Performance.cs` | CPU use modes, Gaming mode | fork |
 | `src/app/LiteView.Screens.cs` | Fullscreen across monitors, RTX card detection | fork |
@@ -94,6 +96,7 @@ fork-only half is `src/app/LiteView.Fork.cs`.
 | `GuardLedger.cs` | What GameFirst changed, for `--stop` |
 | `ChatStress.cs` | Synthetic chat for the stress mode |
 | `Videos.cs` | A channel's videos and clips from Helix (`ChannelVideos`), their checks and formats (`VideoData`) |
+| `Emoji.cs` | Emoji sequences in text (`EmojiText.Split`) |
 | `FontCoverage.cs` | Which characters a TrueType font has (its cmap), for the Inter/Segoe UI choice per word |
 | `PlaybackStats.cs` | The stats overlay: mpv's expand-text answer, GPU time from vo-passes, the overlay's ASS text and command |
 | `PicturePreset.cs` | Shader lists of the picture presets and the Sharpness setting |

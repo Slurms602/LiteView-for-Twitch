@@ -95,6 +95,10 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   broadcasts, highlights and uploads, or its most viewed clips of the last 30 days. They play in LiteView with the
   channel's live chat; videos can be seeked (arrow keys or mpv's bar at the bottom), and Pause, F5 or a new quality
   continue where the video was.
+- **Colour emoji** in the chat (drawn with DirectWrite like the browser does; where that is not available they stay
+  as before).
+- **More streams at once**: right-click a channel > *Watch in a new window* plays it in a separate window (720p,
+  without chat, its own sound: M and the mouse wheel on its video), up to 3 next to the main one.
 - **Previews on hover**: rest the mouse on a live channel's card on the Following page and it plays there, muted, at
   the lowest quality (menu > Playback turns it off).
 - Menu > **Start and tray**: start with Windows (no administrator rights), start minimised, minimise to the tray

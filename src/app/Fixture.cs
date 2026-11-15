@@ -145,7 +145,7 @@ static class Fixture
                     new[] { "night_shift", "#DAA520", ":is this the recent messages test?" }, new[] { "early_bird", "#1E90FF", ":yes, made-up lines" },
                     // a reply as Twitch sends it (the text starts with @name; shown as a "Replying to" line instead), then text Inter lacks (drawn in Segoe UI)
                     new[] { "quiet_owl", "#9ACD32", ":@Night_Shift it is, the reply line should be above this", ";reply-parent-display-name=Night_Shift;reply-parent-user-login=night_shift;reply-parent-msg-body=is\\\\sthis\\\\sthe\\\\srecent\\\\smessages\\\\stest?;reply-parent-msg-id=00000000-0000-4000-8000-000000000004" },
-                    new[] { "pixel_pal", "#FF7F50", ":Привет чат, 你好 and café" },
+                    new[] { "pixel_pal", "#FF7F50", ":Привет чат, 你好 and café 😀👍🏽 gg🔥" },
                 };
                 var lines = said.Select((x, i) => "@badges=;color=" + x[1] + ";display-name=" + Display(x[0]) + ";emotes=;id=00000000-0000-4000-8000-00000000000" + i + (x.Length > 3 ? x[3] : "") +
                     ";tmi-sent-ts=" + (now - (said.Length - i) * 45000) + ";historical=1 :" + x[0] + "!" + x[0] + "@" + x[0] + ".tmi.twitch.tv PRIVMSG #" + ch + " " + x[2]);

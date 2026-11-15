@@ -316,6 +316,7 @@ partial class BrowsePage : Control
         string q = SearchText.Clean(text);
         if (q == query) return;
         query = q; history = false; scroll = 0; sel = -1;
+        if (InVideos) { vidQuery = null; vidHistory = false; }   // a new search: Back from the videos no longer returns to the old one
         searchDelay.Stop();
         if (q == null) { results = null; searching = false; searchFailed = false; searchGuard.Next(); Rebuild(); return; }
         List<ChannelInfo> cached;

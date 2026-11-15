@@ -63,11 +63,11 @@ jobs:
           dotnet build tests/FakeStreamlink -c Release --no-restore -o fake
           $fake = (Resolve-Path fake/streamlinkw.exe).Path
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'paused', 'offline', 'fail') {
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'window', 'paused', 'offline', 'fail') {
             $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
             $more = @{ A11y = $scene -in 'live', 'followed', 'browse', 'category', 'videos', 'clips', 'chat', 'chatlog', 'picker' }   # also check what screen readers see
-            if ($scene -in 'watch', 'stats', 'vod', 'preview', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
-            if ($scene -eq 'chatlog') { $more.Expect = @('chat: 8 recent messages') }
+            if ($scene -in 'watch', 'stats', 'vod', 'preview', 'window', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
+            if ($scene -eq 'chatlog') { $more.Expect = @('chat: 8 recent messages', 'emoji: colour') }   # the history has emoji: drawn in colour
             if ($scene -eq 'reply') { $more.Expect = @('chat: 8 recent messages', 'chat: replying') }
             if ($scene -eq 'browse') { $more.A11yExpect = @("^LIST 'Browse categories' \([1-9][0-9]* items\)", '^  - Elden Ring, category') }
             if ($scene -eq 'category') { $more.A11yExpect = @("^LIST 'Browse, Music' \(2 items\)") }
@@ -77,6 +77,7 @@ jobs:
             if ($scene -eq 'videos') { $more.A11yExpect = @("^LIST 'Videos of NightowlPlays' \(8 items\)", '^  - Full run, new route, past broadcast, 1:03:00') }
             if ($scene -eq 'clips') { $more.A11yExpect = @("^LIST 'Clips of NightowlPlays' \(6 items\)", '^  - that jump though, clip by ') }
             if ($scene -eq 'vod') { $more.Expect = @('video: past broadcast 5000', 'stream 1: Streamlink started \(quality .*, video from 0 s\)', 'stream 1: first frame after') }
+            if ($scene -eq 'window') { $more.Expect = @('stream 1: first frame after', 'window: pixelforge playing') }
             if ($scene -eq 'preview') { $more.Expect = @('preview: nightowl_plays|preview: [a-z_]+', 'preview: playing') }
             if ($scene -eq 'stats') { $more.Expect = @('stream 1: first frame after', 'stats overlay on') }
             ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-')) -Env $vars @more

@@ -375,6 +375,7 @@ partial class LiteView
 
     void OnStreamExited()
     {
+        if (WaitForVideoEnd()) return;   // mpv's end-of-file message may still be on its way (src/app/LiteView.Videos.cs)
         var ran = DateTime.Now - slStart;
         string err = "";
         try { if (File.Exists(curLog)) err = StreamOutcome.LastError(ReadShared(curLog)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
@@ -382,7 +383,7 @@ partial class LiteView
         int code = int.MinValue; try { code = slProc.ExitCode; } catch (InvalidOperationException) { }
         Log.Warn("stream " + gen + ": Streamlink exited (code " + code + ", after " + (int)ran.TotalSeconds + " s, " + end + ")" + (err.Length > 0 ? ": " + Redact.ForSharing(err) : ""));
         bool wasPlaying = played;
-        if (VideoEnded(wasPlaying)) return;   // a video that played to its end (src/app/LiteView.Videos.cs)
+        if (VideoExit(wasPlaying, end, err)) return;   // a video that ended or cannot play (src/app/LiteView.Videos.cs)
         StopStream();   // also ends an mpv left behind if Streamlink died
         if (wasPlaying) playBackoff.Ended(ran);
         ScheduleRetry(end, StreamOutcome.Describe(end, err), err);

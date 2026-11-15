@@ -188,7 +188,7 @@ static class Images
 // IrcMsg (one parsed IRC line) moved to src/core/IrcMsg.cs, unchanged in use, so it is unit tested.
 
 // A piece of a chat line: 0 word, 1 emote, 2 badge, 3 name, 4 link, 5 @mention, 6 dim word
-class Piece { public byte Kind; public string Text; public Emote E; public Color C; }
+class Piece { public byte Kind; public string Text; public Emote E; public Color C; public bool Glue; }   // fork: Kind 8 = an emoji in colour (src/app/ColorEmoji.cs); Glue = no space after (a word split around an emoji)
 class Place { public Rectangle R; public Piece P; public int Last = -1; }
 
 class Msg
@@ -202,7 +202,7 @@ class Msg
 }
 
 // The message list: lays out and draws chat lines like Twitch (Segoe UI 13 px, 20 px lines).
-class ChatView : Control
+partial class ChatView : Control   // fork: partial (src/app/ColorEmoji.cs)
 {
     public static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
         MentionBg = Color.FromArgb(62, 22, 26), NoticeBg = Color.FromArgb(31, 31, 35), Accent = Color.FromArgb(145, 71, 255), LinkC = Color.FromArgb(191, 148, 255);
@@ -322,9 +322,10 @@ class ChatView : Control
                     line.Add(new Place { R = new Rectangle(r.X + (r.Width - w) / 2, 0, w, h), P = p }); continue;
                 }
             }
+            else if (p.Kind == 8 && EmojiSize(p.Text, out w, out h)) { }   // fork: a colour emoji's picture
             else { w = Measure(p.Text, FontOf(p)); h = textH; }
             if (x + w > right && x > x0) { lines.Add(line); line = new List<Place>(); x = x0; }
-            if (w > right - x0 && p.Kind != 1 && p.Kind != 2)
+            if (w > right - x0 && p.Kind != 1 && p.Kind != 2 && p.Kind != 8)
             {   // a very long word: break it over lines
                 string rest = p.Text;
                 while (rest.Length > 0)
@@ -335,14 +336,14 @@ class ChatView : Control
                     line.Add(new Place { R = new Rectangle(x, 0, Measure(q.Text, F), h), P = q });
                     rest = rest.Substring(n);
                     if (rest.Length > 0) { lines.Add(line); line = new List<Place>(); x = x0; }
-                    else x += Measure(q.Text, F) + spaceW;
+                    else x += Measure(q.Text, F) + (p.Glue ? 0 : spaceW);   // fork: Glue (an emoji follows)
                 }
                 prevEmote = null; continue;
             }
             var pl = new Place { R = new Rectangle(x, 0, w, h), P = p };
             line.Add(pl);
             prevEmote = p.Kind == 1 ? pl : null;
-            x += w + (p.Kind == 2 ? 3 : p.Kind == 3 && p.Text.EndsWith(":") ? spaceW : p.Kind == 3 ? spaceW : spaceW);
+            x += w + (p.Glue ? 0 : p.Kind == 2 ? 3 : p.Kind == 3 && p.Text.EndsWith(":") ? spaceW : p.Kind == 3 ? spaceW : spaceW);
         }
         if (line.Count > 0) lines.Add(line);
         foreach (var l in lines)
@@ -377,6 +378,7 @@ class ChatView : Control
                 }
                 else if (p.Kind == 7)
                     Txt.In(g, "↳ " + p.Text, FS, Dim, pl.R, false);
+                else if (p.Kind == 8 && DrawEmoji(g, p.Text, pl.R)) { }   // fork: a colour emoji
                 else
                 {
                     Txt.At(g, p.Text, FontOf(p), p.Kind == 4 ? LinkC : p.C, pl.R.X, pl.R.Y);
@@ -982,7 +984,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             else if (own && twitchEmotes.TryGetValue(w, out id))
                 m.P.Add(new Piece { Kind = 1, E = Images.Get("https://static-cdn.jtvnw.net/emoticons/v2/" + id + "/default/dark/1.0", w, 28, 28, 0) });
             else if (w.Length > 4 && w.IndexOf('.') > 0 && UrlRx.IsMatch(w)) m.P.Add(new Piece { Kind = 4, Text = w });
-            else m.P.Add(new Piece { Kind = (byte)(w[0] == '@' && w.Length > 1 ? 5 : 0), Text = w, C = tc });
+            else AddWord(m, w, (byte)(w[0] == '@' && w.Length > 1 ? 5 : 0), tc);   // fork: emoji in colour (src/app/ColorEmoji.cs)
         }
     }
 

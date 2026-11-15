@@ -55,8 +55,16 @@ partial class ChatPanel
     // the words of a message as typed: names, badges and the timestamp left out, emotes by name
     static string Body(Msg m)
     {
-        return string.Join(" ", m.P.Where(p => p.Kind == 0 || p.Kind == 1 || p.Kind == 4 || p.Kind == 5).Select(p => p.Kind == 1 ? (p.E != null ? p.E.Name : "") : p.Text)
-            .Where(t => !string.IsNullOrEmpty(t))).Trim();
+        var sb = new System.Text.StringBuilder();
+        foreach (var p in m.P)
+        {
+            if (p.Kind != 0 && p.Kind != 1 && p.Kind != 4 && p.Kind != 5 && p.Kind != 8) continue;
+            string t = p.Kind == 1 ? (p.E != null ? p.E.Name : "") : p.Text;
+            if (string.IsNullOrEmpty(t)) continue;
+            sb.Append(t);
+            if (!p.Glue) sb.Append(' ');   // a word split around an emoji stays one word
+        }
+        return sb.ToString().Trim();
     }
 
     static void Copy(string text) { try { Clipboard.SetText(text); } catch (System.Runtime.InteropServices.ExternalException) { } }

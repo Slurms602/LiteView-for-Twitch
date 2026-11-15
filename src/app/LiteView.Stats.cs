@@ -40,6 +40,7 @@ partial class LiteView
         }
         if (PictureLine(line, g)) return true;
         if (VideoLine(line, g)) return true;
+        if (VideoEndLine(line, g)) return true;
         if (line.IndexOf("client-message", StringComparison.Ordinal) >= 0)
         {
             if (line.IndexOf("\"liteview-stats\"", StringComparison.Ordinal) >= 0) { Ui(g, ToggleStats); return true; }

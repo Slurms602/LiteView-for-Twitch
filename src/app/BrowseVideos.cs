@@ -11,9 +11,11 @@ using LiteViewCore;
 partial class BrowsePage
 {
     public event Action<VideoInfo> VideoPicked;
+    public event Action<string, string> WindowWanted;   // Watch in a new window (src/app/ExtraPlayer.cs)
     readonly ChannelVideos videoFeed = new ChannelVideos(q => Tw.Helix(q));
     readonly Latest videoGuard = new Latest();
     string vidLogin, vidName; bool vidClips, loadingVids, vidsFailed; List<VideoInfo> vids; int vidScroll, vidSel;
+    string vidQuery; bool vidHistory;   // the search (or recent searches) it was opened from: Back returns there
 
     bool InVideos { get { return vidLogin != null; } }
 
@@ -21,7 +23,7 @@ partial class BrowsePage
     public void ShowVideos(string login, string name, bool clips)
     {
         if (!ChannelName.IsValidLogin(login)) return;
-        if (!InVideos) { vidScroll = scroll; vidSel = sel; }
+        if (!InVideos) { vidScroll = scroll; vidSel = sel; vidQuery = query; vidHistory = history; }
         vidLogin = login; vidName = string.IsNullOrEmpty(name) ? login : name; vidClips = clips;
         query = null; history = false; vids = null; vidsFailed = false; scroll = 0; sel = -1;
         ReloadVideos();
@@ -32,6 +34,8 @@ partial class BrowsePage
     {
         if (!InVideos) return;
         vidLogin = null; vids = null; videoGuard.Next(); loadingVids = false;
+        string q = vidQuery; history = vidHistory; vidQuery = null; vidHistory = false;
+        if (q != null) SetQuery(q);   // the search again (from its cache, or asked again if it was still on its way)
         Rebuild();
         scroll = vidScroll; sel = Math.Min(vidSel, items.Count - 1); ClampScroll();
         Invalidate(); Announce();
@@ -136,6 +140,9 @@ partial class BrowsePage
         var vids = new ToolStripMenuItem("Videos and clips");
         vids.Click += (s, e) => ShowVideos(it.Login, it.Name, false);
         menu.Items.Insert(1, vids);
+        var win = new ToolStripMenuItem("Watch in a new window");
+        win.Click += (s, e) => { if (WindowWanted != null) WindowWanted(it.Login, it.Name); };
+        menu.Items.Insert(1, win);
     }
 
     void ShowVideoMenu(Item it, Point at)

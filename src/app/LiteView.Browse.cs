@@ -51,6 +51,7 @@ partial class LiteView
         DarkMenuColors.Apply(appMenu); appMenu.ShowImageMargin = false;
         browse.VideoPicked += PlayVideo;   // src/app/LiteView.Videos.cs
         InitPreview();   // src/app/LiteView.Preview.cs
+        browse.WindowWanted += OpenWindow;   // src/app/ExtraPlayer.cs
         InitPause();   // src/app/LiteView.Pause.cs
         bar.Controls.Add(menuBtn);
         LayoutBar();
@@ -130,6 +131,14 @@ partial class LiteView
                 return;
             }
             if (Fixture.SceneName == "presets") { PresetShots(); return; }   // src/app/LiteView.Picture.cs
+            if (Fixture.SceneName == "window")
+            {   // a second channel in an extra window (with tests/FakeStreamlink), next to the main one
+                Watch("nightowl_plays");
+                var t = new Timer { Interval = 3000 };
+                t.Tick += (s2, e2) => { t.Stop(); t.Dispose(); OpenWindow("pixelforge", "Pixelforge"); };
+                t.Start();
+                return;
+            }
             if (Fixture.SceneName == "preview")
             {   // a hover preview of the first live card (with tests/FakeStreamlink), as if the mouse rested on it
                 var t = new Timer { Interval = 500 }; int waited = 0;

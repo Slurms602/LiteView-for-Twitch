@@ -61,8 +61,10 @@ left). **Stats overlay** (I) with mpv's own GPU time per frame (vo-passes), whic
 measured on a real card. **Preset review**: Ultra sharpened twice (NLMeans' sharpening variant + strong Adaptive
 Sharpen; the owner found it oversharpened); now NLMeans only denoises and Ultra sharpens once like High; Sharpness
 setting; **B** compares with the original picture. **Videos and clips** (P5 "VOD and clip discovery", Helix videos
-and clips; Streamlink passes the playlist to mpv so it can seek). Open: image metrics of the presets against a known original
-(planned as a CI scene), RTX VSR review on the owner's card.
+and clips; Streamlink passes the playlist to mpv so it can seek). **Hover previews** and **extra windows** for more
+streams at once (P5 "multiple stream windows"; the owner chose windows over a grid). Image metrics of every preset against a known original run on CI
+(`PERFORMANCE_BASELINE.md`: the new Ultra is the closest to the original with sharpening, the old one the furthest).
+Open: GPU cost per preset and the RTX VSR review on the owner's card (the stats overlay shows the GPU time).
 
 Quality list from the stream's real variants; persistent mpv vs. restart benchmark for channel switching;
 fullscreen across monitors (UI-2); preset review with objective comparisons (720p/1080p sources to 1080p/1440p/4K,

@@ -4,6 +4,7 @@
 // or LiteView closes. The box and mpv's window are disabled, so the mouse still reaches the page (a click on the
 // card opens the channel as usual). Off: menu > Playback > Previews on hover.
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -19,6 +20,7 @@ partial class LiteView
     IntPtr previewJob; Process previewProc; string previewLogin; DateTime previewStart; bool previewSeen;
 
     [DllImport("user32.dll")] static extern bool EnableWindow(IntPtr h, bool enable);
+    [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr h, uint code);
 
     string PreviewLog { get { return Path.Combine(Path.GetDirectoryName(slLog), Path.GetFileNameWithoutExtension(slLog) + "-preview.log"); } }
 
@@ -38,40 +40,50 @@ partial class LiteView
         if (MissingPlayerFiles() != null) return;
         StopPreview();
         previewBox.Bounds = r; previewBox.Visible = true; previewBox.BringToFront();
+        var started = LaunchPlayer(new StreamRequest { Channel = login, LogFile = PreviewLog, WindowHandle = previewBox.Handle.ToInt64(), Preview = true }, 0x40);   // idle priority: a preview never competes
+        if (started.Key == IntPtr.Zero) { previewBox.Visible = false; return; }
+        previewJob = started.Key; previewProc = started.Value; previewLogin = login; previewStart = DateTime.Now; previewSeen = false;
+        previewWatch.Start();
+        Log.Info("preview: " + login);
+    }
+
+    // Streamlink (and the mpv it starts) for a preview or an extra window, suspended, in a new kill-on-close job, then
+    // resumed; the job and Streamlink's process, or (Zero, null). The request's paths and pipe name are filled in here.
+    KeyValuePair<IntPtr, Process> LaunchPlayer(StreamRequest r, uint priority)
+    {
+        var none = new KeyValuePair<IntPtr, Process>(IntPtr.Zero, null);
+        r.Streamlink = streamlink; r.Mpv = mpv; r.PipeName = StreamCommand.NewPipeName();
         string cmdline;
-        try
-        {
-            cmdline = StreamCommand.Build(new StreamRequest
-            {
-                Streamlink = streamlink, Mpv = mpv, LogFile = PreviewLog, Channel = login, PipeName = StreamCommand.NewPipeName(),
-                WindowHandle = previewBox.Handle.ToInt64(), Preview = true,
-            });
-        }
-        catch (ArgumentException) { previewBox.Visible = false; return; }
-        try { File.Delete(PreviewLog); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { cmdline = StreamCommand.Build(r); } catch (ArgumentException) { return none; }
+        try { File.Delete(r.LogFile); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         var job = CreateJobObject(IntPtr.Zero, null);
-        if (job == IntPtr.Zero) { previewBox.Visible = false; return; }
+        if (job == IntPtr.Zero) return none;
         var lim = new JOBLIMITS { flags = 0x2000 };   // kill on close
         SetInformationJobObject(job, 9, ref lim, Marshal.SizeOf(typeof(JOBLIMITS)));
         var si = new Native.STARTUPINFO(); si.cb = Marshal.SizeOf(si);
         Native.PROCESS_INFORMATION pi;
-        const uint IdlePriority = 0x40;   // a preview never competes with anything
-        if (!CreateProcessW(streamlink, new StringBuilder(cmdline), IntPtr.Zero, IntPtr.Zero, false, Native.CREATE_SUSPENDED | IdlePriority, IntPtr.Zero, root, ref si, out pi))
+        if (!CreateProcessW(streamlink, new StringBuilder(cmdline), IntPtr.Zero, IntPtr.Zero, false, Native.CREATE_SUSPENDED | priority, IntPtr.Zero, root, ref si, out pi))
         {
-            Native.CloseHandle(job); previewBox.Visible = false; return;
+            Native.CloseHandle(job); return none;
         }
-        AssignProcessToJobObject(job, pi.hProcess);
-        try { previewProc = Process.GetProcessById(pi.pid); var unused = previewProc.Handle; } catch (Exception) { if (previewProc != null) previewProc.Dispose(); previewProc = null; }
+        if (mask != 0) Native.SetProcessAffinityMask(pi.hProcess, new UIntPtr(mask));
+        if (!AssignProcessToJobObject(job, pi.hProcess))
+        {   // outside the job it could outlive LiteView: never let it run
+            TerminateProcess(pi.hProcess, 1); Native.CloseHandle(pi.hThread); Native.CloseHandle(pi.hProcess); Native.CloseHandle(job);
+            return none;
+        }
+        Process p = null;
+        try { p = Process.GetProcessById(pi.pid); var unused = p.Handle; } catch (Exception) { if (p != null) p.Dispose(); p = null; }
         Native.ResumeThread(pi.hThread); Native.CloseHandle(pi.hThread); Native.CloseHandle(pi.hProcess);
-        previewJob = job; previewLogin = login; previewStart = DateTime.Now; previewSeen = false;
-        previewWatch.Start();
-        Log.Info("preview: " + login);
+        if (p == null) { TerminateJobObject(job, 0); Native.CloseHandle(job); return none; }
+        return new KeyValuePair<IntPtr, Process>(job, p);
     }
 
     // every 200 ms: mpv's window, once there, is disabled (the mouse goes on to the page); a preview that cannot play goes
     void WatchPreview()
     {
         if (previewJob == IntPtr.Zero) { previewWatch.Stop(); return; }
+        if (watching || !Visible || !browse.Visible || WindowState == FormWindowState.Minimized) { StopPreview(); return; }   // minimised, in the tray, or a stream started
         bool alive = false;
         try { alive = previewProc != null && !previewProc.HasExited; } catch (InvalidOperationException) { }
         if (!alive || (!previewSeen && DateTime.Now - previewStart > TimeSpan.FromSeconds(15))) { StopPreview(); return; }
@@ -90,5 +102,30 @@ partial class LiteView
         if (previewJob != IntPtr.Zero) { TerminateJobObject(previewJob, 0); Native.CloseHandle(previewJob); previewJob = IntPtr.Zero; }
         if (previewProc != null) { previewProc.Dispose(); previewProc = null; }
         previewLogin = null;
+    }
+}
+
+// Extra windows (src/app/ExtraPlayer.cs): one more channel each, at most ExtraPlayer.MaxExtra
+partial class LiteView
+{
+    readonly List<ExtraPlayer> extras = new List<ExtraPlayer>();
+
+    void OpenWindow(string login, string name)
+    {
+        if (!ChannelName.IsValidLogin(login) || (Fixture.On && !Fixture.Streams)) return;
+        extras.RemoveAll(x => x.IsDisposed);
+        var open = extras.Find(x => x.Login == login);
+        if (open != null) { if (open.WindowState == FormWindowState.Minimized) open.WindowState = FormWindowState.Normal; open.Activate(); return; }
+        if (extras.Count >= ExtraPlayer.MaxExtra) { MessageBox.Show(this, "LiteView plays at most " + ExtraPlayer.MaxExtra + " channels in extra windows. Close one first.", "Watch in a new window"); return; }
+        string missing = MissingPlayerFiles();
+        if (missing != null) { ShowProblem(missing, missing, null); return; }
+        int slot = 1;
+        while (extras.Exists(x => x.Tag is int && (int)x.Tag == slot)) slot++;
+        string log = Path.Combine(Path.GetDirectoryName(slLog), Path.GetFileNameWithoutExtension(slLog) + "-window" + slot + ".log");
+        var w = new ExtraPlayer(login, string.IsNullOrEmpty(name) ? login : name, log,
+            (lf, h) => LaunchPlayer(new StreamRequest { Channel = login, LogFile = lf, WindowHandle = h.ToInt64(), Quality = "720p60" }, ChildPriorityFlag)) { Tag = slot, Owner = this, Icon = Icon };
+        w.FormClosed += (s, e) => extras.Remove(w);
+        extras.Add(w);
+        w.Show();
     }
 }

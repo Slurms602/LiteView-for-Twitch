@@ -14,7 +14,7 @@ using System.Windows.Forms;
 using LiteViewCore;
 using SortOrder = LiteViewCore.SortOrder;   // not System.Windows.Forms.SortOrder
 
-class BrowsePage : Control
+partial class BrowsePage : Control
 {
     public enum Tab { Live, Followed, Recent, Browse }
 
@@ -54,6 +54,7 @@ class BrowsePage : Control
         public string Login, Name, Game = "", Title = "", Thumb = "", Note = "";
         public long Viewers; public DateTimeOffset? Started; public bool Live, Card;
         public Category Cat;   // Browse tab: a category card (Login is "")
+        public VideoInfo Video;   // a channel's video or clip (src/app/BrowseVideos.cs)
     }
 
     sealed class Pic { public Bitmap Bmp; public DateTime At = DateTime.MinValue; public bool Loading; public long Used; }
@@ -133,7 +134,7 @@ class BrowsePage : Control
     {
         running = on;
         liveTimer.Enabled = on;
-        if (!on) { tip.Hide(this); return; }
+        if (!on) { tip.Hide(this); CancelPreview(); return; }
         if (!liveLoaded || liveState != FeedState.Ok || (DateTime.UtcNow - lastLive).TotalSeconds > 55) ReloadLive();
         if (tab == Tab.Followed && DateTime.UtcNow - followedAt > FollowedAge) ReloadFollowed();
         if (tab == Tab.Browse) BrowseIfOld();
@@ -148,7 +149,8 @@ class BrowsePage : Control
         followedLive = new List<LiveStream>(); otherLive = new List<LiveStream>();
         followed = null; followedAt = DateTime.MinValue; liveLoaded = false; searchCache.Clear();
         browseGuard.Next(); loadingBrowse = false; categories = null; browseStreams = null; categoriesAt = browseAt = DateTime.MinValue;
-        if (running) { ReloadLive(); if (tab == Tab.Followed) ReloadFollowed(); if (tab == Tab.Browse) BrowseIfOld(); if (query != null) DoSearch(); }
+        videoGuard.Next(); loadingVids = false; vids = null; vidsFailed = false;
+        if (running) { ReloadLive(); if (tab == Tab.Followed) ReloadFollowed(); if (tab == Tab.Browse) BrowseIfOld(); if (query != null) DoSearch(); if (InVideos) ReloadVideos(); }
         Rebuild();
     }
 
@@ -158,6 +160,7 @@ class BrowsePage : Control
         ReloadLive();
         if (tab == Tab.Followed) ReloadFollowed();
         if (tab == Tab.Browse) ReloadBrowse();
+        if (InVideos) ReloadVideos();
     }
 
     // ---------- Browse tab ----------
@@ -388,6 +391,7 @@ class BrowsePage : Control
         }
         else if (history)
             foreach (var l in Searches.Items) list.Add(Row(l, null, liveBy));
+        else if (InVideos) AddVideoItems(list);
         else if (tab == Tab.Live)
         {
             var favLive = otherLive.Where(s => Favourites.Contains(s.Login));
@@ -415,6 +419,7 @@ class BrowsePage : Control
             foreach (var s in browseStreams)
                 list.Add(new Item { Login = s.Login, Name = s.Name, Game = s.Game, Title = s.Title, Viewers = s.Viewers, Started = s.Started, Live = true, Card = true, Thumb = s.Thumbnail });
         items = list;
+        CancelPreview();   // another list: the card may be elsewhere now (src/app/BrowsePreview.cs)
         if (sel >= items.Count) sel = items.Count - 1;
         hover = -1;
         DoLayout();
@@ -515,6 +520,8 @@ class BrowsePage : Control
         int x = Pad, w = ClientSize.Width;
         string head = query != null ? "Search" : history ? "Recent searches" : tab == Tab.Browse ? (browseCat == null ? "Browse" : browseCat.Name) : "Following";
         clearRect = sortRect = refreshRect = langRect = backRect = Rectangle.Empty;
+        for (int i = 0; i < tabRects.Length; i++) tabRects[i] = Rectangle.Empty;
+        if (query == null && !history && InVideos) { DrawVideosHeader(g); return; }
         if (query == null && !history && InCategory)
         {   // the category's name, and the way back to the categories
             const string back = "\u2039  All categories";
@@ -603,6 +610,7 @@ class BrowsePage : Control
             return null;
         }
         if (history) return items.Count == 0 ? "No recent searches." : null;
+        if (InVideos) return VideosMessage();
         if (tab == Tab.Recent)
         {
             if (items.Count > 0) return null;
@@ -677,6 +685,7 @@ class BrowsePage : Control
     void DrawCard(Graphics g, Item it, Rectangle r, int i)
     {
         if (it.Cat != null) { DrawCategory(g, it, r, i); return; }
+        if (it.Video != null) { DrawVideo(g, it, r, i); return; }
         int th = r.Width * 9 / 16;
         var tr = new Rectangle(r.X, r.Y, r.Width, th);
         bool hi = i == hover || i == sel;
@@ -763,14 +772,14 @@ class BrowsePage : Control
 
     Bitmap Thumb(Item it, Size size)
     {
-        bool art = it.Cat != null;   // a category's box art does not change: loaded again only when it failed
-        string key = art ? "cat:" + it.Cat.Id : it.Login;
+        bool art = it.Cat != null || it.Video != null;   // a category's box art or a video's picture does not change: loaded again only when it failed
+        string key = it.Cat != null ? "cat:" + it.Cat.Id : it.Video != null ? "vid:" + it.Video.Id : it.Login;
         Pic p;
         thumbs.TryGetValue(key, out p);
         if (p != null) p.Used = clock;
         if (Active && (p == null || !p.Loading && (!art || p.Bmp == null) && DateTime.UtcNow - p.At > ThumbAge))
         {
-            string url = art ? HelixData.Thumb(it.Cat.BoxArt, 285, 380) : HelixData.Thumb(it.Thumb, 440, 248);
+            string url = it.Cat != null ? HelixData.Thumb(it.Cat.BoxArt, 285, 380) : it.Video != null ? VideoData.Thumb(it.Video.Thumb, 440, 248) : HelixData.Thumb(it.Thumb, 440, 248);
             if (url.Length > 0) Load(thumbs, key, url, size, false, MaxThumbs);
         }
         return p != null ? p.Bmp : null;
@@ -898,13 +907,14 @@ class BrowsePage : Control
         int h = HotAt(e.Location), i = h == HotNone && Message() == null ? ItemAt(e.Location) : -1;
         Cursor = h != HotNone || i >= 0 ? Cursors.Hand : Cursors.Default;
         if (h != hot || i != hover) { hot = h; hover = i; Invalidate(); }
+        PreviewHover(i);
         string t = i >= 0 ? items[i].Name + (items[i].Game.Length > 0 ? "  -  " + items[i].Game : "") + (items[i].Title.Length > 0 ? "\n" + items[i].Title : "") : null;
         if (t == tipFor) return;
         tipFor = t;
         if (t == null) tip.Hide(this); else tip.Show(t, this, e.X + 14, e.Y + 20, 8000);
     }
 
-    protected override void OnMouseLeave(EventArgs e) { hot = HotNone; hover = -1; tipFor = null; tip.Hide(this); Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseLeave(EventArgs e) { hot = HotNone; hover = -1; tipFor = null; tip.Hide(this); CancelPreview(); Invalidate(); base.OnMouseLeave(e); }
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
@@ -912,7 +922,7 @@ class BrowsePage : Control
         if (e.Button == MouseButtons.Left && !barRect.IsEmpty && new Rectangle(barRect.X - S(4), HeadH, barRect.Width + S(8), ViewH).Contains(e.Location))
         {
             if (!barRect.Contains(e.Location)) { scroll += (e.Y < barRect.Y ? -1 : 1) * ViewH; ClampScroll(); Invalidate(); return; }
-            dragging = true; dragStart = e.Y; dragScroll = scroll; Capture = true; Invalidate();
+            dragging = true; dragStart = e.Y; dragScroll = scroll; Capture = true; CancelPreview(); Invalidate();
         }
     }
 
@@ -928,7 +938,8 @@ class BrowsePage : Control
             if (h == HotRefresh) { Reload(); return; }
             if (h == HotClear) { ClearHistory(); return; }
             if (h == HotLang) { ShowLanguageMenu(); return; }
-            if (h == HotBack) { CloseCategory(); return; }
+            if (h == HotBack) { if (InVideos) CloseVideos(); else CloseCategory(); return; }
+            if (h >= HotTab && InVideos && query == null && !history) { SetVideoKind(h - HotTab == 1); return; }
             if (h >= HotTab) { SetTab((Tab)(h - HotTab)); return; }
         }
         int i = Message() == null ? ItemAt(e.Location) : -1;
@@ -940,6 +951,7 @@ class BrowsePage : Control
 
     protected override void OnMouseWheel(MouseEventArgs e)
     {
+        CancelPreview();
         scroll -= e.Delta / 120 * (items.Count > 0 && items[0].Card ? (cardH + Gap) / 2 : RowH * 2);
         ClampScroll(); Invalidate();
         base.OnMouseWheel(e);
@@ -969,8 +981,8 @@ class BrowsePage : Control
             case Keys.End: s = n - 1; break;
             case Keys.Enter: if (sel >= 0 && sel < n) Activate(sel); e.Handled = true; return;
             case Keys.Apps: if (sel >= 0 && sel < n && items[sel].Cat == null) ShowItemMenu(sel, ItemRect(sel).Location); e.Handled = true; return;
-            case Keys.Escape: if (history) { history = false; Rebuild(); e.Handled = true; } else if (InCategory && query == null) { CloseCategory(); e.Handled = true; } return;
-            case Keys.Back: if (InCategory && query == null && !history) { CloseCategory(); e.Handled = true; } return;
+            case Keys.Escape: if (history) { history = false; Rebuild(); e.Handled = true; } else if (InVideos && query == null) { CloseVideos(); e.Handled = true; } else if (InCategory && query == null) { CloseCategory(); e.Handled = true; } return;
+            case Keys.Back: if (InVideos && query == null && !history) { CloseVideos(); e.Handled = true; } else if (InCategory && query == null && !history) { CloseCategory(); e.Handled = true; } return;
             case Keys.F5: Reload(); e.Handled = true; return;
             default: base.OnKeyDown(e); return;
         }
@@ -978,6 +990,7 @@ class BrowsePage : Control
         if (n == 0) return;
         sel = Math.Max(0, Math.Min(n - 1, s));
         var r = ItemRect(sel);   // keep it in view
+        CancelPreview();
         if (r.Top < HeadH) scroll -= HeadH - r.Top + S(8);
         else if (r.Bottom > ClientSize.Height) scroll += r.Bottom - ClientSize.Height + S(8);
         ClampScroll(); Invalidate();
@@ -988,7 +1001,8 @@ class BrowsePage : Control
     void Activate(int i)
     {
         var it = items[i];
-        if (it.Cat != null) OpenCategory(it.Cat); else Open(it.Login);
+        if (it.Video != null) { if (VideoPicked != null) VideoPicked(it.Video); }
+        else if (it.Cat != null) OpenCategory(it.Cat); else Open(it.Login);
     }
 
     void Open(string login)
@@ -1002,12 +1016,14 @@ class BrowsePage : Control
     {
         if (query != null) { searchFailed = false; DoSearch(); }
         else if (tab == Tab.Followed) ReloadFollowed();
+        else if (InVideos) ReloadVideos();
         else if (tab == Tab.Browse) ReloadBrowse();
         else ReloadLive();
     }
 
     public void SetTab(Tab t)
     {
+        if (InVideos) { vidLogin = null; vids = null; videoGuard.Next(); loadingVids = false; }   // a tab leaves a channel's videos
         if (t == Tab.Browse && tab == Tab.Browse && browseCat != null && !history) { CloseCategory(); return; }   // the tab again: back to the categories
         history = false;
         if (tab != t) { tab = t; scroll = 0; sel = -1; }
@@ -1040,6 +1056,7 @@ class BrowsePage : Control
     {
         var it = items[i];
         menu.Items.Clear();
+        if (it.Video != null) { ShowVideoMenu(it, at); return; }   // src/app/BrowseVideos.cs
         var watch = new ToolStripMenuItem("Watch " + it.Name) { Font = FMenuBold };
         watch.Click += (s, e) => Open(it.Login);
         bool isFav = Favourites.Contains(it.Login);
@@ -1056,6 +1073,7 @@ class BrowsePage : Control
         var copy = new ToolStripMenuItem("Copy link");
         copy.Click += (s, e) => { try { Clipboard.SetText("https://www.twitch.tv/" + it.Login); } catch (System.Runtime.InteropServices.ExternalException) { } };
         menu.Items.AddRange(new ToolStripItem[] { watch, fav, site, copy });
+        if (it.Video == null) AddVideosMenuItem(it);   // src/app/BrowseVideos.cs
         if (!InSearch && tab == Tab.Recent)
         {
             var forget = new ToolStripMenuItem("Remove from recently watched");
@@ -1083,7 +1101,7 @@ class BrowsePage : Control
             Name = () =>
             {
                 string m = Message();
-                string what = query != null ? "Search results" : history ? "Recent searches" : tab == Tab.Browse ? (browseCat == null ? "Browse categories" : "Browse, " + browseCat.Name)
+                string what = query != null ? "Search results" : history ? "Recent searches" : InVideos ? (vidClips ? "Clips of " : "Videos of ") + vidName : tab == Tab.Browse ? (browseCat == null ? "Browse categories" : "Browse, " + browseCat.Name)
                     + (browseLang != null ? ", " + Languages.Name(browseLang) : "") : "Following, " + TabName(tab);
                 return what + (m != null ? ". " + m : "");
             },
@@ -1099,6 +1117,7 @@ class BrowsePage : Control
     string Describe(Item it)
     {
         if (it.Cat != null) return it.Cat == AllLive ? "All live channels, the most watched on Twitch" : it.Name + ", category";
+        if (it.Video != null) return DescribeVideo(it);
         string s = it.Name + (Favourites.Contains(it.Login) ? ", favourite" : "");
         if (!it.Live) return s + ", offline" + (it.Note.Length > 0 ? ", " + it.Note : "");
         string up = Fmt.Uptime(it.Started, DateTimeOffset.UtcNow);
@@ -1120,7 +1139,7 @@ class BrowsePage : Control
     {
         if (disposing)
         {
-            liveTimer.Dispose(); searchDelay.Dispose(); avatarDelay.Dispose(); tip.Dispose(); menu.Dispose();
+            liveTimer.Dispose(); searchDelay.Dispose(); avatarDelay.Dispose(); previewDelay.Dispose(); tip.Dispose(); menu.Dispose();
             foreach (var p in thumbs.Values.Concat(avatars.Values)) if (p.Bmp != null) p.Bmp.Dispose();
             thumbs.Clear(); avatars.Clear();
         }

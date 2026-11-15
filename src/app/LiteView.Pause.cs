@@ -32,7 +32,7 @@ partial class LiteView
     void TogglePause()
     {
         if (!watching || channel == null) return;
-        if (paused) { Log.Info("play"); Watch(channel); }
+        if (paused) { Log.Info("play"); Replay(); }
         else Pause();
     }
 

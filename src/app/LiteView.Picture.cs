@@ -2,6 +2,7 @@
 // src/core/PicturePreset.cs), B (or b on the video) to see the original picture and back, and the Playback menu.
 // The stats overlay (I) shows the GPU time the chosen preset costs per frame, measured by mpv (vo-passes).
 using System;
+using System.Collections.Generic;
 using System.Windows.Forms;
 using LiteViewCore;
 
@@ -46,10 +47,65 @@ partial class LiteView
         stats.Click += (o, e) => ToggleStats();
         var cmp = new ToolStripMenuItem("Compare with the original picture  (B)") { Checked = comparing, Enabled = watching };
         cmp.Click += (o, e) => ToggleCompare();
-        m.DropDownItems.AddRange(new ToolStripItem[] { smooth, sharp, new ToolStripSeparator(), stats, cmp });
+        var prev = Toggle("Previews on hover (Following page)", browse.Previews, v => { browse.Previews = v; if (!v) StopPreview(); });
+        prev.ToolTipText = "Rest the mouse on a live channel's card: it plays there, muted, at the lowest quality.";
+        m.DropDownItems.AddRange(new ToolStripItem[] { smooth, prev, sharp, new ToolStripSeparator(), stats, cmp });
         DarkMenuColors.Apply(m.DropDown);
         return m;
     }
+
+    // CI's preset comparison (fixture scene "presets", tests/FakeStreamlink plays a known test picture at half size):
+    // fullscreen, then each preset (and the old Ultra, for comparison) applied in turn and the picture mpv shows saved
+    // as preset-<name>.png next to LiteView.exe; tools/preset-metrics.py compares them with preset-truth.png.
+    void PresetShots()
+    {
+        picture.SelectedIndex = 0;   // ApplyEnhance's own state stays "Off": it never replaces the lists sent here
+        Watch("presets_demo");
+        var shots = new List<KeyValuePair<string, string[]>>
+        {
+            Shot("off"), Shot("enhance", "FSR.glsl", "CAS.glsl"),
+            Shot("high-soft", "FSRCNNX_x2_8-0-4-1_any.glsl", "adaptive-sharpen_soft.glsl"),
+            Shot("high", "FSRCNNX_x2_8-0-4-1_any.glsl", "adaptive-sharpen.glsl"),
+            Shot("high-strong", "FSRCNNX_x2_8-0-4-1_any.glsl", "adaptive-sharpen_strong.glsl"),
+            Shot("ultra-nosharpen", "KrigBilateral.glsl", "nlmeans.glsl", "FSRCNNX_x2_16-0-4-1_any.glsl", "SSimDownscaler.glsl"),
+            Shot("ultra-soft", "KrigBilateral.glsl", "nlmeans.glsl", "FSRCNNX_x2_16-0-4-1_any.glsl", "SSimDownscaler.glsl", "adaptive-sharpen_soft.glsl"),
+            Shot("ultra", "KrigBilateral.glsl", "nlmeans.glsl", "FSRCNNX_x2_16-0-4-1_any.glsl", "SSimDownscaler.glsl", "adaptive-sharpen.glsl"),
+            Shot("ultra-old", "KrigBilateral.glsl", "nlmeans_sharpen_denoise.glsl", "FSRCNNX_x2_16-0-4-1_any.glsl", "SSimDownscaler.glsl", "adaptive-sharpen_strong.glsl"),
+        };
+        int step = -1, wait = 0;
+        var t = new System.Windows.Forms.Timer { Interval = 500 };
+        t.Tick += (s, e) =>
+        {
+            wait += 500;
+            if (step < 0)
+            {   // the first frame, then fullscreen: the 512x288 picture fills 1024x576 on CI's 1024x768 screen (2x)
+                if (firstFrameGen != gen) { if (wait > 30000) { t.Stop(); Log.Warn("presets: no picture"); } return; }
+                if (!fullscreen) ToggleFullscreen();
+                step = 0; wait = 0;
+                return;
+            }
+            if (step >= shots.Count) { t.Stop(); t.Dispose(); Log.Info("presets: done"); return; }
+            var sh = shots[step];
+            bool ultra = sh.Key.StartsWith("ultra", StringComparison.Ordinal);
+            if (wait == 500)
+            {
+                SendMpv("{\"command\":[\"apply-profile\",\"" + (ultra ? "high-quality" : "fast") + "\"]}");
+                SendMpv("{\"command\":[\"change-list\",\"glsl-shaders\",\"clr\",\"\"]}");
+                foreach (var n in sh.Value) SendMpv("{\"command\":[\"change-list\",\"glsl-shaders\",\"append\"," + Quote(Shader(n)) + "]}");
+                SendMpv("{\"command\":[\"set_property\",\"deband\"," + (sh.Key == "off" ? "false" : "true") + "]}");
+            }
+            else if (wait == 6000)
+            {   // what mpv shows (scaled to the window, with the shaders), as a PNG
+                string file = System.IO.Path.Combine(root, "preset-" + sh.Key + ".png").Replace('\\', '/');
+                SendMpv("{\"command\":[\"screenshot-to-file\"," + Quote(file) + ",\"window\"]}");
+                Log.Info("preset shot: " + sh.Key);
+            }
+            else if (wait >= 8000) { step++; wait = 0; }
+        };
+        t.Start();
+    }
+
+    static KeyValuePair<string, string[]> Shot(string name, params string[] shaders) { return new KeyValuePair<string, string[]>(name, shaders); }
 
     // PipeLoop thread: mpv's GPU time answer (request PlaybackStats.PassesId)
     bool PictureLine(string line, int g)

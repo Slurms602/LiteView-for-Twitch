@@ -45,7 +45,7 @@ partial class LiteView
             bool typing = Typing, plain = !e.Control && !e.Alt && !e.Shift;
             if (e.Control && e.KeyCode == Keys.L) { if (watching) Browse(); search.Focus(); search.SelectAll(); }
             else if (!watching) return;
-            else if (e.KeyCode == Keys.F5 && channel != null) Watch(channel);
+            else if (e.KeyCode == Keys.F5 && channel != null) Replay();
             else if (e.KeyCode == Keys.MediaPlayPause) TogglePause();
             else if (e.Alt && e.KeyCode == Keys.Left || e.KeyCode == Keys.Back && plain && !typing) Browse();
             else if (typing) return;

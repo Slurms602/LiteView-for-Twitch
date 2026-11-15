@@ -49,6 +49,8 @@ partial class LiteView
         menuBtn.Click += (s, e) => { BuildAppMenu(); appMenu.Show(menuBtn, new Point(menuBtn.Width, menuBtn.Height), ToolStripDropDownDirection.BelowLeft); };
         new ToolTip().SetToolTip(menuBtn, "Menu");
         DarkMenuColors.Apply(appMenu); appMenu.ShowImageMargin = false;
+        browse.VideoPicked += PlayVideo;   // src/app/LiteView.Videos.cs
+        InitPreview();   // src/app/LiteView.Preview.cs
         InitPause();   // src/app/LiteView.Pause.cs
         bar.Controls.Add(menuBtn);
         LayoutBar();
@@ -116,6 +118,23 @@ partial class LiteView
                 next.Tick += (s2, e2) => { Watch(chans[k % chans.Length]); k++; Log.Info("switch " + k); };
                 FormClosing += (s2, e2) => next.Dispose();
                 next.Start();
+                return;
+            }
+            if (Fixture.SceneName == "videos" || Fixture.SceneName == "clips" || Fixture.SceneName == "vod")
+            {   // a channel's videos or clips (made-up); vod: the first video plays (with tests/FakeStreamlink)
+                browse.ShowVideos("nightowl_plays", "NightowlPlays", Fixture.SceneName == "clips");
+                if (Fixture.SceneName != "vod") return;
+                var t = new Timer { Interval = 500 }; int waited = 0;
+                t.Tick += (s2, e2) => { waited += 500; if (!browse.PlayFirstVideo() && waited < 10000) return; t.Stop(); t.Dispose(); };
+                t.Start();
+                return;
+            }
+            if (Fixture.SceneName == "presets") { PresetShots(); return; }   // src/app/LiteView.Picture.cs
+            if (Fixture.SceneName == "preview")
+            {   // a hover preview of the first live card (with tests/FakeStreamlink), as if the mouse rested on it
+                var t = new Timer { Interval = 500 }; int waited = 0;
+                t.Tick += (s2, e2) => { waited += 500; if (!browse.PreviewFirst() && waited < 10000) return; t.Stop(); t.Dispose(); };
+                t.Start();
                 return;
             }
             if (Fixture.SceneName == "stats")
@@ -288,6 +307,7 @@ partial class LiteView
         yield return Kv("searches", browse.RememberSearches ? browse.Searches.Save() : "");
         yield return Kv("openlast", openLast ? "1" : "0");
         yield return Kv("seamless", seamless ? "1" : "0");
+        yield return Kv("previews", browse.Previews ? "1" : "0");
         yield return Kv("startmin", startMin ? "1" : "0");
         yield return Kv("sharpness", PicturePreset.Save(sharpness));
         yield return Kv("totray", toTray ? "1" : "0");
@@ -314,6 +334,7 @@ partial class LiteView
         browse.Searches.Load(browse.RememberSearches ? Native.Get(ini, "searches", "") : "");
         openLast = Native.Get(ini, "openlast", "0") == "1";
         seamless = Native.Get(ini, "seamless", "1") != "0";
+        browse.Previews = Native.Get(ini, "previews", "1") != "0";
         startMin = Native.Get(ini, "startmin", "0") == "1";
         sharpness = PicturePreset.ParseSharpness(Native.Get(ini, "sharpness", "normal"));
         toTray = Native.Get(ini, "totray", "0") == "1";

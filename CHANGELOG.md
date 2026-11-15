@@ -91,6 +91,12 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   CPU and memory of LiteView and the player.
 - Menu > Playback > **Sharpness** for High and Ultra (Off, Soft, Normal, Strong), and **B** to see the original
   picture and back, to compare.
+- **Videos and clips**: right-click a channel on the Following page > *Videos and clips*: its newest past
+  broadcasts, highlights and uploads, or its most viewed clips of the last 30 days. They play in LiteView with the
+  channel's live chat; videos can be seeked (arrow keys or mpv's bar at the bottom), and Pause, F5 or a new quality
+  continue where the video was.
+- **Previews on hover**: rest the mouse on a live channel's card on the Following page and it plays there, muted, at
+  the lowest quality (menu > Playback turns it off).
 - Menu > **Start and tray**: start with Windows (no administrator rights), start minimised, minimise to the tray
   (all off unless you turn them on), and *Open the last channel at start* (moved here).
 - The chat and the Following page use **Inter**, the font of Twitch's own site, drawn with ClearType when Windows
@@ -108,6 +114,8 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - CI's channel-switching run checks that each switch keeps the old stream until the new one plays and that no
   player is left behind (`players` in the `stress:` lines, `-MaxPlayers`), and prints how long streams took to
   their first frame. Fixture scene `stats` screenshots the stats overlay.
+- CI plays a known test picture at half size with every picture preset in fullscreen and saves what mpv shows;
+  `tools/preset-metrics.py` compares each with the original (PSNR, SSIM, overshoot = halos, detail = sharpness).
 
 - Twitch login/API and the chat connection moved into the tested library and are tested against a simulated
   Twitch and chat server; JSON is read by a small built-in reader instead of `JavaScriptSerializer`.

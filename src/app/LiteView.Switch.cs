@@ -45,7 +45,13 @@ partial class LiteView
         comparing = false;   // B (the original picture) lasts until the next stream
         bool alive = false;
         try { alive = slProc != null && !slProc.HasExited; } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
-        if (!seamless || paused || gamingActive || !played || mpvGen != gen || job == IntPtr.Zero || !alive || !watching)
+        if (outgoing != null && firstFrameGen != gen && seamless && !paused && watching)
+        {   // another switch while the last one is still opening: the stream on screen keeps playing, the opening one goes
+            StopOpening();
+            Log.Info("stream " + gen + ": stopped before its first frame; stream " + outgoing.Gen + " keeps playing");
+            return;   // streamSurface stays: the surface behind the one on screen
+        }
+        if (!seamless || paused || gamingActive || !played || mpvGen != gen || firstFrameGen != gen || job == IntPtr.Zero || !alive || !watching)
         {
             StopStream();
             streamSurface = front;
@@ -60,6 +66,20 @@ partial class LiteView
         lock (pipeLock) { if (mpvPipe != null) try { mpvPipe.Dispose(); } catch (Exception) { } }
         streamSurface = 1 - front;
         Log.Info("stream " + gen + ": keeps playing while the next one opens");
+    }
+
+    // the current (still opening) stream ends, the outgoing one stays; waits for Streamlink to exit, so its log file is free
+    void StopOpening()
+    {
+        streamOn.Reset();
+        if (job != IntPtr.Zero) { TerminateJobObject(job, 0); Native.CloseHandle(job); job = IntPtr.Zero; }
+        slPid = 0;
+        if (slProc != null)
+        {
+            try { slProc.WaitForExit(1000); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
+            slProc.Dispose(); slProc = null;
+        }
+        lock (pipeLock) { if (mpvPipe != null) try { mpvPipe.Dispose(); } catch (Exception) { } }
     }
 
     void KillOutgoing()
@@ -105,12 +125,14 @@ partial class LiteView
     // OnTick: the old stream ends when the next one cannot take over soon
     void CheckHandOver()
     {
+        TrackVideo();   // a video's position, every second (src/app/LiteView.Videos.cs)
         if (outgoing == null) return;
         if (DateTime.Now - outgoing.Since > HandOverLimit) { Log.Warn("stream " + gen + ": no picture after " + (int)HandOverLimit.TotalSeconds + " s; the last stream was stopped"); EndHandOver(); }
     }
 
-    // the next stream will not show a picture soon (offline, failed, stopped): the old one ends, the next one's
-    // surface comes to the front (it shows the status), and the next stream gets the sound when it plays
+    // the next stream will not show a picture soon (offline, failed, stopped), or the user changed the sound (mute,
+    // volume: it must reach what is heard): the old one ends, the next one's surface comes to the front, and the next
+    // stream gets the sound
     void EndHandOver()
     {
         if (outgoing == null) return;

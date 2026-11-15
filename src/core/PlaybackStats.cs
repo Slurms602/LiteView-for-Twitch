@@ -137,7 +137,7 @@ namespace LiteViewCore
             if (title.Length > 0) lines.Add(title);
             foreach (var r in rows) lines.Add(r.Key.PadRight(labelW + 2) + r.Value);
             int cols = 0; foreach (var l in lines) cols = Math.Max(cols, l.Length);
-            const int fs = 15, pad = 8, lineH = 18;
+            const int fs = 14, pad = 8, lineH = 17;
             int w = (int)Math.Ceiling(cols * fs * 0.55) + 2 * pad, h = lines.Count * lineH + 2 * pad;
             var sb = new StringBuilder();
             sb.Append("{\\an7\\pos(10,10)\\bord0\\shad0\\1c&H000000&\\1a&H50&\\p1}m 0 0 l ").Append(w).Append(" 0 ").Append(w).Append(' ').Append(h).Append(" 0 ").Append(h).Append("{\\p0}\n");
@@ -161,11 +161,15 @@ namespace LiteViewCore
             return sb.ToString();
         }
 
-        /// <summary>The mpv command that shows (or, with null, removes) the overlay; res_y 720 keeps its size relative to the video.</summary>
-        public static string OverlayCommand(string? ass)
+        /// <summary>
+        /// The mpv command that shows (or, with null, removes) the overlay. res_y is the video area's height in pixels,
+        /// so the text has the same size in a small window and in fullscreen.
+        /// </summary>
+        public static string OverlayCommand(string? ass, int heightPx = 720)
         {
             if (ass == null) return "{\"command\":{\"name\":\"osd-overlay\",\"id\":7,\"format\":\"none\",\"data\":\"\"}}";
-            return "{\"command\":{\"name\":\"osd-overlay\",\"id\":7,\"format\":\"ass-events\",\"res_x\":0,\"res_y\":720,\"data\":" + Quote(ass) + "}}";
+            int h = Math.Max(120, Math.Min(8640, heightPx));
+            return "{\"command\":{\"name\":\"osd-overlay\",\"id\":7,\"format\":\"ass-events\",\"res_x\":0,\"res_y\":" + h.ToString(CultureInfo.InvariantCulture) + ",\"data\":" + Quote(ass) + "}}";
         }
 
         static string Quote(string t)

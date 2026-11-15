@@ -29,6 +29,7 @@ no network, credentials or Twitch account.
 | Random input | `FuzzTests` | Seeded random and mutated input for every parser of outside data (IRC lines, JSON incl. 200 000 levels deep, the chat history answer, image headers, links, channel names, Helix answers, Streamlink's log, settings files, chat preferences): nothing throws, and the results keep their promises (no line breaks in IRC text, only allowed hosts and schemes, valid logins, bounded sizes, no half characters) |
 | Browse tab | `CategoryTests` | Categories need a numeric id and a name, box art only from allowed hosts; only a numeric category and a known language code reach the request |
 | Fonts | `FontCoverageTests` | Inter's character map read from the font file (Latin, Greek, Cyrillic yes; Chinese, Arabic, emoji no); damaged font files give null, never an exception |
+| Videos and clips | `VideoTests` | Videos need a numeric id and a valid channel, clips a slug of letters, digits, - and _ (the only values that reach the command line); durations, lengths, ages, the status line; the channel id is asked once; unreachable vs none |
 | Stats overlay, presets | `PlaybackStatsTests`, `GpuTimeTests`, `PicturePresetTests` | mpv's answers parsed field by field and clamped; nothing in them can break out of the overlay's text or JSON; GPU time from vo-passes; every preset sharpens once at most, Ultra like High; every shader file exists |
 | Chat history | `RecentMessagesTests` | Only chat lines of the channel asked for, no CR/LF/NUL, at most 50; the one-word form without ":" |
 | Chat connection (fake server) | `IrcClientTests` | Anonymous and logged-in handshake; PING/PONG; RECONNECT uses the current token; chat text ending in RECONNECT is text; oversized message reconnects; backoff grows and resets after a healthy connection; Stop; one-line Send; bad channel |
@@ -58,7 +59,10 @@ switches channel every 5 s for two minutes (scene `switching`, with video throug
 second) and checks that handles, GDI/USER objects, threads and memory do not grow from the 3rd sample to the last,
 that every switch kept the old stream until the new one played (seamless switching; FakeStreamlink waits 1.5 s like
 a real Streamlink opening a stream) and that never more than two players ran at once. It prints how long the
-streams took to their first frame.
+streams took to their first frame. A last step plays a known test picture (text, a Siemens star, fine lines,
+coloured edges, texture; 1024x576, streamed at 512x288 after a JPEG round trip) in fullscreen with each picture preset
+and saves what mpv shows (`smoke/fixture-presets/preset-*.png` with `preset-truth.png`);
+`python3 tools/preset-metrics.py smoke/fixture-presets` compares them (numbers in `PERFORMANCE_BASELINE.md`).
 
 **Not automated yet**: real Twitch playback, chat stress beyond two minutes, hour-long leak tests, display scaling.
 
@@ -131,6 +135,9 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 55 | Picture: Ultra; press B; B again | B shows the original picture ("Original picture" on the video), B again your preset. Ultra should look cleaner than High but not sharper (menu > Playback > Sharpness: Soft if it is still too sharp) |
 | 56 | Menu > Start and tray > Start with Windows, Start minimised, Minimise to the tray; sign out and in | LiteView starts minimised in the tray; clicking its icon opens it; minimising hides it in the tray again. Untick Start with Windows: it no longer starts |
 | 57 | Chat and Following page text | Inter like on twitch.tv; names bold; Chinese or emoji words still draw. Menu > Text size > Font > Segoe UI switches back |
+| 59 | Right-click a channel > *Videos and clips*; click a past broadcast; Right arrow on the video a few times; Pause, then Play | The channel's videos with length, views and age; *Clips* lists its clips; the video plays (status: "Past broadcast · 2:31:00 · ..."); arrows seek; Play continues where it was; Esc or ‹ Back returns to where you were |
+| 60 | Switch channel twice quickly (before the second one shows) | The first one keeps playing until the third shows; never two sounds at once; Task Manager: one mpv at the end. Mute while a switch is opening: it mutes what you hear |
+| 61 | Following page: rest the mouse on a live card for a second; move to another; scroll | The card plays muted at low quality after about a second; moving or scrolling stops it at once; clicking the card opens the channel normally; Task Manager: no Streamlink/mpv left once the mouse is away. Menu > Playback > Previews on hover turns it off |
 | 58 | A reply in a busy chat (someone answering someone) | "↳ Replying to @name: ..." above it in smaller grey text, at every chat text size; the reply's text does not start with "@name" |
 
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
@@ -143,7 +150,7 @@ Streamlink, anonymous chat, and the title says *UI fixture*. `LITEVIEW_UI_FIXTUR
 `followed`, `recent`, `history`, `search:<text>`, `browse`, `category` (the Browse tab and one category), `problem`,
 `chat`, `chatleft` (the chat on the left), `chatlog` (the chat's recent messages), `reply` (replying to one of them), `picker` (the emote picker, keyboard on an emote), `stress` (the
 two-minute busy chat), and with
-`LITEVIEW_UI_FIXTURE_STREAMS=1` plus `smoke.ps1 -FakeStreamlink` also `watch`, `stats` (the stats overlay), `offline`, `fail`, `paused`. `smoke.ps1
+`videos`, `clips` (a channel's made-up videos and clips), and with `LITEVIEW_UI_FIXTURE_STREAMS=1` plus `smoke.ps1 -FakeStreamlink` also `watch`, `stats` (the stats overlay), `vod` (a video plays), `preview` (a hover preview), `presets` (the preset comparison), `offline`, `fail`, `paused`. `smoke.ps1
 -Expect <regex>` also requires lines in `liteview.log` (CI: the chatlog scene must log 8 recent messages, the paused
 scene must play and then pause), and `-A11yExpect <regex>` lines in what screen readers see (CI: the picker and Browse
 lists with their items). The chat scenes have made-up 7TV channel emotes (generated, a quarter of them animated). CI runs every scene with `tools/smoke.ps1` and

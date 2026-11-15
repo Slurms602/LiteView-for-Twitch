@@ -99,13 +99,13 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         quality.Items.AddRange(Qualities); quality.Width = 96; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
         quality.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
-            TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused && !qualityRebuild) Watch(channel); };
+            TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused && !qualityRebuild) Replay(); };   // fork: Replay keeps a video a video
         chatOn.Text = "Chat"; chatOn.ForeColor = Dim; chatOn.AutoSize = true; chatOn.ContextMenuStrip = nchat.Menu; chatOn.CheckedChanged += (s, e) => { if (watching) { if (chatOn.Checked) StartChat(); else StopChat(); Relayout(); FitWindow(); } };
         Flat(fsBtn, "⛶"); fsBtn.Width = 34; fsBtn.Click += (s, e) => ToggleFullscreen();
         Flat(muteBtn, "\uE767"); muteBtn.Font = new Font("Segoe MDL2 Assets", 11f); muteBtn.Width = 34;
-        muteBtn.Click += (s, e) => { muted = !muted; SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}"); UpdateMute(); SaveSettings(); };
+        muteBtn.Click += (s, e) => { EndHandOver(); muted = !muted; SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}"); UpdateMute(); SaveSettings(); };
         new ToolTip().SetToolTip(muteBtn, "Mute (M on the video)");
-        volBar.Changed += v => { volume = v; if (muted) { muted = false; SendMpv("{\"command\":[\"set_property\",\"mute\",false]}"); }
+        volBar.Changed += v => { EndHandOver(); volume = v; if (muted) { muted = false; SendMpv("{\"command\":[\"set_property\",\"mute\",false]}"); }
             SendMpv("{\"command\":[\"set_property\",\"volume\"," + v + "]}"); UpdateMute(); };
         volBar.MouseUp += (s, e) => SaveSettings();
         new ToolTip().SetToolTip(volBar, "Volume (or the mouse wheel on the video)");
@@ -316,6 +316,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             return;
         }
         if (!isRetry) CancelRetry();
+        TakeVideo(name, isRetry);   // fork: a channel's video instead of its live stream (src/app/LiteView.Videos.cs)
         bool wasWatching = watching;
         channel = name; title.Text = name; search.Text = "";
         SetMode(true);

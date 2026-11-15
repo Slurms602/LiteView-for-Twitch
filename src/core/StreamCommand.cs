@@ -115,6 +115,12 @@ namespace LiteViewCore
         public long WindowHandle;
         /// <summary>The player starts muted (seamless switching: the old stream still plays).</summary>
         public bool StartMuted;
+        /// <summary>A video (its numeric id) or a clip (its slug) instead of the channel's live stream; Channel is then only its owner.</summary>
+        public string Video = "", Clip = "";
+        /// <summary>A video starts this many seconds in (it continues where it was paused).</summary>
+        public int StartSeconds;
+        /// <summary>A hover preview on the Following page: the lowest quality, muted, no retries, mpv ignores mouse and keys.</summary>
+        public bool Preview;
     }
 
     public static class StreamCommand
@@ -124,25 +130,34 @@ namespace LiteViewCore
         /// <summary>The full command line for CreateProcess (program path first).</summary>
         public static string Build(StreamRequest r)
         {
+            bool video = r.Video.Length > 0, clip = r.Clip.Length > 0;
             if (!ChannelName.IsValidLogin(r.Channel)) throw new ArgumentException("not a channel name: " + r.Channel);
+            if (video && !ChannelName.IsNumericId(r.Video)) throw new ArgumentException("not a video id");
+            if (clip && !VideoData.IsClipSlug(r.Clip)) throw new ArgumentException("not a clip id");
+            if (video && clip) throw new ArgumentException("a video or a clip, not both");
             if (!IsPipeName(r.PipeName)) throw new ArgumentException("bad pipe name");
-            string playerArgs = "--wid=" + r.WindowHandle.ToString(CultureInfo.InvariantCulture) + " --input-ipc-server=" + r.PipeName + (r.StartMuted ? " --mute=yes" : "");
-            var a = new List<string>
+            if (r.Preview && (video || clip)) throw new ArgumentException("previews are of live streams");
+            string playerArgs = "--wid=" + r.WindowHandle.ToString(CultureInfo.InvariantCulture) + " --input-ipc-server=" + r.PipeName + (r.StartMuted || r.Preview ? " --mute=yes" : "")
+                + (r.Preview ? " --osc=no --osd-level=0 --input-cursor=no --input-vo-keyboard=no" : "")
+                + (video && r.StartSeconds > 0 ? " --start=+" + Math.Min(r.StartSeconds, 999999).ToString(CultureInfo.InvariantCulture) : "");
+            var a = new List<string> { r.Streamlink, "--player", r.Mpv, "--player-args", playerArgs };
+            if (video || clip)
+                // mpv opens the video's playlist (or the clip's file) itself, so it can seek: arrow keys, its seek bar
+                { a.Add("--player-passthrough"); a.Add("hls,http"); }
+            else if (r.Preview) a.Add("--twitch-low-latency");   // no retries: an offline channel simply shows no preview
+            else
             {
-                r.Streamlink,
-                "--player", r.Mpv,
-                "--player-args", playerArgs,
-                "--twitch-low-latency",
+                a.Add("--twitch-low-latency");
                 // an offline channel: Streamlink itself checks again every 30 s and starts the player when it goes live
-                "--retry-streams", RetryStreamsSeconds.ToString(CultureInfo.InvariantCulture),
-                "--twitch-supported-codecs", "h264,h265,av1",
-                "--loglevel", "info",
-                "--logfile", r.LogFile,
-                "twitch.tv/" + r.Channel,
-                Quality.Selector(r.Quality),
-            };
+                a.Add("--retry-streams"); a.Add(RetryStreamsSeconds.ToString(CultureInfo.InvariantCulture));
+            }
+            a.Add("--twitch-supported-codecs"); a.Add("h264,h265,av1"); a.Add("--loglevel"); a.Add("info"); a.Add("--logfile"); a.Add(r.LogFile);
+            a.Add(video ? "twitch.tv/videos/" + r.Video : clip ? "clips.twitch.tv/" + r.Clip : "twitch.tv/" + r.Channel);
+            a.Add(r.Preview ? PreviewSelector : Quality.Selector(r.Quality));
             return WinArgs.Join(a);
         }
+
+        public const string PreviewSelector = "160p,360p,worst";
 
         /// <summary>A new, unguessable pipe name for one stream (mpv's IPC server).</summary>
         public static string NewPipeName()

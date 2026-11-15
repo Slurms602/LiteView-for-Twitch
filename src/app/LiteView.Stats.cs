@@ -39,6 +39,7 @@ partial class LiteView
             return true;
         }
         if (PictureLine(line, g)) return true;
+        if (VideoLine(line, g)) return true;
         if (line.IndexOf("client-message", StringComparison.Ordinal) >= 0)
         {
             if (line.IndexOf("\"liteview-stats\"", StringComparison.Ordinal) >= 0) { Ui(g, ToggleStats); return true; }
@@ -99,7 +100,7 @@ partial class LiteView
         if (lastOpenSeconds >= 0 && firstFrameGen == gen) row("Opened in", PlaybackStats.Seconds(lastOpenSeconds));
         row("CPU", cpuText);
         row("Memory", memText);
-        SendMpv(PlaybackStats.OverlayCommand(PlaybackStats.Ass(rows, "LiteView stats  (I hides this)")));
+        SendMpv(PlaybackStats.OverlayCommand(PlaybackStats.Ass(rows, "LiteView stats  (I hides this)"), this.video.Height));
     }
 
     // CPU (share of the whole processor, like Task Manager) and private memory of LiteView and of the stream's processes

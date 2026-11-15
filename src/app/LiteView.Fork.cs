@@ -73,7 +73,7 @@ partial class LiteView
         };
         InitProblems();
         InitScreens();
-        status.Click += (s, e) => { if (problemTitle != null) ShowProblemDetails(); else if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
+        status.Click += (s, e) => { if (problemTitle != null) ShowProblemDetails(); else if (canRetry && watching && slProc == null && channel != null) Replay(); };
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPower;
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetwork;
         FormClosed += (s, e) =>
@@ -216,7 +216,7 @@ partial class LiteView
             Log.Info("network: connected again");
             if (!watching || channel == null) return;
             if (chatOn.Checked && !webChat) nchat.Reconnect();
-            if (slProc == null && canRetry) Watch(channel);   // a stream that gave up or is waiting to retry: now
+            if (slProc == null && canRetry) Replay();   // a stream that gave up or is waiting to retry: now
         });
     }
 
@@ -275,16 +275,18 @@ partial class LiteView
         string cmdline;
         try
         {
-            cmdline = StreamCommand.Build(new StreamRequest
+            var req = new StreamRequest
             {
                 Streamlink = streamlink, Mpv = mpv, LogFile = curLog, Channel = name, Quality = q,
                 PipeName = pipeName, WindowHandle = surfaces[streamSurface].Handle.ToInt64(), StartMuted = muteNext,
-            });
+            };
+            VideoRequest(req);   // a video or clip (src/app/LiteView.Videos.cs)
+            cmdline = StreamCommand.Build(req);
         }
         catch (ArgumentException ex) { ShowProblem("Cannot play this channel", ex.Message, null); Log.Error("stream command", ex); return; }
         try { File.Delete(curLog); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         job = CreateJobObject(IntPtr.Zero, null);
-        if (job == IntPtr.Zero) { ShowProblem("Could not start Streamlink", "Windows refused to create a job object (error " + Marshal.GetLastWin32Error() + ").", () => Watch(channel)); Log.Error("CreateJobObject failed"); return; }
+        if (job == IntPtr.Zero) { ShowProblem("Could not start Streamlink", "Windows refused to create a job object (error " + Marshal.GetLastWin32Error() + ").", Replay); Log.Error("CreateJobObject failed"); return; }
         var lim = new JOBLIMITS { flags = 0x2000 };   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: closing LiteView also ends its stream
         if (!SetInformationJobObject(job, 9, ref lim, Marshal.SizeOf(typeof(JOBLIMITS)))) Log.Warn("job: kill-on-close could not be set");
         var si = new Native.STARTUPINFO(); si.cb = Marshal.SizeOf(si);
@@ -300,12 +302,12 @@ partial class LiteView
             slPid = pi.pid; slStart = DateTime.Now;
             streamOn.Set();
             status.ForeColor = Dim; status.Text = "opening...";
-            Log.Info("stream " + g + ": Streamlink started (quality " + q + ")");
+            Log.Info("stream " + g + ": Streamlink started (quality " + q + (currentVideo != null ? ", " + (currentVideo.IsClip ? "clip" : "video from " + Secs(videoPos) + " s") : "") + ")");
         }
         else
         {
             int err = Marshal.GetLastWin32Error();
-            ShowProblem("Could not start Streamlink", "Windows error " + err + " starting\n" + streamlink + "\n\nAn antivirus quarantine or a damaged unzip can cause this: unzip LiteView again.", () => Watch(channel));
+            ShowProblem("Could not start Streamlink", "Windows error " + err + " starting\n" + streamlink + "\n\nAn antivirus quarantine or a damaged unzip can cause this: unzip LiteView again.", Replay);
             Log.Error("stream " + g + ": CreateProcess failed, error " + err);
             canRetry = true;
         }
@@ -380,6 +382,7 @@ partial class LiteView
         int code = int.MinValue; try { code = slProc.ExitCode; } catch (InvalidOperationException) { }
         Log.Warn("stream " + gen + ": Streamlink exited (code " + code + ", after " + (int)ran.TotalSeconds + " s, " + end + ")" + (err.Length > 0 ? ": " + Redact.ForSharing(err) : ""));
         bool wasPlaying = played;
+        if (VideoEnded(wasPlaying)) return;   // a video that played to its end (src/app/LiteView.Videos.cs)
         StopStream();   // also ends an mpv left behind if Streamlink died
         if (wasPlaying) playBackoff.Ended(ran);
         ScheduleRetry(end, StreamOutcome.Describe(end, err), err);
@@ -391,7 +394,7 @@ partial class LiteView
     {
         canRetry = channel != null;
         string ch = channel;
-        Action again = ch != null ? () => { if (channel == ch) Watch(ch); } : (Action)null;
+        Action again = ch != null ? () => { if (channel == ch) Replay(); } : (Action)null;
         if (!watching || channel == null || end == StreamEnd.Fatal) { ShowProblem(summary, StreamDetail(err), again); return; }
         TimeSpan wait;
         if (end == StreamEnd.Offline) wait = TimeSpan.FromSeconds(60);

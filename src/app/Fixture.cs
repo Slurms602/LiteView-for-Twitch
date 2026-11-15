@@ -111,6 +111,20 @@ static class Fixture
                     return Json("{\"data\":[" + string.Join(",", Live.Concat(Offline).Select((l, i) => "{\"broadcaster_id\":\"" + (2000 + i) + "\",\"broadcaster_login\":\"" + l + "\",\"broadcaster_name\":\"" + Display(l) + "\",\"followed_at\":\"" + DateTime.UtcNow.AddDays(-40 * i - 3).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) + "\"}")) + "],\"pagination\":{}}");
                 if (path.EndsWith("/users", StringComparison.Ordinal))   // by login (Following page) or by id (followed column)
                     return Json("{\"data\":[" + string.Join(",", Values(q, "login").Concat(Values(q, "id").Select(LoginOf).Where(l => l != null)).Select(l => "{\"id\":\"" + (2000 + Array.IndexOf(Live.Concat(Offline).ToArray(), l)) + "\",\"login\":\"" + l + "\",\"display_name\":\"" + Display(l) + "\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/jtv_user_pictures/fixture-" + l + "-profile_image-300x300.png\"}")) + "]}");
+                if (path.EndsWith("/videos", StringComparison.Ordinal))   // a channel's videos: 8 made-up ones, newest first
+                {
+                    string login = LoginOf(Values(q, "user_id").FirstOrDefault() ?? "") ?? "";
+                    string[] types = { "archive", "archive", "highlight", "archive", "upload", "archive", "highlight", "archive" };
+                    return Json("{\"data\":[" + string.Join(",", Enumerable.Range(0, 8).Select(k => "{\"id\":\"" + (5000 + k) + "\",\"user_login\":\"" + login + "\",\"user_name\":\"" + Display(login) +
+                        "\",\"title\":\"" + VideoTitles[k] + "\",\"type\":\"" + types[k] + "\",\"duration\":\"" + (k % 3 == 2 ? "" : (1 + k) + "h") + (7 * k + 3) + "m" + (11 * k % 60) + "s\",\"view_count\":" + (31 * k * k * k + 120) +
+                        ",\"created_at\":\"" + DateTime.UtcNow.AddHours(-(5 + 30 * k * k)).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) +
+                        "\",\"thumbnail_url\":\"https://static-cdn.jtvnw.net/cf_vods/fixture/v" + (5000 + k) + "/thumb/thumb0-%{width}x%{height}.jpg\"}")) + "],\"pagination\":{}}");
+                }
+                if (path.EndsWith("/clips", StringComparison.Ordinal))   // its clips: 6 made-up ones
+                    return Json("{\"data\":[" + string.Join(",", Enumerable.Range(0, 6).Select(k => "{\"id\":\"FixtureClip" + k + "-Kappa_" + (900 + k) + "\",\"broadcaster_name\":\"" +
+                        Display(LoginOf(Values(q, "broadcaster_id").FirstOrDefault() ?? "") ?? "x") + "\",\"creator_name\":\"" + Display(Live[(k + 3) % Live.Length]) + "\",\"title\":\"" + ClipTitles[k] +
+                        "\",\"view_count\":" + (4000 / (k + 1)) + ",\"duration\":" + (12.4 + 5 * k).ToString(CultureInfo.InvariantCulture) + ",\"created_at\":\"" + DateTime.UtcNow.AddDays(-(k * 4 + 1)).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) +
+                        "\",\"thumbnail_url\":\"https://static-cdn.jtvnw.net/twitch-clips-thumbnails-prod/fixture/c" + k + "/preview-480x272.jpg\"}")) + "],\"pagination\":{}}");
                 if (path.EndsWith("/search/channels", StringComparison.Ordinal))
                 {
                     string text = (Values(q, "query").FirstOrDefault() ?? "").ToLowerInvariant();
@@ -154,9 +168,36 @@ static class Fixture
                     var c = Categories.FirstOrDefault(x => file.StartsWith("fxcat-" + CategoryId(x) + "-", StringComparison.Ordinal));
                     if (c != null) return Image(BoxArt(c), "image/jpeg");
                 }
+                if (path.StartsWith("/cf_vods/fixture/v", StringComparison.Ordinal) || path.StartsWith("/twitch-clips-thumbnails-prod/fixture/c", StringComparison.Ordinal))
+                {   // a video's or clip's picture
+                    var part = path.Split('/')[path.StartsWith("/cf_vods", StringComparison.Ordinal) ? 3 : 3];
+                    return Image(VideoPicture(part), "image/jpeg");
+                }
                 if (file.StartsWith("fixture-", StringComparison.Ordinal)) return Image(Avatar(file.Substring(8, file.IndexOf("-profile_image", StringComparison.Ordinal) - 8)), "image/png");
             }
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") });
+        }
+
+        static readonly string[] VideoTitles = { "Full run, new route", "Late night chill stream", "Best of the week", "Ranked until we win", "Tutorial: the first boss",
+            "Community games night", "Clutch moments", "Charity marathon (part 2)" };
+        static readonly string[] ClipTitles = { "that jump though", "chat goes wild", "how did that work", "perfect timing", "the cat walked in", "no way" };
+
+        static byte[] VideoPicture(string part)
+        {
+            using (var bmp = new Bitmap(440, 248))
+            using (var g = Graphics.FromImage(bmp))
+            using (var bg = new LinearGradientBrush(new Rectangle(0, 0, 440, 248), Hue(part, 0.5f), Hue(part + "v", 0.15f), 120f))
+            using (var font = new Font("Segoe UI Semibold", 22f))
+            using (var small = new Font("Segoe UI", 11f))
+            using (var ms = new System.IO.MemoryStream())
+            {
+                g.FillRectangle(bg, 0, 0, 440, 248);
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                g.DrawString(part.StartsWith("c", StringComparison.Ordinal) ? "Clip " + part.Substring(1) : "Video " + part.Substring(1), font, Brushes.White, 24, 150);
+                g.DrawString("fixture picture", small, new SolidBrush(Color.FromArgb(200, 255, 255, 255)), 26, 196);
+                bmp.Save(ms, ImageFormat.Jpeg);
+                return ms.ToArray();
+            }
         }
 
         static readonly long[] ViewerCounts = { 182, 41250, 2210, 9800, 655, 74, 3120, 1460, 37, 12800, 940, 28300, 5100, 410 };

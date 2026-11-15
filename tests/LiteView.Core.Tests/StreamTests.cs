@@ -77,6 +77,39 @@ public class WinArgsTests
         Assert.DoesNotContain("mute", argv[argv.IndexOf("--player-args") + 1]);
     }
 
+    [Fact]
+    public void VideosAndClipsPlayWithPassthroughAndNoLiveOptions()
+    {
+        var v = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Video = "2001", StartSeconds = 754, Quality = "720p60" }));
+        Assert.Equal(new[] { "s", "--player", "m", "--player-args", "--wid=7 --input-ipc-server=liteview-mpv-1 --start=+754", "--player-passthrough", "hls,http",
+            "--twitch-supported-codecs", "h264,h265,av1", "--loglevel", "info", "--logfile", "l", "twitch.tv/videos/2001", "720p60,720p,best" }, v);
+        var c = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Clip = "Funny_Clip-1", StartSeconds = 9 }));
+        Assert.Contains("clips.twitch.tv/Funny_Clip-1", c);
+        Assert.DoesNotContain("--twitch-low-latency", c); Assert.DoesNotContain("--retry-streams", c);
+        Assert.DoesNotContain("--start", c[c.IndexOf("--player-args") + 1]);   // clips are short: always from the start
+    }
+
+    [Fact]
+    public void APreviewIsSmallMutedAndDeaf()
+    {
+        var p = ArgvParse(StreamCommand.Build(new StreamRequest { Streamlink = "s", Mpv = "m", LogFile = "l", Channel = "xqc", PipeName = "liteview-mpv-1", WindowHandle = 7, Preview = true, Quality = "1080p60" }));
+        Assert.Equal("--wid=7 --input-ipc-server=liteview-mpv-1 --mute=yes --osc=no --osd-level=0 --input-cursor=no --input-vo-keyboard=no", p[p.IndexOf("--player-args") + 1]);
+        Assert.Equal("160p,360p,worst", p[p.Count - 1]);
+        Assert.DoesNotContain("--retry-streams", p);
+        Assert.Throws<ArgumentException>(() => StreamCommand.Build(new StreamRequest { Channel = "xqc", PipeName = "p", Preview = true, Video = "1" }));
+    }
+
+    [Theory]
+    [InlineData("12a", "")]
+    [InlineData("1 --player=calc", "")]
+    [InlineData("", "x y")]
+    [InlineData("", "a\"b")]
+    [InlineData("5", "clip")]
+    public void BadVideoOrClipIdsAreRefused(string video, string clip)
+    {
+        Assert.Throws<ArgumentException>(() => StreamCommand.Build(new StreamRequest { Channel = "xqc", PipeName = "p", Video = video, Clip = clip }));
+    }
+
     [Theory]
     [InlineData("xqc --player-args=calc")]
     [InlineData("a b")]

@@ -60,7 +60,7 @@ namespace LiteViewCore
         }
 
         static readonly System.Text.RegularExpressions.Regex MessageId = new System.Text.RegularExpressions.Regex(
-            "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            @"\A[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);   // \z: "$" would accept a final \n
 
         /// <summary>A Twitch chat message id (a UUID): the only thing that may go into a reply tag.</summary>
         public static bool IsMessageId(string? id) { return id != null && MessageId.IsMatch(id); }

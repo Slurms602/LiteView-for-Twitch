@@ -848,7 +848,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             {
                 if (im.Cmd == "USERSTATE") me = im;
                 string text;
-                if (im.Cmd == "USERSTATE" && pending.TryDequeue(out text)) inbox.Enqueue(WithReply(Build(im, text, Tw.Login), text));   // fork: WithReply
+                if (im.Cmd == "USERSTATE" && pending.TryDequeue(out text)) inbox.Enqueue(Echo(im, text));   // fork: Echo = Build + the reply line (src/app/ChatReply.cs)
                 break;
             }
             case "NOTICE":
@@ -989,7 +989,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
     {
         var list = new List<Msg>(); Msg m;
         while (inbox.TryDequeue(out m)) list.Add(m);
-        DropHistoryEchoes(list);   // fork: a live copy of a message the history already showed (src/app/ChatHistory.cs)
+        DropHistoryEchoes(list); CheckReply();   // fork: a live copy of a message the history already showed (src/app/ChatHistory.cs); a reply to a message deleted meanwhile ends
         if (list.Count > 150) list = list.GetRange(list.Count - 150, 150);   // a flood: keep the newest
         View.Add(list);
         Images.Trim();
@@ -1006,8 +1006,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             if (t.Length == 0 || channel == null || Tw.Token == null || Tw.Login == null) return;
             if (irc.Send(ReplyPrefix() + "PRIVMSG #" + channel + " :" + t))   // fork: ReplyPrefix (src/app/ChatReply.cs)
             {
-                ReplySent(t);
-                pending.Enqueue(t);
+                pending.Enqueue(ReplySent(t));   // fork: the text, with its reply line when it is a reply
                 var d = third; var used = t.Split(' ').Where(w => w.Length > 0 && (d.ContainsKey(w) || twitchEmotes.ContainsKey(w))).Distinct().Reverse().ToList();
                 if (used.Count > 0) Used(used);
                 sent.Add(t); if (sent.Count > 50) sent.RemoveAt(0); sentPos = sent.Count;

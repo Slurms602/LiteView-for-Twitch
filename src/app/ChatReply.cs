@@ -1,9 +1,10 @@
 // Replies and the message menu in the native chat. Right-click a message: Reply to <name>, Copy message, Copy name.
 // Reply shows "Replying to @name: ..." above the chat box (Esc or ✕ cancels); the next message is sent with Twitch's
-// reply tag, so it shows as a reply on Twitch, and our own copy of it gets the same "Replying to" line. The message id
-// comes from a received line and only goes into the tag when it is a real message id (IrcProtocol.ReplyTag).
+// reply tag, so it shows as a reply on Twitch, and our own copy of it gets the same "Replying to" line (carried in the
+// same pending entry as the text, so a refused message takes its line with it). The message id comes from a received
+// line and only goes into the tag when it is a real message id (IrcProtocol.ReplyTag). A reply ends when its message
+// is deleted, its author ignored, or the channel changes; sub and raid notices cannot be replied to.
 using System;
-using System.Collections.Concurrent;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -15,9 +16,8 @@ partial class ChatPanel
     readonly Label replyText = new Label();
     readonly Button replyClose = new Button();
     readonly ContextMenuStrip msgMenu = new ContextMenuStrip();
-    string replyId, replyLine, replyChannel;
-    // what we sent as a reply -> its "Replying to" line, for our own copy when Twitch confirms it (IRC thread reads it)
-    readonly ConcurrentDictionary<string, string> sentReplies = new ConcurrentDictionary<string, string>();
+    string replyId, replyLine, replyChannel; Msg replyTo;
+    const char LineMark = '\0';   // pending entry: text, then the reply line (sent text never has a NUL: CleanOutgoing)
 
     void InitReply()
     {
@@ -42,7 +42,7 @@ partial class ChatPanel
         string body = Body(m);
         if (m.Login != null)
         {
-            bool canReply = input.Visible && channel != null && Tw.Token != null && !m.Deleted && IrcProtocol.IsMessageId(m.Id);
+            bool canReply = input.Visible && channel != null && Tw.Token != null && !m.Deleted && m.Style != 2 && m.Style != 3 && IrcProtocol.IsMessageId(m.Id);
             var reply = new ToolStripMenuItem("Reply to " + name) { Enabled = canReply };
             reply.Click += (s, e) => StartReply(m, name, body);
             msgMenu.Items.Add(reply);
@@ -63,7 +63,8 @@ partial class ChatPanel
 
     void StartReply(Msg m, string name, string body)
     {
-        replyId = m.Id; replyChannel = channel;
+        if (m.Deleted) return;   // deleted while the menu was open
+        replyId = m.Id; replyChannel = channel; replyTo = m;
         replyLine = IrcProtocol.ForDisplay("Replying to @" + name + ": " + body);
         replyText.Text = replyLine;
         new ToolTip().SetToolTip(replyText, replyLine + "\n(Esc cancels)");
@@ -71,7 +72,15 @@ partial class ChatPanel
         input.Focus();
     }
 
-    void CancelReply() { replyId = replyLine = replyChannel = null; replyBar.Visible = false; }
+    void CancelReply() { replyId = replyLine = replyChannel = null; replyTo = null; replyBar.Visible = false; }
+
+    // from Drain (UI thread, 10 times a second): the message was deleted or its author ignored since
+    void CheckReply()
+    {
+        if (replyTo == null || !(replyTo.Deleted || ChatPrefs.Filter.IsIgnored(replyTo.Login))) return;
+        CancelReply();
+        View.Add(new System.Collections.Generic.List<Msg> { Sys("The message you were replying to was removed: the reply was cancelled.") });
+    }
 
     /// <summary>For the UI fixture: a reply to the newest message that can have one.</summary>
     public void ReplyToLast()
@@ -86,24 +95,25 @@ partial class ChatPanel
     // the start of the PRIVMSG line: the reply tag while replying in this channel, else nothing
     string ReplyPrefix()
     {
-        if (replyId != null && replyChannel != channel) CancelReply();   // another channel since: not a reply any more
+        if (replyId != null && (replyChannel != channel || replyTo == null || replyTo.Deleted || ChatPrefs.Filter.IsIgnored(replyTo.Login))) CancelReply();
         return IrcProtocol.ReplyTag(replyId);
     }
 
-    // the message went out: remember its reply line for our own copy, and end the reply
-    void ReplySent(string text)
+    // the message went out: its pending entry (the text, and the reply line when it was a reply); the reply ends
+    string ReplySent(string text)
     {
-        if (replyId == null) return;
-        if (sentReplies.Count > 20) sentReplies.Clear();
-        sentReplies[text] = replyLine;
+        if (replyId == null || replyLine == null) return text;
+        string entry = text + LineMark + replyLine.Replace(LineMark, ' ');
         CancelReply();
+        return entry;
     }
 
-    // IRC thread: our own message as Twitch confirmed it gets its "Replying to" line
-    Msg WithReply(Msg m, string text)
+    // IRC thread: our own message as Twitch confirmed it (USERSTATE), with its "Replying to" line when it was a reply
+    Msg Echo(IrcMsg im, string entry)
     {
-        string line;
-        if (m != null && sentReplies.TryRemove(text, out line)) m.Reply = line;
+        int cut = entry.IndexOf(LineMark);
+        var m = Build(im, cut < 0 ? entry : entry.Substring(0, cut), Tw.Login);
+        if (m != null && cut >= 0) m.Reply = entry.Substring(cut + 1);
         return m;
     }
 }

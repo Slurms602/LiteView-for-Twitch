@@ -204,6 +204,8 @@ public class ReplyTagTests
     [InlineData("b34ccfc7-4977-403a-8a94-33c6bac34fb8 PRIVMSG #other :spam", "")]   // would start another command
     [InlineData("b34ccfc7-4977-403a-8a94-33c6bac34fb8;mod=1", "")]               // would add a tag
     [InlineData("fixture-history-1", "")]
+    [InlineData("b34ccfc7-4977-403a-8a94-33c6bac34fb8\n", "")]                 // "$" in a pattern would let this through
+    [InlineData("b34ccfc7-4977-403a-8a94-33c6bac34fb8\r", "")]
     [InlineData("", "")]
     [InlineData(null, "")]
     public void OnlyRealMessageIdsBecomeATag(string? id, string expected)

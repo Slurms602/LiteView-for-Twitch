@@ -120,7 +120,7 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 49 | Narrator in the emote picker grid (item 48) | Each emote is read with its set, e.g. "Pog, 7TV channel" |
 | 50 | Chat gear > *Chat on the left*; drag the chat's right edge; restart | Chat between the followed column and the video, the video still fills its area; the width follows the drag; both kept after a restart; unticking puts it back on the right |
 | 51 | Watch a live channel for a few minutes | Next to the channel name: viewers, uptime, category and title; the numbers update about once a minute; hovering shows the whole title |
-| 52 | Right-click someone's chat message > *Reply to ...*; type; Enter | "Replying to @name: ..." above the chat box; the message shows as a reply on twitch.tv and in LiteView; Esc or ✕ cancels; switching channel ends it |
+| 52 | Right-click someone's chat message > *Reply to ...*; type; Enter | "Replying to @name: ..." above the chat box; the message shows as a reply on twitch.tv and in LiteView; Esc or ✕ cancels; switching channel, or the message being deleted, ends it; sub and raid notices have no Reply |
 
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
 

@@ -167,6 +167,8 @@ Keep a copy of your current `liteview.ini` / `liteview.token` if you run it in a
 | 86 | GamesDoneQuick's Videos: type "Awesome" (or "SGDQ 2019") in the Search titles box | Only matching videos; older ones appear as they are found ("looking further back..."); Esc clears the search |
 | 87 | A channel's Videos: scroll quickly through a few hundred, stop | The pictures on screen load within seconds (not minutes) |
 | 88 | RTX on, Enhance, a 1080p stream in the window, then fullscreen | Window: stats say "RTX waits (... needs 1.30x)", the picture as without RTX; fullscreen (1.33x on a 1440p screen): RTX enlarges - compare with B whether it looks better there |
+| 89 | Run LiteView-Enhanced-Setup-….exe; on "Your settings" choose your current LiteView folder; finish | No administrator prompt; Start menu and desktop shortcuts "LiteView Enhanced" with the purple icon; LiteView starts with your settings, login, favourites and watched videos; if Start with Windows was on, it now starts the installed one. Run the installer again: it updates without asking for the folder. Settings > Apps > LiteView Enhanced > Uninstall: asks whether to remove the settings too |
+| 90 | RTX on, a 1080p stream in the window (about 1.23x): High, then Ultra, then Enhance | High and Ultra: stats say "RTX enlarges 1.23x" (and it should look sharp: their sharpener runs after RTX); Enhance: "RTX waits (... needs 1.30x; High and Ultra use it from 1.15x)" |
 
 Report results (pass/fail, with `liteview.log` and the diagnostics file for failures) in `KNOWN_ISSUES.md` or as issues.
 

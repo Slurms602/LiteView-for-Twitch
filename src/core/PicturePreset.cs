@@ -15,15 +15,23 @@ namespace LiteViewCore
     {
         public static readonly string[] SharpnessNames = { "Off", "Soft", "Normal (default)", "Strong" };
 
-        /// <summary>RTX Video Super Resolution only when the video is enlarged at least this much: on the owner's PC it made a
-        /// 1080p stream softer than Enhance alone at 1.05x and again at 1.23x (their usual window), so it starts at 1.3x
-        /// (1080p in fullscreen on a 1440p screen is 1.33x; a 720p stream is about 2x).</summary>
-        public const double RtxMinScale = 1.3;
+        /// <summary>
+        /// RTX Video Super Resolution only when the video is enlarged at least this much. RTX does the enlarging, so the
+        /// presets' own upscalers have nothing left to do, and Enhance's shaders (FSR and CAS) only run while mpv enlarges
+        /// or shows 1:1: with RTX, Off and Enhance get RTX's softer picture unsharpened (the owner saw it blurrier at 1.05x
+        /// and 1.23x; mpv's GPU time was 0.08 ms: nothing ran). High and Ultra end with Adaptive Sharpen on the output,
+        /// which runs anyway and sharpens RTX's picture (the owner: High/Ultra + RTX at 1.23x looked good). So RTX starts
+        /// at RtxMinScaleSharpened for High and Ultra and at RtxMinScale (1080p in fullscreen at 1440p, 1.33x) for the others.
+        /// </summary>
+        public const double RtxMinScale = 1.3, RtxMinScaleSharpened = 1.15;
+
+        /// <summary>The smallest enlargement for RTX with this preset (0 Off, 1 Enhance, 2 High, 3 Ultra).</summary>
+        public static double RtxMin(int picture) { return picture >= 2 ? RtxMinScaleSharpened : RtxMinScale; }
 
         /// <summary>d3d11vpp's scale for RTX ("1.33"), or null: RTX waits (the video is shown at about its own size).</summary>
-        public static string? RtxScale(double scale)
+        public static string? RtxScale(double scale, int picture = 1)
         {
-            if (double.IsNaN(scale) || scale < RtxMinScale) return null;
+            if (double.IsNaN(scale) || scale < RtxMin(picture)) return null;
             return System.Math.Min(scale, 4.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
         }
 

@@ -528,7 +528,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         }
         double s = videoH > 0 ? Math.Max(1.0, Math.Round((double)video.Height / videoH, 2)) : 1.0;
         bool useRtx = rtx.Checked && HasNvidia && !gamingActive && !comparing;
-        string vf = RtxScale(useRtx, s);   // fork: RTX enlarges only when the video is enlarged enough (src/app/LiteView.Picture.cs)
+        string vf = RtxScale(useRtx, s, pic);   // fork: RTX enlarges only when the video is enlarged enough (src/app/LiteView.Picture.cs)
         double prev, now;
         bool near = vf != "off" && double.TryParse(appliedVf, NumberStyles.Float, CultureInfo.InvariantCulture, out prev)
             && double.TryParse(vf, NumberStyles.Float, CultureInfo.InvariantCulture, out now) && Math.Abs(prev - now) < 0.04;

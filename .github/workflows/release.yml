@@ -32,6 +32,7 @@ jobs:
           $v = $env:TAG.TrimStart('v')
           ./build.ps1 -Version $v
           ./tools/smoke.ps1 -Dir "dist/LiteView-Enhanced-$v" -Out smoke
+          ./tools/make-installer.ps1 -Version $v -Source "dist/LiteView-Enhanced-$v" -OutDir dist
       - name: Draft release
         shell: pwsh
         env:
@@ -39,5 +40,6 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           $v = $env:TAG.TrimStart('v'); $name = "LiteView-Enhanced-$v"
-          $notes = "Built by the release workflow from $env:TAG ($env:GITHUB_SHA).`n`nSHA-256 of the zip: $((Get-Content "dist/$name.zip.sha256").Split(' ')[0])`n`nSee CHANGELOG.md for what changed. Check the download with: Get-FileHash $name.zip -Algorithm SHA256"
-          gh release create $env:TAG "dist/$name.zip" "dist/$name.zip.sha256" --draft --title "LiteView Enhanced $v" --notes $notes
+          $setup = "LiteView-Enhanced-Setup-$v.exe"
+          $notes = "Built by the release workflow from $env:TAG ($env:GITHUB_SHA).`n`nThe installer ($setup, for your Windows user, no administrator rights) or the portable zip.`n`nSHA-256 of the installer: $((Get-Content "dist/$setup.sha256").Split(' ')[0])`nSHA-256 of the zip: $((Get-Content "dist/$name.zip.sha256").Split(' ')[0])`n`nSee CHANGELOG.md for what changed. Check a download with: Get-FileHash <file> -Algorithm SHA256"
+          gh release create $env:TAG "dist/$setup" "dist/$setup.sha256" "dist/$name.zip" "dist/$name.zip.sha256" --draft --title "LiteView Enhanced $v" --notes $notes

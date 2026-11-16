@@ -141,7 +141,19 @@ public class PicturePresetTests
     [InlineData(double.NaN, null)]
     public void RtxOnlyWhenTheVideoIsEnlargedEnough(double scale, string? want)
     {
-        Assert.Equal(want, PicturePreset.RtxScale(scale));
+        Assert.Equal(want, PicturePreset.RtxScale(scale));      // Enhance
+        Assert.Equal(want, PicturePreset.RtxScale(scale, 0));   // Off
+    }
+
+    [Theory]
+    [InlineData(1.05, null)]
+    [InlineData(1.14, null)]
+    [InlineData(1.15, "1.15")]
+    [InlineData(1.23, "1.23")]   // High/Ultra + RTX in the owner's window looked good: their sharpener runs after RTX
+    public void HighAndUltraUseRtxSooner(double scale, string? want)
+    {
+        Assert.Equal(want, PicturePreset.RtxScale(scale, 2));
+        Assert.Equal(want, PicturePreset.RtxScale(scale, 3));
     }
 
     [Fact]

@@ -55,6 +55,31 @@ jobs:
           name: LiteView-Enhanced-ci-${{ github.sha }}
           path: dist/LiteView-Enhanced-0.0.0-ci/
           retention-days: 7
+      - name: Installer (build it, install silently, check, uninstall)
+        shell: pwsh
+        run: |
+          ./tools/make-installer.ps1 -Version 0.0.0-ci -Source dist/LiteView-Enhanced-0.0.0-ci -OutDir dist/installer
+          $setup = (Resolve-Path dist/installer/LiteView-Enhanced-Setup-0.0.0-ci.exe).Path
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\LiteView Enhanced'
+          $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/TASKS=desktopicon' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "setup exit code $($p.ExitCode)" }
+          foreach ($f in 'LiteView.exe', 'LiteView.Core.dll', 'fonts\Inter-Regular.ttf', 'twitch\mpv\mpv.exe', 'gamefirst.ini', 'unins000.exe') { if (-not (Test-Path (Join-Path $app $f))) { throw "not installed: $f" } }
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'LiteView Enhanced.lnk'
+          if (-not (Test-Path $lnk)) { throw "no Start menu shortcut ($lnk)" }
+          if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'LiteView Enhanced.lnk'))) { throw 'no desktop shortcut' }
+          if (-not (Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall | Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -eq 'LiteView Enhanced' })) { throw 'no entry in Apps (uninstall)' }
+          ./tools/smoke.ps1 -Dir $app -Out smoke/installed
+          if ($LASTEXITCODE) { throw 'the installed LiteView did not start and close cleanly' }
+          Start-Process -FilePath (Join-Path $app 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          for ($i = 0; $i -lt 30 -and (Test-Path (Join-Path $app 'LiteView.exe')); $i++) { Start-Sleep 1 }
+          if (Test-Path (Join-Path $app 'LiteView.exe')) { throw 'the uninstaller left LiteView.exe' }
+          if (Test-Path $lnk) { throw 'the uninstaller left the Start menu shortcut' }
+          Write-Host "installer: installed, started, uninstalled ($([math]::Round((Get-Item $setup).Length / 1MB)) MB)"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: LiteView-Enhanced-Setup-${{ github.sha }}
+          path: dist/installer/
+          retention-days: 7
       - name: Start the app (window appears, closes cleanly), then each page with made-up data
         timeout-minutes: 25   # a stuck scene fails this step; the screenshots and logs are still uploaded
         shell: pwsh

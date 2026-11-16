@@ -25,21 +25,21 @@ partial class LiteView
     bool comparing;                           // B: the original picture (no shaders, no RTX), until B again or the next stream
     double gpuMs = -1; int gpuGen = -1;
 
-    const double RtxMinScale = PicturePreset.RtxMinScale;
     string rtxNote = "";   // the stats overlay's word on RTX
     const string RtxTip = "NVIDIA RTX Video Super Resolution: NVIDIA's AI enlarges the video to the size it is shown at,\n"
-        + "then the picture preset sharpens it. It only works when the video is enlarged at least 1.3x (a 720p or 936p stream,\n"
-        + "or 1080p in fullscreen on a 1440p screen); below that it made the picture softer than the presets, so it waits.\n"
+        + "then the picture preset sharpens it. It works when the video is enlarged at least 1.15x with High or Ultra (their sharpening\n"
+        + "comes after RTX), and 1.3x with Off or Enhance (which cannot sharpen after RTX: below that RTX alone looked softer).\n"
         + "Its GPU work is not in the stats' \"GPU per frame\". Needs RTX Video Enhancement > Super Resolution on in the NVIDIA app.";
 
     // ApplyEnhance: d3d11vpp's scale for RTX, or "off"
-    string RtxScale(bool useRtx, double scale)
+    string RtxScale(bool useRtx, double scale, int pic)
     {
         if (!useRtx) { rtxNote = ""; return "off"; }
-        string vf = PicturePreset.RtxScale(scale);
+        string vf = PicturePreset.RtxScale(scale, pic);
         if (vf == null)
         {
-            rtxNote = "RTX waits (the video is shown at " + scale.ToString("0.00", CultureInfo.InvariantCulture) + "x, RTX needs " + RtxMinScale.ToString("0.00", CultureInfo.InvariantCulture) + "x)";
+            rtxNote = "RTX waits (the video is shown at " + scale.ToString("0.00", CultureInfo.InvariantCulture) + "x, RTX needs " + PicturePreset.RtxMin(pic).ToString("0.00", CultureInfo.InvariantCulture) + "x"
+                + (pic < 2 ? "; High and Ultra use it from " + PicturePreset.RtxMinScaleSharpened.ToString("0.00", CultureInfo.InvariantCulture) + "x" : "") + ")";
             return "off";
         }
         rtxNote = "RTX enlarges " + vf + "x (its GPU time is not counted below)";

@@ -67,12 +67,19 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   restarts behind the picture a moment later (seamless switching; the picture does not stop). It kept about 1 GB with
   Ultra until a pause or the next channel.
 - **RTX** made the picture softer when the video was shown at about its own size (a 1080p stream in the window on a
-  1440p screen: it was enlarged only 1.05x). RTX now enlarges only when the video is enlarged at least 1.3x (a 720p
-  or 936p stream, or 1080p in fullscreen on a 1440p screen; at 1.23x in the window it was still softer than Enhance), and then does the whole enlarging, with the preset's
+  1440p screen: it was enlarged only 1.05x). RTX now enlarges only when the video is enlarged enough: from 1.15x
+  with High and Ultra (their sharpening comes after RTX, and the owner found them good at 1.23x in the window), from
+  1.3x with Off and Enhance (Enhance's shaders do not run after RTX, so it stayed soft; 1080p in fullscreen at 1440p is 1.33x), and then does the whole enlarging, with the preset's
   sharpening after it; otherwise it waits. The stats (I) say which, and that RTX's own GPU work is not in "GPU per
   frame" (mpv cannot measure it).
 
 ### Added
+
+- **Installer** (`LiteView-Enhanced-Setup-<version>.exe`): installs for your Windows user only, without
+  administrator rights, into `%LOCALAPPDATA%\Programs\LiteView Enhanced` with a Start menu shortcut and an optional
+  desktop one; a first install can copy your settings, login and watched videos from the LiteView folder you used
+  until now (and moves *Start with Windows* to the installed LiteView). Installing a newer one over it keeps your
+  settings; uninstalling (Settings > Apps) asks whether to remove them too. The portable zip stays.
 
 - Gear menu: **Sign out of twitch.tv in LiteView** (the website login used by the Following page and web chat;
   *Log out* still ends only the chat login).

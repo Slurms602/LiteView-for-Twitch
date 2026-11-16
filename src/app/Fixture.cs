@@ -111,6 +111,21 @@ static class Fixture
                     return Json("{\"data\":[" + string.Join(",", Live.Concat(Offline).Select((l, i) => "{\"broadcaster_id\":\"" + (2000 + i) + "\",\"broadcaster_login\":\"" + l + "\",\"broadcaster_name\":\"" + Display(l) + "\",\"followed_at\":\"" + DateTime.UtcNow.AddDays(-40 * i - 3).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) + "\"}")) + "],\"pagination\":{}}");
                 if (path.EndsWith("/users", StringComparison.Ordinal))   // by login (Following page) or by id (followed column)
                     return Json("{\"data\":[" + string.Join(",", Values(q, "login").Concat(Values(q, "id").Select(LoginOf).Where(l => l != null)).Select(l => "{\"id\":\"" + (2000 + Array.IndexOf(Live.Concat(Offline).ToArray(), l)) + "\",\"login\":\"" + l + "\",\"display_name\":\"" + Display(l) + "\",\"profile_image_url\":\"https://static-cdn.jtvnw.net/jtv_user_pictures/fixture-" + l + "-profile_image-300x300.png\"}")) + "]}");
+                if (path.EndsWith("/videos", StringComparison.Ordinal))   // a channel's videos: 8 made-up ones, newest first
+                {
+                    string login = LoginOf(Values(q, "user_id").FirstOrDefault() ?? "") ?? "";
+                    string[] types = { "archive", "archive", "highlight", "archive", "upload", "archive", "highlight", "archive" };
+                    string uid = Values(q, "user_id").FirstOrDefault() ?? "";
+                    return Json("{\"data\":[" + string.Join(",", Enumerable.Range(0, 8).Select(k => "{\"id\":\"" + (5000 + k) + "\",\"user_id\":\"" + uid + "\",\"user_login\":\"" + login + "\",\"user_name\":\"" + Display(login) +
+                        "\",\"title\":\"" + VideoTitles[k] + "\",\"type\":\"" + types[k] + "\",\"duration\":\"" + (k % 3 == 2 ? "" : (1 + k) + "h") + (7 * k + 3) + "m" + (11 * k % 60) + "s\",\"view_count\":" + (31 * k * k * k + 120) +
+                        ",\"created_at\":\"" + DateTime.UtcNow.AddHours(-(5 + 30 * k * k)).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) +
+                        "\",\"thumbnail_url\":\"https://static-cdn.jtvnw.net/cf_vods/fixture/v" + (5000 + k) + "/thumb/thumb0-%{width}x%{height}.jpg\"}")) + "],\"pagination\":{}}");
+                }
+                if (path.EndsWith("/clips", StringComparison.Ordinal))   // its clips: 6 made-up ones
+                    return Json("{\"data\":[" + string.Join(",", Enumerable.Range(0, 6).Select(k => "{\"id\":\"FixtureClip" + k + "-Kappa_" + (900 + k) + "\",\"broadcaster_name\":\"" +
+                        Display(LoginOf(Values(q, "broadcaster_id").FirstOrDefault() ?? "") ?? "x") + "\",\"creator_name\":\"" + Display(Live[(k + 3) % Live.Length]) + "\",\"title\":\"" + ClipTitles[k] +
+                        "\",\"view_count\":" + (4000 / (k + 1)) + ",\"duration\":" + (12.4 + 5 * k).ToString(CultureInfo.InvariantCulture) + ",\"created_at\":\"" + DateTime.UtcNow.AddDays(-(k * 4 + 1)).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) +
+                        "\",\"thumbnail_url\":\"https://static-cdn.jtvnw.net/twitch-clips-thumbnails-prod/fixture/c" + k + "/preview-480x272.jpg\"}")) + "],\"pagination\":{}}");
                 if (path.EndsWith("/search/channels", StringComparison.Ordinal))
                 {
                     string text = (Values(q, "query").FirstOrDefault() ?? "").ToLowerInvariant();
@@ -129,10 +144,29 @@ static class Fixture
                     new[] { "early_bird", "#1E90FF", ":good morning chat" }, new[] { "pixel_pal", "#FF7F50", ":that last run was so close" },
                     new[] { "quiet_owl", "#9ACD32", "gg" }, new[] { "fixture_viewer", "#8A2BE2", ":hello from the history" },
                     new[] { "night_shift", "#DAA520", ":is this the recent messages test?" }, new[] { "early_bird", "#1E90FF", ":yes, made-up lines" },
+                    // a reply as Twitch sends it (the text starts with @name; shown as a "Replying to" line instead), then text Inter lacks (drawn in Segoe UI)
+                    new[] { "quiet_owl", "#9ACD32", ":@Night_Shift it is, the reply line should be above this", ";reply-parent-display-name=Night_Shift;reply-parent-user-login=night_shift;reply-parent-msg-body=is\\\\sthis\\\\sthe\\\\srecent\\\\smessages\\\\stest?;reply-parent-msg-id=00000000-0000-4000-8000-000000000004" },
+                    new[] { "pixel_pal", "#FF7F50", ":Привет чат, 你好 and café 😀👍🏽 gg🔥" },
                 };
-                var lines = said.Select((x, i) => "@badges=;color=" + x[1] + ";display-name=" + Display(x[0]) + ";emotes=;id=00000000-0000-4000-8000-00000000000" + i +
+                var lines = said.Select((x, i) => "@badges=;color=" + x[1] + ";display-name=" + Display(x[0]) + ";emotes=;id=00000000-0000-4000-8000-00000000000" + i + (x.Length > 3 ? x[3] : "") +
                     ";tmi-sent-ts=" + (now - (said.Length - i) * 45000) + ";historical=1 :" + x[0] + "!" + x[0] + "@" + x[0] + ".tmi.twitch.tv PRIVMSG #" + ch + " " + x[2]);
                 return Json("{\"messages\":[" + string.Join(",", lines.Select(l => "\"" + l + "\"")) + "],\"error\":null,\"error_code\":null}");
+            }
+            if (u.Host == "gql.twitch.tv" && rq.Method == HttpMethod.Post && rq.Content != null)
+            {   // chat replay (src/core/ChatReplay.cs): a made-up comment every 2 s from a little before the asked position
+                string body = rq.Content.ReadAsStringAsync().Result;
+                var mo = System.Text.RegularExpressions.Regex.Match(body, "contentOffsetSeconds:([0-9]+)");
+                var mv = System.Text.RegularExpressions.Regex.Match(body, "video\\(id:\\\\\"([0-9]+)");
+                int off = mo.Success ? int.Parse(mo.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+                string vid = mv.Success ? mv.Groups[1].Value : "0";
+                var edges = Enumerable.Range(0, 30).Select(k =>
+                {
+                    int at = Math.Max(0, off - 2) + 2 * k; string who = Live[(at / 2) % Live.Length];
+                    string text = at % 10 == 0 ? "the replay at " + at + " s " + EmoteName(at % EmoteCount) : "chat replay line at " + at + " s";
+                    return "{\"node\":{\"id\":\"fx-" + vid + "-" + at + "\",\"contentOffsetSeconds\":" + at + ",\"createdAt\":\"2026-11-01T12:00:00Z\",\"commenter\":{\"login\":\"" + who + "\",\"displayName\":\"" + Display(who) +
+                        "\"},\"message\":{\"userColor\":\"#1E90FF\",\"fragments\":[{\"text\":\"" + text + "\",\"emote\":null}],\"userBadges\":[]}}}";
+                });
+                return Json("{\"data\":{\"video\":{\"comments\":{\"edges\":[" + string.Join(",", edges) + "],\"pageInfo\":{\"hasNextPage\":" + (off < 5000 ? "true" : "false") + "}}}}}");
             }
             if (u.Host == "7tv.io" && path.StartsWith("/v3/users/twitch/", StringComparison.Ordinal)) return Json(SevenTvSet());
             if (u.Host == "cdn.7tv.app")   // /emote/<id>/1x.png or 1x.gif
@@ -151,9 +185,36 @@ static class Fixture
                     var c = Categories.FirstOrDefault(x => file.StartsWith("fxcat-" + CategoryId(x) + "-", StringComparison.Ordinal));
                     if (c != null) return Image(BoxArt(c), "image/jpeg");
                 }
+                if (path.StartsWith("/cf_vods/fixture/v", StringComparison.Ordinal) || path.StartsWith("/twitch-clips-thumbnails-prod/fixture/c", StringComparison.Ordinal))
+                {   // a video's or clip's picture
+                    var part = path.Split('/')[path.StartsWith("/cf_vods", StringComparison.Ordinal) ? 3 : 3];
+                    return Image(VideoPicture(part), "image/jpeg");
+                }
                 if (file.StartsWith("fixture-", StringComparison.Ordinal)) return Image(Avatar(file.Substring(8, file.IndexOf("-profile_image", StringComparison.Ordinal) - 8)), "image/png");
             }
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") });
+        }
+
+        static readonly string[] VideoTitles = { "Full run, new route", "Late night chill stream", "Best of the week", "Ranked until we win", "Tutorial: the first boss",
+            "Community games night", "Clutch moments", "Charity marathon (part 2)" };
+        static readonly string[] ClipTitles = { "that jump though", "chat goes wild", "how did that work", "perfect timing", "the cat walked in", "no way" };
+
+        static byte[] VideoPicture(string part)
+        {
+            using (var bmp = new Bitmap(440, 248))
+            using (var g = Graphics.FromImage(bmp))
+            using (var bg = new LinearGradientBrush(new Rectangle(0, 0, 440, 248), Hue(part, 0.5f), Hue(part + "v", 0.15f), 120f))
+            using (var font = new Font("Segoe UI Semibold", 22f))
+            using (var small = new Font("Segoe UI", 11f))
+            using (var ms = new System.IO.MemoryStream())
+            {
+                g.FillRectangle(bg, 0, 0, 440, 248);
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                g.DrawString(part.StartsWith("c", StringComparison.Ordinal) ? "Clip " + part.Substring(1) : "Video " + part.Substring(1), font, Brushes.White, 24, 150);
+                g.DrawString("fixture picture", small, new SolidBrush(Color.FromArgb(200, 255, 255, 255)), 26, 196);
+                bmp.Save(ms, ImageFormat.Jpeg);
+                return ms.ToArray();
+            }
         }
 
         static readonly long[] ViewerCounts = { 182, 41250, 2210, 9800, 655, 74, 3120, 1460, 37, 12800, 940, 28300, 5100, 410 };

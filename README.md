@@ -17,7 +17,7 @@ LiteView is a small Windows app: your Twitch *Following → Live* page, and one 
 LiteView's own (Twitch IRC) with **Twitch, 7TV, BetterTTV and FFZ emotes**, so no browser runs while you watch.
 Everything runs on the CPU cores your game is *not* using.
 
-**[⬇ Download the latest release](../../releases/latest)**: unzip anywhere, run `LiteView.exe`. No installer, no account other than your Twitch login.
+**[⬇ Download the latest release](../../releases/latest)**: run the installer (no administrator rights needed), or unzip the portable zip anywhere and run `LiteView.exe`. No account other than your Twitch login.
 
 ![Same frame: Off / Ultra / Ultra + RTX](docs/compare.png)
 <sub>Same paused frame of a live 720p stream shown at 1080p: Picture Off (left), Ultra (middle), Ultra + RTX (right).</sub>
@@ -68,8 +68,14 @@ priority, and the video itself (mpv) costs **under 10% of a thread**.
 
 ## Install
 
-1. Download `LiteView-for-Twitch-<version>.zip` from [Releases](../../releases/latest) and unzip it anywhere.
-2. Run `LiteView.exe`, log in to Twitch once in its window. Open a stream and click *Log in with Twitch* in the
+1. Download `LiteView-Enhanced-Setup-<version>.exe` from [Releases](../../releases/latest) and run it: it installs for
+   your Windows user only (no administrator rights) into `%LOCALAPPDATA%\Programs\LiteView Enhanced`, with a Start
+   menu shortcut and, if you like, a desktop one; a first install can copy your settings from a LiteView folder you
+   used until now. Installing a newer one over it keeps your settings; uninstall it in Settings > Apps.
+   Windows SmartScreen may warn that the installer is from an unknown publisher (it is not code-signed): *More info*
+   > *Run anyway*, after checking its SHA-256 against the `.sha256` file next to it.
+   Or: download the portable `LiteView-Enhanced-<version>.zip` and unzip it anywhere.
+2. Run LiteView, log in to Twitch once in its window. Open a stream and click *Log in with Twitch* in the
    followed-channels column (or under the chat): Twitch's own activate page opens **in your browser**; check that it
    shows the code LiteView displays, then click *Activate* and *Authorize*.
    This lets LiteView read who you follow, list your Twitch emotes and chat as you
@@ -103,7 +109,9 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 0.1.0
 ```
 Downloads the pinned Streamlink and mpv (checked by SHA-256), restores the pinned WebView2 SDK (lock-file hashes,
 Microsoft signature checked), runs the unit tests, compiles both apps and writes `dist\LiteView-Enhanced-0.1.0.zip`
-with its SHA-256. Details: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+with its SHA-256. The installer: `powershell -ExecutionPolicy Bypass -File tools/make-installer.ps1 -Version 0.1.0`
+after `build.ps1 -NoZip` (it fetches the pinned Inno Setup 6.7.4, checked by SHA-256, for the build only). Details:
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Credits and licences
 

@@ -13,6 +13,8 @@
     <Nullable>disable</Nullable>
     <NoWarn>$(NoWarn);CS0649</NoWarn>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- LiteView's own icon (tools/make-icon.py), also embedded for the windows -->
+    <ApplicationIcon>liteview.ico</ApplicationIcon>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
@@ -35,6 +37,13 @@
   </ItemGroup>
   <ItemGroup>
     <AssemblyMetadata Include="UpstreamBase" Value="$(UpstreamBase)" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Inter (SIL OFL), the font of the chat and the Following page: next to LiteView.exe in fonts\ -->
+    <None Include="../../config/fonts/*" Link="fonts/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="liteview.ico" LogicalName="liteview.ico" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../core/LiteView.Core.csproj" />

@@ -40,6 +40,14 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/app/LiteView.StreamInfo.cs` | The status line while playing: viewers, uptime, category, title | fork |
 | `src/app/ChatReply.cs` | `ChatPanel` (partial): the message menu (reply, copy) and sending replies | fork |
 | `src/app/PickerAccess.cs` | `EmotePicker` and `ChatPanel` (partial): the picker by keyboard (Ctrl+E, arrow keys) and for screen readers | fork |
+| `src/app/LiteView.Switch.cs` | Seamless switching: two video surfaces, the old stream plays until the new one's first frame | fork |
+| `src/app/LiteView.Stats.cs`, `LiteView.Picture.cs` | Stats overlay (mpv OSD), Sharpness, B compare, the Playback menu | fork |
+| `src/app/BrowseVideos.cs`, `LiteView.Videos.cs` | A channel's videos and clips on the Following page; playing one (seek, resume, end) | fork |
+| `src/app/BrowsePreview.cs`, `LiteView.Preview.cs` | Hover previews: when to ask (page), playing one in a disabled box over the card (main window) | fork |
+| `src/app/ExtraPlayer.cs` | Extra windows: one more channel each (own Streamlink + mpv job, no chat); `LaunchPlayer` in `LiteView.Preview.cs` starts them | fork |
+| `src/app/LiteView.Startup.cs` | Start with Windows (Run key), start minimised, tray | fork |
+| `src/app/ColorEmoji.cs` | Colour emoji: Direct2D + DirectWrite through their COM vtables into cached bitmaps; the chat's emoji pieces | fork |
+| `src/app/UiFont.cs` | Inter (bundled in `fonts\`) or Segoe UI for the drawn text; Segoe UI for what Inter lacks | fork |
 | `src/app/LiteView.Performance.cs` | CPU use modes, Gaming mode | fork |
 | `src/app/LiteView.Screens.cs` | Fullscreen across monitors, RTX card detection | fork |
 | `src/app/ProblemPopup.cs`, `DarkMenu.cs` | Error details window, dark menus | fork |
@@ -50,8 +58,9 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/app/LoginDialog.cs` | Device-code login window (system browser) | fork |
 | `src/core/` | `LiteView.Core.dll`: pure logic, no UI, no network, built for `net48` and `net10.0` | fork |
 | `tests/LiteView.Core.Tests/` | xUnit tests of `src/core` (run on any OS) | fork |
-| `config/` | mpv config and shaders, `gamefirst.ini` | upstream |
+| `config/` | mpv config and shaders, `gamefirst.ini` (upstream); `fonts/` Inter (fork) | upstream / fork |
 | `tools/upstream.sh` | Reviewing and taking upstream changes (`docs/UPSTREAM.md`) | fork |
+| `tools/preset-metrics.py` | Compares the picture presets' CI pictures with the original (Pillow only) | fork |
 | `tools/smoke.ps1`, `tools/a11y-dump.ps1`, `tools/stress-check.ps1` | CI on Windows: start the packaged app per fixture scene, read what screen readers see, check the busy-chat numbers against the budget | fork |
 
 **Why the upstream files did not move**: this fork follows upstream and takes its improvements
@@ -86,6 +95,11 @@ fork-only half is `src/app/LiteView.Fork.cs`.
 | `Performance.cs` | `Scheduling` (CPU use modes), `GameDetect`, `GamingSwitch` |
 | `GuardLedger.cs` | What GameFirst changed, for `--stop` |
 | `ChatStress.cs` | Synthetic chat for the stress mode |
+| `Videos.cs` | A channel's videos and clips from Helix (`ChannelVideos`), their checks and formats (`VideoData`) |
+| `Emoji.cs` | Emoji sequences in text (`EmojiText.Split`) |
+| `FontCoverage.cs` | Which characters a TrueType font has (its cmap), for the Inter/Segoe UI choice per word |
+| `PlaybackStats.cs` | The stats overlay: mpv's expand-text answer, GPU time from vo-passes, the overlay's ASS text and command |
+| `PicturePreset.cs` | Shader lists of the picture presets and the Sharpness setting |
 
 ## Threads and ownership
 

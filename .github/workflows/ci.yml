@@ -61,19 +61,38 @@ jobs:
         run: |
           $dir = 'dist/LiteView-Enhanced-0.0.0-ci'; $failed = 0
           dotnet build tests/FakeStreamlink -c Release --no-restore -o fake
+          if (-not (Test-Path fake/streamlinkw.exe)) { dotnet build tests/FakeStreamlink -c Release --no-restore -o fake }
           $fake = (Resolve-Path fake/streamlinkw.exe).Path
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'paused', 'offline', 'fail') {
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'vidsearch', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'download', 'paused', 'offline', 'fail', 'settings', 'live@light', 'chatlog@light', 'settings@light', 'watch@black') {
+            $theme = ''; if ($scene -match '^(.+)@(light|black)$') { $scene = $Matches[1]; $theme = $Matches[2] }   # scene@theme: the same scene in another theme
             $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
-            $more = @{ A11y = $scene -in 'live', 'followed', 'browse', 'category', 'chat', 'chatlog', 'picker' }   # also check what screen readers see
-            if ($scene -in 'watch', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
-            if ($scene -eq 'chatlog') { $more.Expect = @('chat: 6 recent messages') }
-            if ($scene -eq 'reply') { $more.Expect = @('chat: 6 recent messages', 'chat: replying') }
+            if ($theme) { $vars.LITEVIEW_UI_FIXTURE_THEME = $theme }
+            $more = @{ A11y = $scene -in 'live', 'followed', 'browse', 'category', 'videos', 'clips', 'chat', 'chatlog', 'picker' }   # also check what screen readers see
+            if ($scene -in 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'download', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
+            if ($scene -eq 'chatlog') { $more.Expect = @('chat: 8 recent messages', 'emoji: colour') }   # the history has emoji: drawn in colour
+            if ($scene -eq 'reply') { $more.Expect = @('chat: 8 recent messages', 'chat: replying') }
             if ($scene -eq 'browse') { $more.A11yExpect = @("^LIST 'Browse categories' \([1-9][0-9]* items\)", '^  - Elden Ring, category') }
             if ($scene -eq 'category') { $more.A11yExpect = @("^LIST 'Browse, Music' \(2 items\)") }
             if ($scene -eq 'picker') { $more.Expect = @('picker: open'); $more.A11yExpect = @("^LIST 'Emotes' \([1-9][0-9]* items\)", "^MSAA LIST 'Emotes' \([1-9][0-9]* items\)") }
-            if ($scene -eq 'paused') { $more.Expect = @('stream 1: playing', 'paused: stream stopped') }
-            ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-')) -Env $vars @more
+            if ($scene -eq 'paused') { $more.Expect = @('stream 1: playing', 'paused: stream stopped \(its last picture stays\)') }
+            if ($scene -eq 'vidsearch') { $more.Expect = @('videos: search "run": 1 of 8') }
+            if ($scene -eq 'watch') { $more.Expect = @('stream 1: first frame after', "font: the window's controls use Inter too") }
+            if ($scene -eq 'videos') { $more.A11yExpect = @("^LIST 'Videos of NightowlPlays' \(8 items\)", '^  - Full run, new route, past broadcast, 1:03:00') }
+            if ($scene -eq 'clips') { $more.A11yExpect = @("^LIST 'Clips of NightowlPlays' \(6 items\)", '^  - that jump though, clip by ') }
+            if ($scene -eq 'vod') { $more.Expect = @('video: past broadcast 5000', 'stream 1: Streamlink started \(quality .*, video from 0 s\)', 'stream 1: first frame after', 'chat replay: video 5000', 'chat replay: 30 comments from 0 s', 'chat replay: 30 comments from 590 s') }
+            if ($scene -eq 'download') { $more.Expect = @('download: video 5000 \(480p\)', 'download: done \([0-9.]+ [MG]B\)') }
+            if ($scene -eq 'clip') { $more.Expect = @('stream 1: first frame after', 'clip: asked', 'clip: saved \([0-9.]+ MB\)') }
+            if ($scene -eq 'window') { $more.Seconds = 28 }   # the quality change comes 15 s in
+            if ($scene -eq 'window') { $more.Expect = @('stream 1: first frame after', 'window: pixelforge playing', 'window: mpv volume 35', 'window: pixelforge opening 480p behind the picture', 'window: pixelforge now at 480p \(the last one played until then\)') }
+            if ($scene -eq 'focus') { $more.Expect = @('focus: typing in the chat box: True', "focus: after a click on the chat's header, typing: False", 'focus: typing in the chat box again: True', 'focus: after a click on the video, typing: False') }
+            if ($scene -eq 'sidemenu') { $more.Expect = @('side column after fullscreen: 240 px', 'side menu: [a-z_]+') }
+            if ($scene -eq 'release') { $more.Expect = @('picture: Enhance after Ultra: the player restarts', 'stream 2: first frame after', 'stats: overlay on stream 1', 'stats: overlay on stream 2') }
+            if ($scene -eq 'preview') { $more.Expect = @('preview: nightowl_plays|preview: [a-z_]+', 'preview: playing') }
+            if ($scene -eq 'stats') { $more.Expect = @('stream 1: first frame after', 'stats overlay on') }
+            if ($scene -eq 'settings') { $more.Expect = @('settings: open') }
+            if ($theme) { if ($more.Expect) { $more.Expect = @($more.Expect) + "theme: $theme" } else { $more.Expect = @("theme: $theme") } }
+            ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-') + $(if ($theme) { '-' + $theme } else { '' })) -Env $vars @more
             if ($LASTEXITCODE) { $failed++ }
           }
           exit $failed
@@ -93,14 +112,53 @@ jobs:
         timeout-minutes: 6
         shell: pwsh
         run: |
+          if (-not (Test-Path fake/streamlinkw.exe)) { dotnet build tests/FakeStreamlink -c Release --no-restore -o fake }
           $fake = (Resolve-Path fake/streamlinkw.exe).Path
           $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'switching'; LITEVIEW_UI_FIXTURE_STREAMS = '1' }
-          ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke/fixture-switching -Env $vars -FakeStreamlink $fake -Seconds 135 -Expect 'switch 20', 'stream 20: playing'
+          ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke/fixture-switching -Env $vars -FakeStreamlink $fake -Seconds 135 -Expect 'switch 20', 'stream 20: playing', 'the last stream played until then'
           $smoke = $LASTEXITCODE
           # from the end of warm-up (3rd sample) to the end: about 20 switches, so a leak per switch adds up; the scene
           # collects garbage before each sample, so what waits for the garbage collector does not count as a leak
-          ./tools/stress-check.ps1 -Log smoke/fixture-switching/liteview.log -Rate 50 -SteadySamples 10 -MaxPrivateMB 300 -MaxGrowthMB 40 -MaxHandleGrowth 40 -MaxGdiGrowth 20 -MaxUserGrowth 20 -MaxThreadGrowth 10 -MaxLagMs 1000 -Out smoke/fixture-switching/stress.txt
+          ./tools/stress-check.ps1 -Log smoke/fixture-switching/liteview.log -Rate 50 -SteadySamples 10 -MaxPrivateMB 300 -MaxGrowthMB 40 -MaxHandleGrowth 40 -MaxGdiGrowth 20 -MaxUserGrowth 20 -MaxThreadGrowth 10 -MaxLagMs 1000 -MaxPlayers 2 -Out smoke/fixture-switching/stress.txt
           if ($smoke -or $LASTEXITCODE) { exit 1 }
+      - name: Picture presets on a test picture (pictures for tools/preset-metrics.py)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 6
+        shell: pwsh
+        run: |
+          if (-not (Test-Path fake/streamlinkw.exe)) { dotnet build tests/FakeStreamlink -c Release --no-restore -o fake }
+          $fake = (Resolve-Path fake/streamlinkw.exe).Path
+          $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = 'presets'; LITEVIEW_UI_FIXTURE_STREAMS = '1' }
+          ./tools/smoke.ps1 -Dir dist/LiteView-Enhanced-0.0.0-ci -Out smoke/fixture-presets -Env $vars -FakeStreamlink $fake -Seconds 110 -Expect 'preset shot: ultra-old'
+      - name: Installer (build it, install silently, check, uninstall)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          ./tools/make-installer.ps1 -Version 0.0.0-ci -Source dist/LiteView-Enhanced-0.0.0-ci -OutDir dist/installer
+          $setup = (Resolve-Path dist/installer/LiteView-Enhanced-Setup-0.0.0-ci.exe).Path
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\LiteView Enhanced'
+          $log = Join-Path (Resolve-Path dist/installer).Path 'setup.log'
+          $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/TASKS=desktopicon', "/LOG=`"$log`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { if (Test-Path $log) { Get-Content $log | Select-Object -Last 40 }; throw "setup exit code $($p.ExitCode)" }
+          foreach ($f in 'LiteView.exe', 'LiteView.Core.dll', 'fonts\Inter-Regular.ttf', 'twitch\mpv\mpv.exe', 'gamefirst.ini', 'unins000.exe') { if (-not (Test-Path (Join-Path $app $f))) { throw "not installed: $f" } }
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'LiteView Enhanced.lnk'
+          if (-not (Test-Path $lnk)) { throw "no Start menu shortcut ($lnk)" }
+          if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'LiteView Enhanced.lnk'))) { throw 'no desktop shortcut' }
+          if (-not (Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall | Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -eq 'LiteView Enhanced' })) { throw 'no entry in Apps (uninstall)' }
+          ./tools/smoke.ps1 -Dir $app -Out smoke/installed
+          if ($LASTEXITCODE) { throw 'the installed LiteView did not start and close cleanly' }
+          Start-Process -FilePath (Join-Path $app 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          for ($i = 0; $i -lt 30 -and (Test-Path (Join-Path $app 'LiteView.exe')); $i++) { Start-Sleep 1 }
+          if (Test-Path (Join-Path $app 'LiteView.exe')) { throw 'the uninstaller left LiteView.exe' }
+          if (Test-Path $lnk) { throw 'the uninstaller left the Start menu shortcut' }
+          Write-Host "installer: installed, started, uninstalled ($([math]::Round((Get-Item $setup).Length / 1MB)) MB)"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: ${{ !cancelled() }}
+        with:
+          name: LiteView-Enhanced-Setup-${{ github.sha }}
+          path: dist/installer/
+          retention-days: 7
       - name: Screenshot and logs of the start
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

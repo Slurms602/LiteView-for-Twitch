@@ -14,13 +14,13 @@ using System.Windows.Forms;
 using LiteViewCore;
 using SortOrder = LiteViewCore.SortOrder;   // not System.Windows.Forms.SortOrder
 
-class BrowsePage : Control
+partial class BrowsePage : Control
 {
     public enum Tab { Live, Followed, Recent, Browse }
 
-    static readonly Color Bg = Color.FromArgb(14, 14, 16), CardC = Color.FromArgb(24, 24, 27), HoverC = Color.FromArgb(38, 38, 44),
-        SelC = Color.FromArgb(53, 53, 59), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Faint = Color.FromArgb(110, 110, 122),
-        Accent = Color.FromArgb(145, 71, 255), AccentHot = Color.FromArgb(119, 44, 232), Red = Color.FromArgb(235, 4, 0), Gold = Color.FromArgb(255, 200, 61),
+    static readonly Color Bg = Theme.Page, CardC = Theme.Panel, HoverC = Theme.Hover,   // themes (src/app/Theme.cs)
+        SelC = Theme.Line, Fg = Theme.Text, Dim = Theme.Dim, Faint = Theme.Faint,
+        Accent = Theme.Accent, AccentHot = Theme.AccentHot, Red = Theme.Live, Gold = Theme.Gold,
         Shade = Color.FromArgb(200, 0, 0, 0);
     // Fonts and sizes follow the page's text size (menu > Text size): SetZoom. 100% is the original size, too small on
     // a 1440p screen at 100% Windows scaling, so the default ("Normal") is 115%.
@@ -54,6 +54,7 @@ class BrowsePage : Control
         public string Login, Name, Game = "", Title = "", Thumb = "", Note = "";
         public long Viewers; public DateTimeOffset? Started; public bool Live, Card;
         public Category Cat;   // Browse tab: a category card (Login is "")
+        public VideoInfo Video;   // a channel's video or clip (src/app/BrowseVideos.cs)
     }
 
     sealed class Pic { public Bitmap Bmp; public DateTime At = DateTime.MinValue; public bool Loading; public long Used; }
@@ -97,8 +98,8 @@ class BrowsePage : Control
     void MakeFonts()
     {
         foreach (var f in new[] { FHead, FTab, FTitle, FText, FSmall, FMsg, FIcon, FIconSmall }) if (f != null) f.Dispose();
-        FHead = new Font("Segoe UI Semibold", 15f * zoom); FTab = new Font("Segoe UI Semibold", 10f * zoom); FTitle = new Font("Segoe UI Semibold", 10f * zoom);
-        FText = new Font("Segoe UI", 9.25f * zoom); FSmall = new Font("Segoe UI Semibold", 8.25f * zoom); FMsg = new Font("Segoe UI", 10.5f * zoom);
+        FHead = UiFont.New(FontKind.Bold, 15f * zoom); FTab = UiFont.New(FontKind.Semi, 10f * zoom); FTitle = UiFont.New(FontKind.Semi, 10f * zoom);
+        FText = UiFont.New(FontKind.Text, 9.25f * zoom); FSmall = UiFont.New(FontKind.Semi, 8.25f * zoom); FMsg = UiFont.New(FontKind.Text, 10.5f * zoom);
         FIcon = new Font("Segoe MDL2 Assets", 10f * zoom); FIconSmall = new Font("Segoe MDL2 Assets", 7f * zoom);
     }
 
@@ -117,6 +118,9 @@ class BrowsePage : Control
             DoLayout(); Invalidate();
         }
     }
+    /// <summary>The font setting changed (UiFont): new fonts, same size.</summary>
+    public void ReFont() { MakeFonts(); DoLayout(); Invalidate(); }
+
     int Pad { get { return S(20); } }
     int Gap { get { return S(14); } }
     int HeadH { get { return S(96); } }
@@ -130,7 +134,7 @@ class BrowsePage : Control
     {
         running = on;
         liveTimer.Enabled = on;
-        if (!on) { tip.Hide(this); return; }
+        if (!on) { tip.Hide(this); CancelPreview(); return; }
         if (!liveLoaded || liveState != FeedState.Ok || (DateTime.UtcNow - lastLive).TotalSeconds > 55) ReloadLive();
         if (tab == Tab.Followed && DateTime.UtcNow - followedAt > FollowedAge) ReloadFollowed();
         if (tab == Tab.Browse) BrowseIfOld();
@@ -145,7 +149,8 @@ class BrowsePage : Control
         followedLive = new List<LiveStream>(); otherLive = new List<LiveStream>();
         followed = null; followedAt = DateTime.MinValue; liveLoaded = false; searchCache.Clear();
         browseGuard.Next(); loadingBrowse = false; categories = null; browseStreams = null; categoriesAt = browseAt = DateTime.MinValue;
-        if (running) { ReloadLive(); if (tab == Tab.Followed) ReloadFollowed(); if (tab == Tab.Browse) BrowseIfOld(); if (query != null) DoSearch(); }
+        videoGuard.Next(); loadingVids = false; vids = null; vidsFailed = false;
+        if (running) { ReloadLive(); if (tab == Tab.Followed) ReloadFollowed(); if (tab == Tab.Browse) BrowseIfOld(); if (query != null) DoSearch(); if (InVideos) ReloadVideos(); }
         Rebuild();
     }
 
@@ -155,6 +160,7 @@ class BrowsePage : Control
         ReloadLive();
         if (tab == Tab.Followed) ReloadFollowed();
         if (tab == Tab.Browse) ReloadBrowse();
+        if (InVideos) ReloadVideos();
     }
 
     // ---------- Browse tab ----------
@@ -310,6 +316,7 @@ class BrowsePage : Control
         string q = SearchText.Clean(text);
         if (q == query) return;
         query = q; history = false; scroll = 0; sel = -1;
+        if (InVideos) { vidQuery = null; vidHistory = false; }   // a new search: Back from the videos no longer returns to the old one
         searchDelay.Stop();
         if (q == null) { results = null; searching = false; searchFailed = false; searchGuard.Next(); Rebuild(); return; }
         List<ChannelInfo> cached;
@@ -385,6 +392,7 @@ class BrowsePage : Control
         }
         else if (history)
             foreach (var l in Searches.Items) list.Add(Row(l, null, liveBy));
+        else if (InVideos) AddVideoItems(list);
         else if (tab == Tab.Live)
         {
             var favLive = otherLive.Where(s => Favourites.Contains(s.Login));
@@ -412,6 +420,7 @@ class BrowsePage : Control
             foreach (var s in browseStreams)
                 list.Add(new Item { Login = s.Login, Name = s.Name, Game = s.Game, Title = s.Title, Viewers = s.Viewers, Started = s.Started, Live = true, Card = true, Thumb = s.Thumbnail });
         items = list;
+        CancelPreview();   // another list: the card may be elsewhere now (src/app/BrowsePreview.cs)
         if (sel >= items.Count) sel = items.Count - 1;
         hover = -1;
         DoLayout();
@@ -491,17 +500,20 @@ class BrowsePage : Control
         btnRect = linkRect = Rectangle.Empty;
         g.SetClip(new Rectangle(0, HeadH, ClientSize.Width, ViewH));
         string msg = Message();
-        if (msg != null) DrawMessage(g, msg);
+        if (msg != null) { DrawMessage(g, msg); MaybeMoreVideos(-1); }   // a title search with nothing found yet looks further back
         else
         {
+            int lastDrawn = -1;
             for (int i = FirstVisible(); i < items.Count; i++)
             {
                 var r = ItemRect(i);
                 if (r.Top > ClientSize.Height) break;
                 if (r.Bottom < HeadH) continue;
                 if (items[i].Card) DrawCard(g, items[i], r, i); else DrawRow(g, items[i], r, i);
+                lastDrawn = i;
             }
             DrawScrollbar(g);
+            MaybeMoreVideos(lastDrawn);   // the end of a channel's videos is on screen: the next ones (src/app/BrowseVideos.cs)
         }
         g.ResetClip();
         if (avatarWanted.Count > 0 && !avatarDelay.Enabled) avatarDelay.Start();
@@ -512,6 +524,9 @@ class BrowsePage : Control
         int x = Pad, w = ClientSize.Width;
         string head = query != null ? "Search" : history ? "Recent searches" : tab == Tab.Browse ? (browseCat == null ? "Browse" : browseCat.Name) : "Following";
         clearRect = sortRect = refreshRect = langRect = backRect = Rectangle.Empty;
+        for (int i = 0; i < tabRects.Length; i++) tabRects[i] = Rectangle.Empty;
+        if (query == null && !history && InVideos) { DrawVideosHeader(g); return; }
+        HideVideoSearch();   // src/app/BrowseVideos.cs
         if (query == null && !history && InCategory)
         {   // the category's name, and the way back to the categories
             const string back = "\u2039  All categories";
@@ -600,6 +615,7 @@ class BrowsePage : Control
             return null;
         }
         if (history) return items.Count == 0 ? "No recent searches." : null;
+        if (InVideos) return VideosMessage();
         if (tab == Tab.Recent)
         {
             if (items.Count > 0) return null;
@@ -644,7 +660,7 @@ class BrowsePage : Control
         {
             string l = "Use the Twitch website page instead";
             linkRect = new Rectangle(x, y, Txt.Width(l, FText) + 4, S(20));
-            Txt.At(g, l, FText, hot == HotLink ? Fg : Color.FromArgb(191, 148, 255), x, y);
+            Txt.At(g, l, FText, hot == HotLink ? Fg : Theme.AccentText, x, y);
             Txt.Wrap(g, "Logging in here uses your normal browser: LiteView never sees your password.", FText, Faint, new Rectangle(x, y + S(30), w, S(40)));
         }
     }
@@ -667,20 +683,21 @@ class BrowsePage : Control
             }
             else Txt.Wrap(g, it.Name, FText, Faint, new Rectangle(ar.X + S(10), ar.Y + ar.Height / 2 - S(20), ar.Width - S(20), S(48)));   // until the picture is here
         }
-        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, 145, 71, 255), S(3))) g.DrawRectangle(p, ar.X + 1, ar.Y + 1, ar.Width - 3, ar.Height - 3);
-        Txt.In(g, it.Name, FTitle, hi ? Color.FromArgb(191, 148, 255) : Fg, new Rectangle(r.X, ar.Bottom + S(8), r.Width, S(20)), false);
+        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, Theme.Accent), S(3))) g.DrawRectangle(p, ar.X + 1, ar.Y + 1, ar.Width - 3, ar.Height - 3);
+        Txt.In(g, it.Name, FTitle, hi ? Theme.AccentText : Fg, new Rectangle(r.X, ar.Bottom + S(8), r.Width, S(20)), false);
     }
 
     void DrawCard(Graphics g, Item it, Rectangle r, int i)
     {
         if (it.Cat != null) { DrawCategory(g, it, r, i); return; }
+        if (it.Video != null) { DrawVideo(g, it, r, i); return; }
         int th = r.Width * 9 / 16;
         var tr = new Rectangle(r.X, r.Y, r.Width, th);
         bool hi = i == hover || i == sel;
         var pic = Thumb(it, tr.Size);
         if (pic != null) g.DrawImage(pic, tr);
         else using (var b = new SolidBrush(CardC)) g.FillRectangle(b, tr);
-        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, 145, 71, 255), S(3))) g.DrawRectangle(p, tr.X + 1, tr.Y + 1, tr.Width - 3, tr.Height - 3);
+        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, Theme.Accent), S(3))) g.DrawRectangle(p, tr.X + 1, tr.Y + 1, tr.Width - 3, tr.Height - 3);
         // LIVE, uptime and viewers on the preview
         var lr = new Rectangle(tr.X + S(8), tr.Y + S(8), Txt.Width("LIVE", FSmall) + S(12), S(20));
         using (var b = new SolidBrush(Red)) Fill(g, b, lr, S(3));
@@ -693,7 +710,7 @@ class BrowsePage : Control
         int ay = tr.Bottom + S(10), az = S(36);
         DrawAvatar(g, it.Login, new Rectangle(r.X, ay, az, az));
         int tx = r.X + az + S(10), tw = r.Width - az - S(10);
-        Txt.In(g, it.Title.Length > 0 ? it.Title : it.Name, FTitle, hi ? Color.FromArgb(191, 148, 255) : Fg, new Rectangle(tx, ay - S(2), tw, S(20)), false);
+        Txt.In(g, it.Title.Length > 0 ? it.Title : it.Name, FTitle, hi ? Theme.AccentText : Fg, new Rectangle(tx, ay - S(2), tw, S(20)), false);
         Txt.In(g, it.Name, FText, Dim, new Rectangle(tx, ay + S(17), tw, S(18)), false);
         Txt.In(g, it.Game, FText, Dim, new Rectangle(tx, ay + S(34), tw, S(18)), false);
     }
@@ -760,14 +777,14 @@ class BrowsePage : Control
 
     Bitmap Thumb(Item it, Size size)
     {
-        bool art = it.Cat != null;   // a category's box art does not change: loaded again only when it failed
-        string key = art ? "cat:" + it.Cat.Id : it.Login;
+        bool art = it.Cat != null || it.Video != null;   // a category's box art or a video's picture does not change: loaded again only when it failed
+        string key = it.Cat != null ? "cat:" + it.Cat.Id : it.Video != null ? "vid:" + it.Video.Id : it.Login;
         Pic p;
         thumbs.TryGetValue(key, out p);
         if (p != null) p.Used = clock;
         if (Active && (p == null || !p.Loading && (!art || p.Bmp == null) && DateTime.UtcNow - p.At > ThumbAge))
         {
-            string url = art ? HelixData.Thumb(it.Cat.BoxArt, 285, 380) : HelixData.Thumb(it.Thumb, 440, 248);
+            string url = it.Cat != null ? HelixData.Thumb(it.Cat.BoxArt, 285, 380) : it.Video != null ? VideoData.Thumb(it.Video.Thumb, 440, 248) : HelixData.Thumb(it.Thumb, 440, 248);
             if (url.Length > 0) Load(thumbs, key, url, size, false, MaxThumbs);
         }
         return p != null ? p.Bmp : null;
@@ -780,7 +797,7 @@ class BrowsePage : Control
         if (p != null && p.Bmp != null) { g.DrawImage(p.Bmp, r); return; }
         using (var b = new SolidBrush(SelC)) g.FillEllipse(b, r);
         Txt.In(g, login.Substring(0, 1).ToUpperInvariant(), FTitle, Dim, r, true);
-        if (!Active || p != null) return;
+        if (!Active || (p != null && (p.Loading || p.Bmp != null || DateTime.UtcNow - p.At < ThumbAge))) return;   // fork: a skipped or failed one is asked again
         string url;
         if (avatarUrl.TryGetValue(login, out url)) { if (url.Length > 0) Load(avatars, login, url, r.Size, true, MaxAvatars); }
         else avatarWanted.Add(login);
@@ -809,12 +826,20 @@ class BrowsePage : Control
         if (p.Loading) return;
         p.Loading = true;
         int g = picGen;
+        bool again = false, failed = false;   // fork: not on screen any more when its turn came / the download failed
         try
         {
             byte[] bytes;
             await downloads.WaitAsync();
-            try { bytes = await Tw.GetBytes(url, MaxImageBytes); }
+            try
+            {
+                // fork: a picture scrolled past while waiting for its turn is not downloaded now (scrolling through years of
+                // videos queued hundreds of them before the ones on screen); it is asked again when it is drawn again
+                if (clock - p.Used > 2) { again = true; return; }
+                bytes = await Tw.GetBytes(url, MaxImageBytes);
+            }
             finally { downloads.Release(); }
+            if (bytes == null) failed = true;
             if (bytes == null || !ImageSniff.Acceptable(bytes) || IsDisposed) return;
             int w = Math.Max(1, size.Width), h = Math.Max(1, size.Height);
             var bmp = await Task.Run(() => Decode(bytes, w, h, round));
@@ -826,7 +851,11 @@ class BrowsePage : Control
             Invalidate();
         }
         catch (Exception ex) { Log.Warn("image: " + ex.GetType().Name); }
-        finally { p.Loading = false; p.At = DateTime.UtcNow; }   // a failed download is tried again only after ThumbAge
+        finally
+        {   // fork: a picture skipped while off screen is asked again at once when drawn; a failed download after 20 s (not ThumbAge)
+            p.Loading = false;
+            p.At = again ? DateTime.MinValue : failed ? DateTime.UtcNow - ThumbAge + TimeSpan.FromSeconds(20) : DateTime.UtcNow;
+        }
     }
 
     // decoded at the drawn size: a preview card costs its own pixels, not the download's
@@ -895,13 +924,14 @@ class BrowsePage : Control
         int h = HotAt(e.Location), i = h == HotNone && Message() == null ? ItemAt(e.Location) : -1;
         Cursor = h != HotNone || i >= 0 ? Cursors.Hand : Cursors.Default;
         if (h != hot || i != hover) { hot = h; hover = i; Invalidate(); }
+        PreviewHover(i);
         string t = i >= 0 ? items[i].Name + (items[i].Game.Length > 0 ? "  -  " + items[i].Game : "") + (items[i].Title.Length > 0 ? "\n" + items[i].Title : "") : null;
         if (t == tipFor) return;
         tipFor = t;
         if (t == null) tip.Hide(this); else tip.Show(t, this, e.X + 14, e.Y + 20, 8000);
     }
 
-    protected override void OnMouseLeave(EventArgs e) { hot = HotNone; hover = -1; tipFor = null; tip.Hide(this); Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseLeave(EventArgs e) { hot = HotNone; hover = -1; tipFor = null; tip.Hide(this); CancelPreview(); Invalidate(); base.OnMouseLeave(e); }
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
@@ -909,7 +939,7 @@ class BrowsePage : Control
         if (e.Button == MouseButtons.Left && !barRect.IsEmpty && new Rectangle(barRect.X - S(4), HeadH, barRect.Width + S(8), ViewH).Contains(e.Location))
         {
             if (!barRect.Contains(e.Location)) { scroll += (e.Y < barRect.Y ? -1 : 1) * ViewH; ClampScroll(); Invalidate(); return; }
-            dragging = true; dragStart = e.Y; dragScroll = scroll; Capture = true; Invalidate();
+            dragging = true; dragStart = e.Y; dragScroll = scroll; Capture = true; CancelPreview(); Invalidate();
         }
     }
 
@@ -921,11 +951,12 @@ class BrowsePage : Control
         {
             if (h == HotBtn) { if (Message() != null && Message().StartsWith("Log in", StringComparison.Ordinal)) { if (LoginRequested != null) LoginRequested(); } else Retry(); return; }
             if (h == HotLink) { if (UseWebsite != null) UseWebsite(); return; }
-            if (h == HotSort) { ShowSortMenu(); return; }
+            if (h == HotSort) { if (InVideos && query == null && !history) ShowVideoFilterMenu(); else ShowSortMenu(); return; }
             if (h == HotRefresh) { Reload(); return; }
             if (h == HotClear) { ClearHistory(); return; }
             if (h == HotLang) { ShowLanguageMenu(); return; }
-            if (h == HotBack) { CloseCategory(); return; }
+            if (h == HotBack) { if (InVideos) CloseVideos(); else CloseCategory(); return; }
+            if (h >= HotTab && InVideos && query == null && !history) { SetVideoKind(h - HotTab == 1); return; }
             if (h >= HotTab) { SetTab((Tab)(h - HotTab)); return; }
         }
         int i = Message() == null ? ItemAt(e.Location) : -1;
@@ -937,6 +968,7 @@ class BrowsePage : Control
 
     protected override void OnMouseWheel(MouseEventArgs e)
     {
+        CancelPreview();
         scroll -= e.Delta / 120 * (items.Count > 0 && items[0].Card ? (cardH + Gap) / 2 : RowH * 2);
         ClampScroll(); Invalidate();
         base.OnMouseWheel(e);
@@ -966,8 +998,8 @@ class BrowsePage : Control
             case Keys.End: s = n - 1; break;
             case Keys.Enter: if (sel >= 0 && sel < n) Activate(sel); e.Handled = true; return;
             case Keys.Apps: if (sel >= 0 && sel < n && items[sel].Cat == null) ShowItemMenu(sel, ItemRect(sel).Location); e.Handled = true; return;
-            case Keys.Escape: if (history) { history = false; Rebuild(); e.Handled = true; } else if (InCategory && query == null) { CloseCategory(); e.Handled = true; } return;
-            case Keys.Back: if (InCategory && query == null && !history) { CloseCategory(); e.Handled = true; } return;
+            case Keys.Escape: if (history) { history = false; Rebuild(); e.Handled = true; } else if (InVideos && query == null) { CloseVideos(); e.Handled = true; } else if (InCategory && query == null) { CloseCategory(); e.Handled = true; } return;
+            case Keys.Back: if (InVideos && query == null && !history) { CloseVideos(); e.Handled = true; } else if (InCategory && query == null && !history) { CloseCategory(); e.Handled = true; } return;
             case Keys.F5: Reload(); e.Handled = true; return;
             default: base.OnKeyDown(e); return;
         }
@@ -975,6 +1007,7 @@ class BrowsePage : Control
         if (n == 0) return;
         sel = Math.Max(0, Math.Min(n - 1, s));
         var r = ItemRect(sel);   // keep it in view
+        CancelPreview();
         if (r.Top < HeadH) scroll -= HeadH - r.Top + S(8);
         else if (r.Bottom > ClientSize.Height) scroll += r.Bottom - ClientSize.Height + S(8);
         ClampScroll(); Invalidate();
@@ -985,7 +1018,8 @@ class BrowsePage : Control
     void Activate(int i)
     {
         var it = items[i];
-        if (it.Cat != null) OpenCategory(it.Cat); else Open(it.Login);
+        if (it.Video != null) { if (VideoPicked != null) VideoPicked(it.Video); }
+        else if (it.Cat != null) OpenCategory(it.Cat); else Open(it.Login);
     }
 
     void Open(string login)
@@ -999,12 +1033,14 @@ class BrowsePage : Control
     {
         if (query != null) { searchFailed = false; DoSearch(); }
         else if (tab == Tab.Followed) ReloadFollowed();
+        else if (InVideos) ReloadVideos();
         else if (tab == Tab.Browse) ReloadBrowse();
         else ReloadLive();
     }
 
     public void SetTab(Tab t)
     {
+        if (InVideos) { vidLogin = null; vids = null; videoGuard.Next(); loadingVids = false; }   // a tab leaves a channel's videos
         if (t == Tab.Browse && tab == Tab.Browse && browseCat != null && !history) { CloseCategory(); return; }   // the tab again: back to the categories
         history = false;
         if (tab != t) { tab = t; scroll = 0; sel = -1; }
@@ -1037,6 +1073,7 @@ class BrowsePage : Control
     {
         var it = items[i];
         menu.Items.Clear();
+        if (it.Video != null) { ShowVideoMenu(it, at); return; }   // src/app/BrowseVideos.cs
         var watch = new ToolStripMenuItem("Watch " + it.Name) { Font = FMenuBold };
         watch.Click += (s, e) => Open(it.Login);
         bool isFav = Favourites.Contains(it.Login);
@@ -1053,6 +1090,7 @@ class BrowsePage : Control
         var copy = new ToolStripMenuItem("Copy link");
         copy.Click += (s, e) => { try { Clipboard.SetText("https://www.twitch.tv/" + it.Login); } catch (System.Runtime.InteropServices.ExternalException) { } };
         menu.Items.AddRange(new ToolStripItem[] { watch, fav, site, copy });
+        if (it.Video == null) AddVideosMenuItem(it);   // src/app/BrowseVideos.cs
         if (!InSearch && tab == Tab.Recent)
         {
             var forget = new ToolStripMenuItem("Remove from recently watched");
@@ -1080,7 +1118,7 @@ class BrowsePage : Control
             Name = () =>
             {
                 string m = Message();
-                string what = query != null ? "Search results" : history ? "Recent searches" : tab == Tab.Browse ? (browseCat == null ? "Browse categories" : "Browse, " + browseCat.Name)
+                string what = query != null ? "Search results" : history ? "Recent searches" : InVideos ? (vidClips ? "Clips of " : "Videos of ") + vidName : tab == Tab.Browse ? (browseCat == null ? "Browse categories" : "Browse, " + browseCat.Name)
                     + (browseLang != null ? ", " + Languages.Name(browseLang) : "") : "Following, " + TabName(tab);
                 return what + (m != null ? ". " + m : "");
             },
@@ -1096,6 +1134,7 @@ class BrowsePage : Control
     string Describe(Item it)
     {
         if (it.Cat != null) return it.Cat == AllLive ? "All live channels, the most watched on Twitch" : it.Name + ", category";
+        if (it.Video != null) return DescribeVideo(it);
         string s = it.Name + (Favourites.Contains(it.Login) ? ", favourite" : "");
         if (!it.Live) return s + ", offline" + (it.Note.Length > 0 ? ", " + it.Note : "");
         string up = Fmt.Uptime(it.Started, DateTimeOffset.UtcNow);
@@ -1117,7 +1156,7 @@ class BrowsePage : Control
     {
         if (disposing)
         {
-            liveTimer.Dispose(); searchDelay.Dispose(); avatarDelay.Dispose(); tip.Dispose(); menu.Dispose();
+            liveTimer.Dispose(); searchDelay.Dispose(); avatarDelay.Dispose(); previewDelay.Dispose(); tip.Dispose(); menu.Dispose();
             foreach (var p in thumbs.Values.Concat(avatars.Values)) if (p.Bmp != null) p.Bmp.Dispose();
             thumbs.Clear(); avatars.Clear();
         }

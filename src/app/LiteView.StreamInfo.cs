@@ -21,10 +21,11 @@ partial class LiteView
         {
             infoInit = true;
             // only while our player plays this stream (not while Streamlink waits for an offline channel, paused or browsing)
-            infoTimer.Tick += (s, e) => { if (watching && played && mpvGen == gen && slProc != null && WindowState != FormWindowState.Minimized) FetchInfo(); };
+            infoTimer.Tick += (s, e) => { if (watching && played && mpvGen == gen && slProc != null && currentVideo == null && WindowState != FormWindowState.Minimized) FetchInfo(); };
             infoTimer.Start();
-            FormClosing += (s, e) => infoTimer.Stop();
+            FormClosing += (s, e) => { if (!e.Cancel) infoTimer.Stop(); };   // not when closing was called off
         }
+        if (ShowVideoInfo()) return;   // a video: its own line (src/app/LiteView.Videos.cs)
         if (infoFor != channel) { infoFor = channel; info = null; FetchInfo(); }
         var st = Tw.Token != null && info != null && info.Login == channel ? info : null;   // logged out: nothing
         string t = Fmt.Playing(st, DateTimeOffset.UtcNow);

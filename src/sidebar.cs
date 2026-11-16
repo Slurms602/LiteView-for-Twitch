@@ -14,9 +14,10 @@ class FollowBar : Control
 {
     public const int OpenW = 240, ClosedW = 50;
     const int HeadH = 42, RowH = 42;
-    static readonly Color Bg = Color.FromArgb(31, 31, 35), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
-        HoverC = Color.FromArgb(38, 38, 44), Sel = Color.FromArgb(53, 53, 59), Red = Color.FromArgb(235, 4, 0), Accent = Color.FromArgb(145, 71, 255);
-    static readonly Font FName = new Font("Segoe UI Semibold", 9.75f), FGame = new Font("Segoe UI", 9f), FHead = new Font("Segoe UI Semibold", 9f), FIcon = new Font("Segoe MDL2 Assets", 10f);
+    static readonly Color Bg = Theme.Side, Fg = Theme.Text, Dim = Theme.Dim,   // fork: themes (src/app/Theme.cs)
+        HoverC = Theme.Hover, Sel = Theme.Line, Red = Theme.Live, Accent = Theme.Accent;
+    static Font FName { get { return UiFont.Get(FontKind.Semi, 9.75f); } } static Font FGame { get { return UiFont.Get(FontKind.Text, 9f); } } static Font FHead { get { return UiFont.Get(FontKind.Semi, 9f); } }   // fork: UiFont
+    static readonly Font FIcon = new Font("Segoe MDL2 Assets", 10f);
     const TextFormatFlags TF = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
 
     class Live { public string Id, Login, Name, Game, Title; public long Viewers; }
@@ -28,6 +29,7 @@ class FollowBar : Control
     string message;
     public string Current;
     public event Action<string> Pick;
+    public event Action<string, string, Point> ItemMenu;   // fork: right-click on a channel (login, name, where; src/app/LiteView.SideMenu.cs)
     public event Action LoginRequested, Toggled;
 
     public FollowBar()
@@ -148,7 +150,7 @@ class FollowBar : Control
                 if (Tw.Token == null)
                 {
                     var lr = LoginRect;
-                    using (var b = new SolidBrush(hover == -3 ? Color.FromArgb(119, 44, 232) : Accent)) g.FillRectangle(b, lr);
+                    using (var b = new SolidBrush(hover == -3 ? Theme.AccentHot : Accent)) g.FillRectangle(b, lr);
                     Txt.In(g, "Log in with Twitch", FName, Color.White, lr, true);
                 }
             }
@@ -199,6 +201,7 @@ class FollowBar : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         int h = RowAt(e.Location);
+        if (e.Button == MouseButtons.Right) { if (h >= 0 && ItemMenu != null) ItemMenu(live[h].Login, live[h].Name ?? live[h].Login, e.Location); return; }   // fork: a menu, not a switch
         if (h == -1) { Collapsed = !collapsed; if (Toggled != null) Toggled(); }
         else if (h == -3) { if (LoginRequested != null) LoginRequested(); }
         else if (h >= 0 && Pick != null) Pick(live[h].Login);

@@ -53,7 +53,8 @@ namespace LiteViewCore
             "quality", "chat", "volume", "muted", "picture", "rtx", "chatmode", "sidebar", "x", "y", "w", "h", "max",
             "following", "sort", "favfirst", "favorites", "keeprecent", "recent", "keepsearches", "searches", "openlast",
             "notify", "quiet", "updates", "chatwidth", "chatsize", "timestamps", "highlights", "ignored", "cpu", "cpumask", "gaming", "gamingpic",
-            "chathistory", "pagesize", "browselang", "chatside",
+            "chathistory", "pagesize", "browselang", "chatside", "font", "seamless", "startmin", "totray", "sharpness", "previews",
+            "popontop", "popchat", "popfit", "popquality", "popvolume", "chatreplay", "clipsecs", "theme", "smoothing",
         };
         public const int MaxValue = 20000;
         static readonly char[] LineBreaks = { '\r', '\n', '\0' };

@@ -8,8 +8,7 @@ using LiteViewCore;
 
 sealed class LoginDialog : Form
 {
-    static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
-        Hover = Color.FromArgb(38, 38, 44), Accent = Color.FromArgb(145, 71, 255);
+    static readonly Color Bg = Theme.Panel, Fg = Theme.Text, Dim = Theme.Dim, Hover = Theme.Hover, Accent = Theme.Accent;
 
     public LoginDialog(string userCode, Uri page)
     {
@@ -46,7 +45,7 @@ sealed class LoginDialog : Form
     Button Btn(string text, int x)
     {
         var b = new Button { Text = text, Location = new Point(x, 224), Size = new Size(x == 20 ? 160 : 120, 34), FlatStyle = FlatStyle.Flat, BackColor = Hover, ForeColor = Fg, Cursor = Cursors.Hand };
-        b.FlatAppearance.BorderSize = 0; b.FlatAppearance.MouseOverBackColor = Color.FromArgb(53, 53, 59); b.FlatAppearance.MouseDownBackColor = Accent;
+        b.FlatAppearance.BorderSize = 0; b.FlatAppearance.MouseOverBackColor = Theme.Line; b.FlatAppearance.MouseDownBackColor = Accent;
         return b;
     }
 
@@ -54,6 +53,6 @@ sealed class LoginDialog : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        int on = 1; DwmSetWindowAttribute(Handle, 20, ref on, 4);   // dark title bar
+        Theme.Frame(Handle);   // the title bar in the theme (src/app/Theme.cs)
     }
 }

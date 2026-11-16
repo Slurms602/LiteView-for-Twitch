@@ -64,6 +64,7 @@ partial class LiteView
     {
         Shown += (s, e) => windowShown = true;
         InitSwitch(); InitStats(); InitStartup(); InitFocus(); InitSideMenu();
+        title.SizeChanged += (s, e) => { if (watching) FitStatus(); };   // a new title: the status line moves along
         if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>
@@ -423,7 +424,7 @@ partial class LiteView
     // An error shows as "⚠ summary" in the status line (shortened to fit); a click opens the whole message with
     // Try again / Open log folder / Copy details (src/app/ProblemPopup.cs). Any other status text ends it.
 
-    static readonly Color ErrorC = Color.FromArgb(255, 140, 140);
+    static Color ErrorC { get { return Theme.Error; } }   // a property: Main (this class) runs before the theme is loaded
     static readonly string WarnSign = ((char)0x26A0).ToString();
     string problemTitle, problemDetail; Action problemRetry; bool settingProblem;
     readonly ToolTip statusTip = new ToolTip();
@@ -463,6 +464,14 @@ partial class LiteView
     void FitStatus()
     {
         int right = bar.Width - 6;
+        if (watching)
+        {   // a long channel or video title ends in "..." before the quality box (Inter is wider than Segoe UI was)
+            int left = bar.Width - 6;
+            foreach (Control c in BarRight()) if (c.Visible && c.Left > title.Left && c.Left < left) left = c.Left;
+            title.AutoEllipsis = true;
+            title.MaximumSize = new Size(Math.Max(80, left - title.Left - 16), 0);
+            status.Left = title.Right + 14;
+        }
         foreach (Control c in BarRight()) if (c.Left > status.Left && c.Left < right) right = c.Left;
         status.Width = Math.Max(0, right - status.Left - 10);
     }
@@ -471,7 +480,7 @@ partial class LiteView
     {
         yield return menuBtn;
         if (!watching) yield break;
-        foreach (var c in new Control[] { fsBtn, volBar, muteBtn, pauseBtn, picture, chatOn, quality }) yield return c;
+        foreach (var c in new Control[] { fsBtn, volBar, muteBtn, pauseBtn, clipBtn, picture, chatOn, quality }) yield return c;
         if (HasNvidia) yield return rtx;
     }
 

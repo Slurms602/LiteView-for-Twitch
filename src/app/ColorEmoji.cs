@@ -177,6 +177,15 @@ partial class ChatPanel
 
 partial class ChatView
 {
+    /// <summary>Every message laid out and drawn again (the text smoothing changed: widths and pictures depend on it).</summary>
+    public void ReLayout()
+    {
+        widths.Clear();
+        spaceW = Txt.Width("x x", F) - Txt.Width("xx", F);
+        textH = Txt.Height(F);
+        Redo(m => true);
+    }
+
     int EmojiPx { get { return (int)Math.Round(F.SizeInPoints * 96f / 72f * 1.25f); } }
 
     bool EmojiSize(string text, out int w, out int h)

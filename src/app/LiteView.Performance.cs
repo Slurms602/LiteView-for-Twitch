@@ -151,7 +151,7 @@ partial class LiteView
         custom.Click += (s, e) => AskCpuMask();
         cpu.DropDownItems.Add(custom);
         cpu.DropDownItems.Add(new ToolStripSeparator());
-        cpu.DropDownItems.Add(new ToolStripMenuItem("Now: " + CpuChoice().Why) { Enabled = false });
+        cpu.DropDownItems.Add(new ToolStripMenuItem("Now: " + CpuChoice().Why) { Enabled = false, Tag = "label" });
         DarkMenuColors.Apply(cpu.DropDown);
 
         var gaming = new ToolStripMenuItem("Gaming mode" + (gamingActive ? " (on now)" : ""));

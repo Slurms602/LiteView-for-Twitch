@@ -24,12 +24,11 @@ sealed class ExtraPlayer : Form
 {
     public const int MaxExtra = 3;
     const int BarH = 34, ChatW = 300;
-    static readonly Color Bg = Color.FromArgb(14, 14, 16), BarC = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241),
-        Dim = Color.FromArgb(173, 173, 184), Hover = Color.FromArgb(38, 38, 44), Accent = Color.FromArgb(145, 71, 255);
+    static readonly Color Bg = Theme.Page, BarC = Theme.Panel, Fg = Theme.Text, Dim = Theme.Dim, Hover = Theme.Hover, Accent = Theme.Accent;
 
     readonly Panel body = new Panel { Dock = DockStyle.Fill, BackColor = Color.Black };
     readonly Panel surface = new Panel { Dock = DockStyle.Fill, BackColor = Color.Black };
-    readonly Label note = new Label { Dock = DockStyle.Fill, BackColor = Color.Black, ForeColor = Dim, TextAlign = ContentAlignment.MiddleCenter };
+    readonly Label note = new Label { Dock = DockStyle.Fill, BackColor = Color.Black, ForeColor = Theme.OnVideo, TextAlign = ContentAlignment.MiddleCenter };
     readonly Panel bar = new Panel { Dock = DockStyle.Bottom, Height = BarH, BackColor = BarC };
     readonly Button muteBtn = new Button(), chatBtn = new Button(), pinBtn = new Button(), moreBtn = new Button();
     readonly VolumeBar volBar = new VolumeBar();
@@ -81,6 +80,7 @@ sealed class ExtraPlayer : Form
         SetFonts();
         UpdateButtons(); UpdateMute(); LayoutBar();
         watch.Tick += (s, e) => Check();
+        HandleCreated += (s, e) => Theme.Frame(Handle);
         Shown += (s, e) => { if (chatOn) ShowChat(true, true); else if (opts.Fit) FitToVideo(); Start(); };   // the chat widens the window, the video keeps its size
         KeyDown += (s, e) =>
         {
@@ -105,7 +105,7 @@ sealed class ExtraPlayer : Form
         Font = UiFont.ForControls(FontKind.Text, 9.5f);
         note.Font = UiFont.ForControls(FontKind.Text, 11f);
         foreach (var b in new[] { muteBtn, chatBtn, pinBtn, moreBtn }) b.Font = new Font("Segoe MDL2 Assets", 11f);
-        if (chat != null) chat.SetControlFonts();
+        if (chat != null) { chat.SetControlFonts(); chat.View.ReLayout(); }
     }
 
     public void LoginChanged() { if (chat != null) chat.UpdateLogin(); }

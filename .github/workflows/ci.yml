@@ -63,8 +63,10 @@ jobs:
           dotnet build tests/FakeStreamlink -c Release --no-restore -o fake
           $fake = (Resolve-Path fake/streamlinkw.exe).Path
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'paused', 'offline', 'fail') {
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'paused', 'offline', 'fail', 'settings', 'live@light', 'chatlog@light', 'settings@light', 'watch@black') {
+            $theme = ''; if ($scene -match '^(.+)@(light|black)$') { $scene = $Matches[1]; $theme = $Matches[2] }   # scene@theme: the same scene in another theme
             $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
+            if ($theme) { $vars.LITEVIEW_UI_FIXTURE_THEME = $theme }
             $more = @{ A11y = $scene -in 'live', 'followed', 'browse', 'category', 'videos', 'clips', 'chat', 'chatlog', 'picker' }   # also check what screen readers see
             if ($scene -in 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
             if ($scene -eq 'chatlog') { $more.Expect = @('chat: 8 recent messages', 'emoji: colour') }   # the history has emoji: drawn in colour
@@ -84,7 +86,9 @@ jobs:
             if ($scene -eq 'release') { $more.Expect = @('picture: Enhance after Ultra: the player restarts', 'stream 2: first frame after') }
             if ($scene -eq 'preview') { $more.Expect = @('preview: nightowl_plays|preview: [a-z_]+', 'preview: playing') }
             if ($scene -eq 'stats') { $more.Expect = @('stream 1: first frame after', 'stats overlay on') }
-            ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-')) -Env $vars @more
+            if ($scene -eq 'settings') { $more.Expect = @('settings: open') }
+            if ($theme) { if ($more.Expect) { $more.Expect = @($more.Expect) + "theme: $theme" } else { $more.Expect = @("theme: $theme") } }
+            ./tools/smoke.ps1 -Dir $dir -Out ('smoke/fixture-' + ($scene -replace '[^a-z]', '-') + $(if ($theme) { '-' + $theme } else { '' })) -Env $vars @more
             if ($LASTEXITCODE) { $failed++ }
           }
           exit $failed

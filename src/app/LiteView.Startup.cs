@@ -64,7 +64,7 @@ partial class LiteView
     ToolStripMenuItem StartMenu()
     {
         var m = new ToolStripMenuItem("Start and tray");
-        var win = new ToolStripMenuItem("Start with Windows") { Checked = StartsWithWindows() };
+        var win = new ToolStripMenuItem("Start with Windows") { Checked = StartsWithWindows(), Tag = "toggle" };
         win.ToolTipText = "Adds LiteView to your Windows sign-in (no administrator rights). Off removes it again.";
         win.Click += (s, e) => SetStartWithWindows(!StartsWithWindows());
         var min = Toggle("Start minimised", startMin, v => startMin = v);

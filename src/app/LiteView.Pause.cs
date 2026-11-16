@@ -22,7 +22,7 @@ partial class LiteView
         pauseTip.SetToolTip(pauseBtn, "Pause (Space): stops the video and its download, the chat stays.\nPlay continues at live.");
         bar.Controls.Add(pauseBtn);
 
-        pausedNote.Dock = DockStyle.Fill; pausedNote.Visible = false; pausedNote.BackColor = Color.Black; pausedNote.ForeColor = Dim;
+        pausedNote.Dock = DockStyle.Fill; pausedNote.Visible = false; pausedNote.BackColor = Color.Black; pausedNote.ForeColor = Theme.OnVideo;
         pausedNote.TextAlign = ContentAlignment.MiddleCenter; pausedNote.Font = new Font("Segoe UI", 12f); pausedNote.Cursor = Cursors.Hand;
         pausedNote.Text = "Paused\n\nClick here or press Space to continue at live";
         pausedNote.Click += (s, e) => TogglePause();

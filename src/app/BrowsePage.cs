@@ -18,9 +18,9 @@ partial class BrowsePage : Control
 {
     public enum Tab { Live, Followed, Recent, Browse }
 
-    static readonly Color Bg = Color.FromArgb(14, 14, 16), CardC = Color.FromArgb(24, 24, 27), HoverC = Color.FromArgb(38, 38, 44),
-        SelC = Color.FromArgb(53, 53, 59), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Faint = Color.FromArgb(110, 110, 122),
-        Accent = Color.FromArgb(145, 71, 255), AccentHot = Color.FromArgb(119, 44, 232), Red = Color.FromArgb(235, 4, 0), Gold = Color.FromArgb(255, 200, 61),
+    static readonly Color Bg = Theme.Page, CardC = Theme.Panel, HoverC = Theme.Hover,   // themes (src/app/Theme.cs)
+        SelC = Theme.Line, Fg = Theme.Text, Dim = Theme.Dim, Faint = Theme.Faint,
+        Accent = Theme.Accent, AccentHot = Theme.AccentHot, Red = Theme.Live, Gold = Theme.Gold,
         Shade = Color.FromArgb(200, 0, 0, 0);
     // Fonts and sizes follow the page's text size (menu > Text size): SetZoom. 100% is the original size, too small on
     // a 1440p screen at 100% Windows scaling, so the default ("Normal") is 115%.
@@ -656,7 +656,7 @@ partial class BrowsePage : Control
         {
             string l = "Use the Twitch website page instead";
             linkRect = new Rectangle(x, y, Txt.Width(l, FText) + 4, S(20));
-            Txt.At(g, l, FText, hot == HotLink ? Fg : Color.FromArgb(191, 148, 255), x, y);
+            Txt.At(g, l, FText, hot == HotLink ? Fg : Theme.AccentText, x, y);
             Txt.Wrap(g, "Logging in here uses your normal browser: LiteView never sees your password.", FText, Faint, new Rectangle(x, y + S(30), w, S(40)));
         }
     }
@@ -679,8 +679,8 @@ partial class BrowsePage : Control
             }
             else Txt.Wrap(g, it.Name, FText, Faint, new Rectangle(ar.X + S(10), ar.Y + ar.Height / 2 - S(20), ar.Width - S(20), S(48)));   // until the picture is here
         }
-        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, 145, 71, 255), S(3))) g.DrawRectangle(p, ar.X + 1, ar.Y + 1, ar.Width - 3, ar.Height - 3);
-        Txt.In(g, it.Name, FTitle, hi ? Color.FromArgb(191, 148, 255) : Fg, new Rectangle(r.X, ar.Bottom + S(8), r.Width, S(20)), false);
+        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, Theme.Accent), S(3))) g.DrawRectangle(p, ar.X + 1, ar.Y + 1, ar.Width - 3, ar.Height - 3);
+        Txt.In(g, it.Name, FTitle, hi ? Theme.AccentText : Fg, new Rectangle(r.X, ar.Bottom + S(8), r.Width, S(20)), false);
     }
 
     void DrawCard(Graphics g, Item it, Rectangle r, int i)
@@ -693,7 +693,7 @@ partial class BrowsePage : Control
         var pic = Thumb(it, tr.Size);
         if (pic != null) g.DrawImage(pic, tr);
         else using (var b = new SolidBrush(CardC)) g.FillRectangle(b, tr);
-        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, 145, 71, 255), S(3))) g.DrawRectangle(p, tr.X + 1, tr.Y + 1, tr.Width - 3, tr.Height - 3);
+        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, Theme.Accent), S(3))) g.DrawRectangle(p, tr.X + 1, tr.Y + 1, tr.Width - 3, tr.Height - 3);
         // LIVE, uptime and viewers on the preview
         var lr = new Rectangle(tr.X + S(8), tr.Y + S(8), Txt.Width("LIVE", FSmall) + S(12), S(20));
         using (var b = new SolidBrush(Red)) Fill(g, b, lr, S(3));
@@ -706,7 +706,7 @@ partial class BrowsePage : Control
         int ay = tr.Bottom + S(10), az = S(36);
         DrawAvatar(g, it.Login, new Rectangle(r.X, ay, az, az));
         int tx = r.X + az + S(10), tw = r.Width - az - S(10);
-        Txt.In(g, it.Title.Length > 0 ? it.Title : it.Name, FTitle, hi ? Color.FromArgb(191, 148, 255) : Fg, new Rectangle(tx, ay - S(2), tw, S(20)), false);
+        Txt.In(g, it.Title.Length > 0 ? it.Title : it.Name, FTitle, hi ? Theme.AccentText : Fg, new Rectangle(tx, ay - S(2), tw, S(20)), false);
         Txt.In(g, it.Name, FText, Dim, new Rectangle(tx, ay + S(17), tw, S(18)), false);
         Txt.In(g, it.Game, FText, Dim, new Rectangle(tx, ay + S(34), tw, S(18)), false);
     }

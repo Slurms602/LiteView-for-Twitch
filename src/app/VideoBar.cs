@@ -11,8 +11,7 @@ using LiteViewCore;
 sealed class VideoBar : Control
 {
     public const int BarHeight = 34;
-    static readonly Color Back = Color.FromArgb(24, 24, 27), Track = Color.FromArgb(60, 60, 68), Played = Color.FromArgb(145, 71, 255),
-        Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Knob = Color.FromArgb(239, 239, 241);
+    static readonly Color Back = Theme.Panel, Track = Theme.Line, Played = Theme.Accent, Fg = Theme.Text, Dim = Theme.Dim, Knob = Theme.Accent;
     double pos, dur, dragAt = -1;
     int hoverX = -1;
     public event Action<double> Seek;

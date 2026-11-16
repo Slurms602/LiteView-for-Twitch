@@ -41,7 +41,7 @@ static class Txt
         if (!brushes.TryGetValue(k, out b)) { b = new SolidBrush(c); brushes[k] = b; }
         return b;
     }
-    public static int Width(string s, Font f) { lock (mg) return (int)Math.Round(mg.MeasureString(s, UiFont.For(f, s), PointF.Empty, Typo).Width); }   // fork: UiFont.For = Segoe UI for what Inter lacks
+    public static int Width(string s, Font f) { lock (mg) { if (mg.TextRenderingHint != UiFont.Hint) Prep(mg); return (int)Math.Round(mg.MeasureString(s, UiFont.For(f, s), PointF.Empty, Typo).Width); } }   // fork: UiFont.For = Segoe UI for what Inter lacks
     public static int Height(Font f) { lock (mg) return (int)Math.Ceiling(f.GetHeight(mg)); }
     public static void At(Graphics g, string s, Font f, Color c, int x, int y) { var u = UiFont.For(f, s); Prep(g).DrawString(s, u, Brush(c), x, y + UiFont.Shift(f, u), Typo); }   // fork: Segoe UI words on Inter's baseline
     // one line in a box, vertically centred, "..." when it does not fit
@@ -204,8 +204,8 @@ class Msg
 // The message list: lays out and draws chat lines like Twitch (Segoe UI 13 px, 20 px lines).
 partial class ChatView : Control   // fork: partial (src/app/ColorEmoji.cs)
 {
-    public static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
-        MentionBg = Color.FromArgb(62, 22, 26), NoticeBg = Color.FromArgb(31, 31, 35), Accent = Color.FromArgb(145, 71, 255), LinkC = Color.FromArgb(191, 148, 255);
+    public static readonly Color Bg = Theme.Panel, Fg = Theme.Text, Dim = Theme.Dim,   // fork: themes (src/app/Theme.cs)
+        MentionBg = Theme.Mention, NoticeBg = Theme.Notice, Accent = Theme.Accent, LinkC = Theme.AccentText;
     static Font F = UiFont.New(FontKind.Text, 9.75f), FB = UiFont.New(FontKind.Bold, 9.75f), FS = UiFont.New(FontKind.Text, 8.75f);   // fork: SetTextSize, UiFont (Inter like Twitch, or Segoe UI)
     public readonly List<Msg> Msgs = new List<Msg>();
     public event Action<string> NameClicked;
@@ -366,7 +366,7 @@ partial class ChatView : Control   // fork: partial (src/app/ColorEmoji.cs)
         {
             g.Clear(bg);
             if (m.Style == 2) using (var br = new SolidBrush(Accent)) g.FillRectangle(br, 0, 0, 4, m.H);
-            if (m.Style == 1) using (var br = new SolidBrush(Color.FromArgb(235, 4, 0))) g.FillRectangle(br, 0, 0, 3, m.H);
+            if (m.Style == 1) using (var br = new SolidBrush(Theme.Live)) g.FillRectangle(br, 0, 0, 3, m.H);
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
             foreach (var pl in m.Places)
             {
@@ -423,7 +423,7 @@ partial class ChatView : Control   // fork: partial (src/app/ColorEmoji.cs)
             string t = "⏸  Chat paused due to scroll";
             int tw = Txt.Width(t, FB);
             pausedBox = new Rectangle((ClientSize.Width - tw - 28) / 2, ClientSize.Height - 44, tw + 28, 32);
-            using (var br = new SolidBrush(Color.FromArgb(230, 14, 14, 16))) g.FillRectangle(br, pausedBox);
+            using (var br = new SolidBrush(Color.FromArgb(230, Theme.Page))) g.FillRectangle(br, pausedBox);
             Txt.In(g, t, FB, Fg, pausedBox, true);
         }
         else pausedBox = Rectangle.Empty;
@@ -540,19 +540,19 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         BackColor = ChatView.Bg;
         head.Dock = DockStyle.Top; head.Height = 38; head.BackColor = ChatView.Bg;
         gear.Text = ""; gear.Font = new Font("Segoe MDL2 Assets", 10f); gear.FlatStyle = FlatStyle.Flat; gear.FlatAppearance.BorderSize = 0;
-        gear.FlatAppearance.MouseOverBackColor = Color.FromArgb(38, 38, 44); gear.ForeColor = ChatView.Fg; gear.Width = 34; gear.Dock = DockStyle.Right; gear.Cursor = Cursors.Hand;
+        gear.FlatAppearance.MouseOverBackColor = Theme.Hover; gear.ForeColor = ChatView.Fg; gear.Width = 34; gear.Dock = DockStyle.Right; gear.Cursor = Cursors.Hand;
         gear.Click += (s, e) => Menu.Show(gear, new Point(gear.Width - Menu.Width, gear.Height));
         Menu.Renderer = new ToolStripProfessionalRenderer(new DarkColors()); Menu.ForeColor = ChatView.Fg; Menu.ShowImageMargin = false;
         head.Controls.Add(gear);
         head.Paint += (s, e) =>
         {
-            using (var p = new Pen(Color.FromArgb(53, 53, 59))) e.Graphics.DrawLine(p, 0, head.Height - 1, head.Width, head.Height - 1);
+            using (var p = new Pen(Theme.Line)) e.Graphics.DrawLine(p, 0, head.Height - 1, head.Width, head.Height - 1);
             Txt.In(e.Graphics, replay ? "CHAT REPLAY" : "STREAM CHAT", HeadFont, ChatView.Fg, new Rectangle(gear.Width, 0, head.Width - 2 * gear.Width, head.Height - 1), true);   // fork: replay (src/app/ChatReplayPanel.cs)
         };
         head.Resize += (s, e) => head.Invalidate();
 
         foot.Dock = DockStyle.Bottom; foot.Height = 50; foot.BackColor = ChatView.Bg; foot.Padding = new Padding(10, 8, 10, 10);
-        input.BorderStyle = BorderStyle.FixedSingle; input.BackColor = Color.FromArgb(38, 38, 44); input.ForeColor = ChatView.Fg; input.Font = new Font("Segoe UI", 10.5f);
+        input.BorderStyle = BorderStyle.FixedSingle; input.BackColor = Theme.Hover; input.ForeColor = ChatView.Fg; input.Font = new Font("Segoe UI", 10.5f);
         input.Dock = DockStyle.Fill; input.MaxLength = 500;
         input.HandleCreated += (s, e) => SendMessage(input.Handle, 0x1501, (IntPtr)1, "Send a message");
         input.PreviewKeyDown += (s, e) => { if (e.KeyCode == Keys.Tab) e.IsInputKey = true; };
@@ -561,7 +561,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         loginLink.TextAlign = ContentAlignment.MiddleCenter; loginLink.LinkBehavior = LinkBehavior.HoverUnderline;
         loginLink.LinkClicked += (s, e) => { if (LoginRequested != null) LoginRequested(); };
         emoteBtn.Text = ""; emoteBtn.Font = new Font("Segoe MDL2 Assets", 11f); emoteBtn.FlatStyle = FlatStyle.Flat; emoteBtn.FlatAppearance.BorderSize = 0;
-        emoteBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(53, 53, 59); emoteBtn.BackColor = Color.FromArgb(38, 38, 44); emoteBtn.ForeColor = ChatView.Fg;
+        emoteBtn.FlatAppearance.MouseOverBackColor = Theme.Line; emoteBtn.BackColor = Theme.Hover; emoteBtn.ForeColor = ChatView.Fg;
         emoteBtn.Width = 32; emoteBtn.Dock = DockStyle.Right; emoteBtn.Cursor = Cursors.Hand; emoteBtn.TabStop = false;
         emoteBtn.Click += (s, e) => TogglePicker();
         new ToolTip().SetToolTip(emoteBtn, "Emotes");
@@ -898,10 +898,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         Color c;
         try { c = ColorTranslator.FromHtml(string.IsNullOrEmpty(hex) ? DefaultColors[(int)((uint)(login ?? "").GetHashCode() % DefaultColors.Length)] : hex); }
         catch { c = ChatView.Fg; }
-        // readable on the dark background, like Twitch's own colour adjustment
-        double l = (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255;
-        if (l < 0.35) { double k = (0.35 - l) / 0.35 * 0.6 + 0.25; c = Color.FromArgb((int)(c.R + (255 - c.R) * k), (int)(c.G + (255 - c.G) * k), (int)(c.B + (255 - c.B) * k)); }
-        return c;
+        return Theme.Readable(c);   // fork: readable on the theme's background, like Twitch's own colour adjustment (src/app/Theme.cs)
     }
 
     Msg Build(IrcMsg im, string text, string login)
@@ -1049,13 +1046,13 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
 
     class DarkColors : ProfessionalColorTable
     {
-        public override Color ToolStripDropDownBackground { get { return Color.FromArgb(31, 31, 35); } }
-        public override Color MenuItemSelected { get { return Color.FromArgb(53, 53, 59); } }
-        public override Color MenuItemBorder { get { return Color.FromArgb(53, 53, 59); } }
-        public override Color MenuBorder { get { return Color.FromArgb(53, 53, 59); } }
-        public override Color ImageMarginGradientBegin { get { return Color.FromArgb(31, 31, 35); } }
-        public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(31, 31, 35); } }
-        public override Color ImageMarginGradientEnd { get { return Color.FromArgb(31, 31, 35); } }
-        public override Color SeparatorDark { get { return Color.FromArgb(53, 53, 59); } }
+        public override Color ToolStripDropDownBackground { get { return Theme.Side; } }   // fork: themes
+        public override Color MenuItemSelected { get { return Theme.Line; } }
+        public override Color MenuItemBorder { get { return Theme.Line; } }
+        public override Color MenuBorder { get { return Theme.Line; } }
+        public override Color ImageMarginGradientBegin { get { return Theme.Side; } }
+        public override Color ImageMarginGradientMiddle { get { return Theme.Side; } }
+        public override Color ImageMarginGradientEnd { get { return Theme.Side; } }
+        public override Color SeparatorDark { get { return Theme.Line; } }
     }
 }

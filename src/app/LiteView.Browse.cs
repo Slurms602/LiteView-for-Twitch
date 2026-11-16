@@ -159,6 +159,7 @@ partial class LiteView
                 return;
             }
             if (Fixture.SceneName == "focus") { FocusScene(); return; }        // src/app/LiteView.Focus.cs
+            if (Fixture.SceneName == "settings") { SettingsScene(); return; }  // src/app/LiteView.Settings.cs
             if (Fixture.SceneName == "clip") { ClipScene(); return; }          // src/app/LiteView.Clips.cs
             if (Fixture.SceneName == "sidemenu") { SideMenuScene(); return; }  // src/app/LiteView.SideMenu.cs
             if (Fixture.SceneName == "release") { ReleaseScene(); return; }    // src/app/LiteView.Picture.cs
@@ -260,13 +261,8 @@ partial class LiteView
         }
         DarkMenuColors.Apply(quietMenu.DropDown);
 
-        var settings = new ToolStripMenuItem("Settings");
-        settings.DropDownItems.Add("Export settings...", null, (s, e) => ExportSettings());
-        settings.DropDownItems.Add("Import settings...", null, (s, e) => ImportSettings());
-        settings.DropDownItems.Add(new ToolStripSeparator());
-        settings.DropDownItems.Add("Reset favourites, watched channels and searches...", null, (s, e) => ResetLists());
-        settings.DropDownItems.Add("Reset window size and position", null, (s, e) => ResetWindow());
-        settings.DropDownItems.Add("Reset all settings...", null, (s, e) => ResetAll());
+        var settings = new ToolStripMenuItem("Back up and reset");
+        foreach (var it in BackupItems()) settings.DropDownItems.Add(it);
         DarkMenuColors.Apply(settings.DropDown);
 
         var upd = new ToolStripMenuItem("Check for updates...");
@@ -277,7 +273,9 @@ partial class LiteView
         keys.Click += (s, e) => MessageBox.Show(this, Shortcuts, "Keyboard shortcuts");
 
         appMenu.ShowItemToolTips = true;
-        appMenu.Items.AddRange(new ToolStripItem[] { login, new ToolStripSeparator(), page, StartMenu(), PlaybackMenu(), text, new ToolStripSeparator(), live, quietMenu,
+        var all = new ToolStripMenuItem("Settings...") { Font = new Font(appMenu.Font, FontStyle.Bold) };
+        all.Click += (s, e) => OpenSettings(null);   // src/app/LiteView.Settings.cs
+        appMenu.Items.AddRange(new ToolStripItem[] { all, login, new ToolStripSeparator(), page, StartMenu(), PlaybackMenu(), ExtraWindowsMenu(), text, AppearanceMenu(), new ToolStripSeparator(), live, quietMenu,
             new ToolStripSeparator(), rec, srch, clear, new ToolStripSeparator(), PerformanceMenu(), settings, upd, autoUpd, keys });
         AddForkMenuItems(appMenu);
     }
@@ -286,7 +284,7 @@ partial class LiteView
     ToolStripMenuItem TextSizeMenu()
     {
         var m = new ToolStripMenuItem("Text size");
-        m.DropDownItems.Add(new ToolStripMenuItem("Following page") { Enabled = false });
+        m.DropDownItems.Add(new ToolStripMenuItem("Following page") { Enabled = false, Tag = "label" });
         for (int i = 0; i < BrowsePage.Zooms.Length; i++)
         {
             float z = BrowsePage.Zooms[i];
@@ -295,7 +293,7 @@ partial class LiteView
             m.DropDownItems.Add(it);
         }
         m.DropDownItems.Add(new ToolStripSeparator());
-        m.DropDownItems.Add(new ToolStripMenuItem("Chat") { Enabled = false });
+        m.DropDownItems.Add(new ToolStripMenuItem("Chat") { Enabled = false, Tag = "label" });
         for (int i = 0; i < ChatPrefs.Sizes.Length; i++)
         {
             int k = i;
@@ -304,7 +302,7 @@ partial class LiteView
             m.DropDownItems.Add(it);
         }
         m.DropDownItems.Add(new ToolStripSeparator());
-        m.DropDownItems.Add(new ToolStripMenuItem("Font") { Enabled = false });
+        m.DropDownItems.Add(new ToolStripMenuItem("Font") { Enabled = false, Tag = "label" });
         foreach (var inter in new[] { true, false })
         {
             bool k = inter;
@@ -313,13 +311,22 @@ partial class LiteView
             it.Click += (s, e) => { if (UiFont.UseInter == k) return; UiFont.UseInter = k; ApplyFont(); SaveSettings(); };
             m.DropDownItems.Add(it);
         }
+        m.DropDownItems.Add(new ToolStripSeparator());
+        m.DropDownItems.Add(new ToolStripMenuItem("Smoothing") { Enabled = false, Tag = "label", ToolTipText = "How the letters' edges are drawn (the chat, the Following page, the followed channels)." });
+        foreach (var sm in UiFont.Smoothings)
+        {
+            string k = sm;
+            var it = new ToolStripMenuItem("    " + UiFont.SmoothingName(k)) { Checked = UiFont.Smoothing == k };
+            it.Click += (s, e) => { if (UiFont.Smoothing == k) return; UiFont.SetSmoothing(k); ApplyFont(); SaveSettings(); Log.Info("font: smoothing " + k); };
+            m.DropDownItems.Add(it);
+        }
         DarkMenuColors.Apply(m.DropDown);
         return m;
     }
 
     ToolStripMenuItem Toggle(string text, bool on, Action<bool> set)
     {
-        var it = new ToolStripMenuItem(text) { Checked = on };
+        var it = new ToolStripMenuItem(text) { Checked = on, Tag = "toggle" };   // "toggle": a switch in the Settings window
         it.Click += (s, e) => { set(!on); SaveSettings(); if (!watching) browse.Invalidate(); };
         return it;
     }
@@ -343,6 +350,8 @@ partial class LiteView
         yield return Kv("startmin", startMin ? "1" : "0");
         yield return Kv("sharpness", PicturePreset.Save(sharpness));
         yield return Kv("clipsecs", clipSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        yield return Kv("theme", themeSaved ?? Theme.Name);
+        yield return Kv("smoothing", UiFont.Smoothing);
         yield return Kv("totray", toTray ? "1" : "0");
         yield return Kv("pagesize", Array.FindIndex(BrowsePage.Zooms, z => Math.Abs(z - browse.Zoom) < 0.001f).ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("notify", notify ? "1" : "0");

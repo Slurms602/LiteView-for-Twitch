@@ -21,7 +21,7 @@ partial class ChatPanel
 
     void InitReply()
     {
-        replyBar.Dock = DockStyle.Bottom; replyBar.Height = 26; replyBar.BackColor = Color.FromArgb(31, 31, 35); replyBar.Padding = new Padding(10, 4, 4, 0); replyBar.Visible = false;
+        replyBar.Dock = DockStyle.Bottom; replyBar.Height = 26; replyBar.BackColor = Theme.Side; replyBar.Padding = new Padding(10, 4, 4, 0); replyBar.Visible = false;
         replyText.Dock = DockStyle.Fill; replyText.ForeColor = ChatView.Dim; replyText.AutoEllipsis = true; replyText.Font = new Font("Segoe UI", 9f); replyText.TextAlign = ContentAlignment.MiddleLeft;
         replyClose.Dock = DockStyle.Right; replyClose.Width = 26; replyClose.FlatStyle = FlatStyle.Flat; replyClose.FlatAppearance.BorderSize = 0; replyClose.ForeColor = ChatView.Fg;
         replyClose.Text = ((char)0xE711).ToString(); replyClose.Font = new Font("Segoe MDL2 Assets", 8f); replyClose.AccessibleName = "Cancel the reply"; replyClose.TabStop = false;

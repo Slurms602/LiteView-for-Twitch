@@ -112,9 +112,9 @@ partial class LiteView
             sharp.DropDownItems.Add(it);
         }
         DarkMenuColors.Apply(sharp.DropDown);
-        var stats = new ToolStripMenuItem("Stats on the video  (I)") { Checked = statsOn, Enabled = watching };
+        var stats = new ToolStripMenuItem("Stats on the video  (I)") { Checked = statsOn, Enabled = watching, Tag = "toggle" };
         stats.Click += (o, e) => ToggleStats();
-        var cmp = new ToolStripMenuItem("Compare with the original picture  (B)") { Checked = comparing, Enabled = watching };
+        var cmp = new ToolStripMenuItem("Compare with the original picture  (B)") { Checked = comparing, Enabled = watching, Tag = "toggle" };
         cmp.Click += (o, e) => ToggleCompare();
         var prev = Toggle("Previews on hover (Following page)", browse.Previews, v => { browse.Previews = v; if (!v) StopPreview(); });
         prev.ToolTipText = "Rest the mouse on a live channel's card: it plays there, muted, at the lowest quality.";

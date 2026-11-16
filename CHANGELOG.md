@@ -122,6 +122,17 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Right-click a channel in the **followed column** while watching: watch it, watch it in a new window, its videos or
   clips, favourite, open on twitch.tv, copy link (a right-click no longer switches to it).
 - LiteView has **its own icon** (a purple chat bubble with a play button) instead of mpv's.
+- **Settings window** (menu > *Settings...*): every setting in one place, in pages on the left (Playback, Chat, Text and
+  font, Appearance, Following page, Notifications, Start and tray, Extra windows, Performance, Account and help, Back up
+  and reset), with switches, choices and a line of explanation under each. It uses the same settings as the menus,
+  which stay. The menus' *Settings* submenu is now *Back up and reset*.
+- **Themes** (menu > *Appearance*, or Settings > Appearance): Dark (as before), **Black** (black backgrounds, for OLED
+  screens and dark rooms) and **Light** (Twitch's light colours). The video area stays black. A new theme applies when
+  LiteView starts again (it offers to restart).
+- Menu > Text size > **Smoothing**: ClearType (as before, follows Windows), Grey (no colour fringes) or Smooth (no
+  font hinting: softer, rounder letters, closer to how some browsers draw) - to pick the one that looks best on your
+  screen.
+- Menu > **Extra windows**: how new extra windows start (on top, with the chat, keep the video's shape, quality).
 - **Previews on hover**: rest the mouse on a live channel's card on the Following page and it plays there, muted, at
   the lowest quality (menu > Playback turns it off).
 - Menu > **Start and tray**: start with Windows (no administrator rights), start minimised, minimise to the tray

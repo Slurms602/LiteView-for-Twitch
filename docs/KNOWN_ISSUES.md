@@ -25,6 +25,8 @@ Verified or clearly visible in the code. Finding ids are from `BASELINE_AUDIT.md
 | Chat replay uses Twitch's website API | Twitch has no official chat replay API; LiteView asks the one twitch.tv uses, anonymously. Twitch can change or close it at any time (its cursor paging already refuses apps); then the chat says replay is not available and the video plays on. Clips show the live chat | Watch for breakage |
 | A saved clip can be shorter than asked | The player keeps about 1 MB a second (Twitch's highest bitrate): right after a stream starts, after a jump in a video, or at more than 8 Mb/s there is less | By design |
 | No rewinding a live stream | A live stream has no seek bar: rewinding needs the player to keep minutes of video in memory and catch up afterwards; the clip memory (60 s) could be the start of it | Later, if wanted |
+| A new theme applies at the next start | Each window reads its colours when it is made; Appearance offers to restart | By design |
+| The Light theme is CI-checked only by screenshots | Parts drawn by Windows (scroll bars of text boxes, some menus) follow Windows' own light/dark setting | Owner's PC |
 | Seamless switching downloads two streams for a few seconds | The old stream plays until the new one shows its first picture (at most 12 s); not while Gaming mode is on or paused. Menu > Playback > Seamless channel switching turns it off | By design |
 | Extra windows have no pause or picture presets | They are meant for keeping an eye on another channel (with its chat, volume, quality and "on top"); open it in the main window for everything | By design for now |
 | Gaming mode recognises fullscreen windows only | A game in a normal window does not switch it on; use Gaming mode > On | By design (no process scanning) |

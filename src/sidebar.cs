@@ -14,8 +14,8 @@ class FollowBar : Control
 {
     public const int OpenW = 240, ClosedW = 50;
     const int HeadH = 42, RowH = 42;
-    static readonly Color Bg = Color.FromArgb(31, 31, 35), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
-        HoverC = Color.FromArgb(38, 38, 44), Sel = Color.FromArgb(53, 53, 59), Red = Color.FromArgb(235, 4, 0), Accent = Color.FromArgb(145, 71, 255);
+    static readonly Color Bg = Theme.Side, Fg = Theme.Text, Dim = Theme.Dim,   // fork: themes (src/app/Theme.cs)
+        HoverC = Theme.Hover, Sel = Theme.Line, Red = Theme.Live, Accent = Theme.Accent;
     static Font FName { get { return UiFont.Get(FontKind.Semi, 9.75f); } } static Font FGame { get { return UiFont.Get(FontKind.Text, 9f); } } static Font FHead { get { return UiFont.Get(FontKind.Semi, 9f); } }   // fork: UiFont
     static readonly Font FIcon = new Font("Segoe MDL2 Assets", 10f);
     const TextFormatFlags TF = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
@@ -150,7 +150,7 @@ class FollowBar : Control
                 if (Tw.Token == null)
                 {
                     var lr = LoginRect;
-                    using (var b = new SolidBrush(hover == -3 ? Color.FromArgb(119, 44, 232) : Accent)) g.FillRectangle(b, lr);
+                    using (var b = new SolidBrush(hover == -3 ? Theme.AccentHot : Accent)) g.FillRectangle(b, lr);
                     Txt.In(g, "Log in with Twitch", FName, Color.White, lr, true);
                 }
             }

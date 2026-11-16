@@ -6,8 +6,7 @@ using System.Windows.Forms;
 
 sealed class ProblemPopup : Form
 {
-    static readonly Color Back = Color.FromArgb(31, 31, 35), Box = Color.FromArgb(24, 24, 27), Line = Color.FromArgb(53, 53, 59),
-        Fg = Color.FromArgb(239, 239, 241), Accent = Color.FromArgb(145, 71, 255), Err = Color.FromArgb(255, 140, 140);
+    static readonly Color Back = Theme.Side, Box = Theme.Panel, Line = Theme.Line, Fg = Theme.Text, Accent = Theme.Accent, Err = Theme.Error;
 
     public ProblemPopup(string title, string detail, Action retry, Action openLog)
     {
@@ -40,7 +39,7 @@ sealed class ProblemPopup : Form
         var b = new Button
         {
             Text = text, AutoSize = true, Height = 30, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(8, 0, 0, 0),
-            BackColor = primary ? Accent : Line, ForeColor = Color.White, Padding = new Padding(8, 0, 8, 0),
+            BackColor = primary ? Accent : Line, ForeColor = primary ? Color.White : Fg, Padding = new Padding(8, 0, 8, 0),
         };
         b.FlatAppearance.BorderSize = 0;
         b.Click += click;

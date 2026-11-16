@@ -117,14 +117,14 @@ partial class BrowsePage
         var pic = Thumb(it, tr.Size);
         if (pic != null) g.DrawImage(pic, tr);
         else using (var b = new SolidBrush(CardC)) g.FillRectangle(b, tr);
-        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, 145, 71, 255), S(3))) g.DrawRectangle(p, tr.X + 1, tr.Y + 1, tr.Width - 3, tr.Height - 3);
+        if (hi) using (var p = new Pen(i == sel && Focused ? Accent : Color.FromArgb(120, Theme.Accent), S(3))) g.DrawRectangle(p, tr.X + 1, tr.Y + 1, tr.Width - 3, tr.Height - 3);
         string len = VideoData.Length(v.Seconds);
         if (len.Length > 0) Badge(g, len, tr.X + S(8), tr.Y + S(8), false);
         Badge(g, Fmt.Viewers(v.Views) + (v.Views == 1 ? " view" : " views"), tr.X + S(8), tr.Bottom - S(28), false);
         string ago = VideoData.Ago(v.Created, DateTimeOffset.UtcNow);
         if (ago.Length > 0) Badge(g, ago, tr.Right - S(8), tr.Bottom - S(28), true);
         int ty = tr.Bottom + S(10);
-        Txt.In(g, v.Title.Length > 0 ? v.Title : VideoData.KindName(v.Kind), FTitle, hi ? Color.FromArgb(191, 148, 255) : Fg, new Rectangle(r.X, ty - S(2), r.Width, S(20)), false);
+        Txt.In(g, v.Title.Length > 0 ? v.Title : VideoData.KindName(v.Kind), FTitle, hi ? Theme.AccentText : Fg, new Rectangle(r.X, ty - S(2), r.Width, S(20)), false);
         Txt.In(g, v.IsClip ? (v.Creator.Length > 0 ? "Clipped by " + v.Creator : "Clip") : VideoData.KindName(v.Kind), FText, Dim, new Rectangle(r.X, ty + S(17), r.Width, S(18)), false);
     }
 

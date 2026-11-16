@@ -32,7 +32,22 @@ static class UiFont
     public static bool UseInter = true;
     public static bool Available { get { return inter != null; } }
     public static bool On { get { return UseInter && inter != null; } }
-    public static readonly TextRenderingHint Hint;
+    /// <summary>How text is smoothed (setting "smoothing"): ClearType like Windows (default when Windows uses it), grey, or smooth (no hinting).</summary>
+    public static TextRenderingHint Hint { get; private set; }
+    static TextRenderingHint windowsHint;
+    public static readonly string[] Smoothings = { "cleartype", "grey", "smooth" };
+    public static string Smoothing { get; private set; }
+
+    public static void SetSmoothing(string s)
+    {
+        Smoothing = Array.IndexOf(Smoothings, s) >= 0 ? s : "cleartype";
+        Hint = Smoothing == "smooth" ? TextRenderingHint.AntiAlias : Smoothing == "grey" ? TextRenderingHint.AntiAliasGridFit : windowsHint;
+    }
+
+    public static string SmoothingName(string s)
+    {
+        return s == "smooth" ? "Smooth (grey, no font hinting: softer, rounder letters)" : s == "grey" ? "Grey (no colour fringes)" : "ClearType (sharpest; follows Windows)";
+    }
     static readonly bool gdi;   // GDI (the window's controls) draws Inter too
 
     [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] static extern int AddFontResourceEx(string name, uint flags, IntPtr reserved);
@@ -45,8 +60,9 @@ static class UiFont
 
     static UiFont()
     {
-        try { Hint = SystemInformation.IsFontSmoothingEnabled && SystemInformation.FontSmoothingType == 2 ? TextRenderingHint.ClearTypeGridFit : TextRenderingHint.AntiAliasGridFit; }
-        catch (Exception) { Hint = TextRenderingHint.AntiAliasGridFit; }
+        try { windowsHint = SystemInformation.IsFontSmoothingEnabled && SystemInformation.FontSmoothingType == 2 ? TextRenderingHint.ClearTypeGridFit : TextRenderingHint.AntiAliasGridFit; }
+        catch (Exception) { windowsHint = TextRenderingHint.AntiAliasGridFit; }
+        SetSmoothing("cleartype");
         try
         {
             string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fonts");

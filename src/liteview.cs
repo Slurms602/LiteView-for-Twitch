@@ -34,8 +34,14 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern bool CreateProcessW(string app, StringBuilder cmd, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string dir, ref Native.STARTUPINFO si, out Native.PROCESS_INFORMATION pi);
 
-    static readonly Color Bg = Color.FromArgb(14, 14, 16), Bar = Color.FromArgb(24, 24, 27), Hover = Color.FromArgb(38, 38, 44),
-        Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Accent = Color.FromArgb(145, 71, 255), Live = Color.FromArgb(235, 4, 0);
+    // fork: themes (src/app/Theme.cs); properties, not fields: Main is in this class and runs before the theme is loaded
+    static Color Bg { get { return Theme.Page; } }
+    static Color Bar { get { return Theme.Panel; } }
+    static Color Hover { get { return Theme.Hover; } }
+    static Color Fg { get { return Theme.Text; } }
+    static Color Dim { get { return Theme.Dim; } }
+    static Color Accent { get { return Theme.Accent; } }
+    static Color Live { get { return Theme.Live; } }
     const int BarH = 40;   // fork: ChatW is a setting (src/app/LiteView.Chat.cs)
     const string Home = "https://www.twitch.tv/directory/following/live";
     static readonly string[] Qualities = Quality.Choices;
@@ -96,7 +102,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         SetCue(search, "Go to channel...");
         status.AutoSize = true; status.ForeColor = Dim; status.Location = new Point(250, 12);
         quality.DropDownStyle = ComboBoxStyle.DropDownList; quality.FlatStyle = FlatStyle.Flat; quality.BackColor = Hover; quality.ForeColor = Fg;
-        quality.Items.AddRange(Qualities); quality.Width = 96; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
+        quality.Items.AddRange(Qualities); quality.Width = 96; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, Theme.Light ? "CFD" : "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
         quality.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
             TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused && !qualityRebuild) Replay(); };   // fork: Replay keeps a video a video
@@ -109,7 +115,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
             SendMpv("{\"command\":[\"set_property\",\"volume\"," + v + "]}"); UpdateMute(); };
         volBar.MouseUp += (s, e) => SaveSettings();
         new ToolTip().SetToolTip(volBar, "Volume (or the mouse wheel on the video)");
-        DarkCombo(picture, Pictures, 128); picture.SelectedIndexChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); PictureChosen(); };   // fork: PictureChosen gives back a heavier preset's memory
+        DarkCombo(picture, Pictures, 142); picture.SelectedIndexChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); PictureChosen(); };   // fork: 142 wide (Inter is wider than Segoe UI); PictureChosen gives back a heavier preset's memory
         new ToolTip().SetToolTip(picture, "Enhance: AMD FSR 1 upscaling + AMD CAS sharpening, any graphics card (light).\nHigh: FSRCNNX neural upscaling + Adaptive Sharpen (more GPU).\nUltra: NLMeans noise clean-up, bigger FSRCNNX, KrigBilateral colour, SSimDownscaler, motion smoothing,\nsharpened like High (most GPU).\nHigh and Ultra: menu > Playback > Sharpness. B: the original picture, to compare. I: stats with the GPU time.");
         rtx.Text = "RTX"; rtx.ForeColor = Dim; rtx.AutoSize = true; rtx.CheckedChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); };
         new ToolTip().SetToolTip(rtx, RtxTip);   // fork: src/app/LiteView.Picture.cs
@@ -312,7 +318,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         string name = ChannelName.Normalize(raw);
         if (name == null)
         {
-            if (!string.IsNullOrWhiteSpace(raw)) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "That is not a Twitch channel name."; }
+            if (!string.IsNullOrWhiteSpace(raw)) { status.ForeColor = Theme.Error; status.Text = "That is not a Twitch channel name."; }
             return;
         }
         if (!isRetry) CancelRetry();
@@ -535,7 +541,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     {
         cb.DropDownStyle = ComboBoxStyle.DropDownList; cb.FlatStyle = FlatStyle.Flat; cb.BackColor = Hover; cb.ForeColor = Fg;
         cb.Items.AddRange(items); cb.Width = width; cb.DrawMode = DrawMode.OwnerDrawFixed; cb.ItemHeight = 20;
-        cb.HandleCreated += (s, e) => SetWindowTheme(cb.Handle, "DarkMode_CFD", null);
+        cb.HandleCreated += (s, e) => SetWindowTheme(cb.Handle, Theme.Light ? "CFD" : "DarkMode_CFD", null);
         cb.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
             TextRenderer.DrawText(e.Graphics, (string)cb.Items[e.Index], cb.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); };
@@ -679,7 +685,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        int on = 1, col = Bar.R | (Bar.G << 8) | (Bar.B << 16);
+        int on = Theme.Light ? 0 : 1, col = Bar.R | (Bar.G << 8) | (Bar.B << 16);   // fork: themes
         DwmSetWindowAttribute(Handle, 20, ref on, 4);    // dark mode frame
         DwmSetWindowAttribute(Handle, 35, ref col, 4);   // caption = top bar colour
         DwmSetWindowAttribute(Handle, 34, ref col, 4);   // border
@@ -694,6 +700,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();
+        Theme.Load();      // fork: before any window or colour exists (src/app/Theme.cs)
         ulong m = CpuAffinity();   // fork: the CPU use setting (src/app/LiteView.Performance.cs)
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this
         {
@@ -709,7 +716,7 @@ class VolumeBar : Control
 {
     public int Value = 70;
     public event Action<int> Changed;
-    static readonly Color Track = Color.FromArgb(53, 53, 59), Fill = Color.FromArgb(145, 71, 255), Knob = Color.FromArgb(239, 239, 241);
+    static readonly Color Track = Theme.Line, Fill = Theme.Accent, Knob = Theme.Text;   // fork: themes
     public VolumeBar() { DoubleBuffered = true; Size = new Size(96, 30); Cursor = Cursors.Hand; }
     protected override void OnPaint(PaintEventArgs e)
     {

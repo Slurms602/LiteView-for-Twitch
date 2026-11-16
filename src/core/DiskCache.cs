@@ -15,6 +15,8 @@ namespace LiteViewCore
         readonly string dir;
         readonly long maxBytes, maxFileBytes;
         readonly TimeSpan maxAge;
+        readonly object pruning = new object();
+        long written;   // bytes written since the last tidy: past a quarter of MaxBytes it tidies again (in the background)
 
         public DiskCache(string dir, long maxBytes, long maxFileBytes, TimeSpan maxAge)
         {
@@ -59,6 +61,11 @@ namespace LiteViewCore
                 File.WriteAllBytes(tmp, data);
                 if (File.Exists(path)) File.Delete(path);
                 File.Move(tmp, path);
+                if (System.Threading.Interlocked.Add(ref written, data.Length) > Math.Max(maxBytes / 4, 1L << 20))
+                {
+                    System.Threading.Interlocked.Exchange(ref written, 0);
+                    System.Threading.Tasks.Task.Run(() => Prune());
+                }
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -66,9 +73,16 @@ namespace LiteViewCore
             }
         }
 
+        /// <summary>Forgets one picture (it was kept but cannot be decoded).</summary>
+        public void Remove(string url)
+        {
+            try { File.Delete(PathOf(url)); } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+        }
+
         /// <summary>Removes old files and, beyond MaxBytes, the oldest; also left-over temporary files. Returns the bytes kept.</summary>
         public long Prune()
         {
+            lock (pruning)
             try
             {
                 if (!Directory.Exists(dir)) return 0;
@@ -76,6 +90,7 @@ namespace LiteViewCore
                 long total = 0;
                 foreach (var f in files)
                 {
+                    if (!f.Name.EndsWith(".bin", StringComparison.Ordinal) && DateTime.UtcNow - f.LastWriteTimeUtc < TimeSpan.FromMinutes(1)) continue;   // a temporary file being written now
                     bool keep = f.Name.EndsWith(".bin", StringComparison.Ordinal) && DateTime.UtcNow - f.LastWriteTimeUtc <= maxAge && total + f.Length <= maxBytes;
                     if (keep) { total += f.Length; continue; }
                     try { f.Delete(); } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }

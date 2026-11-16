@@ -31,7 +31,7 @@ partial class LiteView
         browse.PreviewWanted += StartPreview;
         browse.PreviewGone += StopPreview;
         previewWatch.Tick += (s, e) => WatchPreview();
-        FormClosing += (s, e) => StopPreview();
+        FormClosing += (s, e) => { if (!e.Cancel) StopPreview(); };
     }
 
     void StartPreview(string login, Rectangle r)

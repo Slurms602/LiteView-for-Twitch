@@ -139,11 +139,18 @@ static class Images
             try
             {
                 var cache = Cache;   // fork: kept on disk between runs (src/core/DiskCache.cs), checked again like a download
-                var bytes = cache != null ? cache.Read(e.Url) : null;
-                bool fromDisk = bytes != null && ImageSniff.Acceptable(bytes);
-                if (!fromDisk) bytes = await Tw.GetBytes(e.Url, EmoteLimits.MaxDownloadBytes);
-                if (bytes == null || !ImageSniff.Acceptable(bytes)) { Interlocked.Increment(ref refused); e.State = 3; }
-                else { Decode(e, bytes); e.State = 2; if (fromDisk) Interlocked.Increment(ref fromCache); else if (cache != null) cache.Write(e.Url, bytes); }
+                var kept = cache != null ? cache.Read(e.Url) : null;
+                if (kept != null && ImageSniff.Acceptable(kept))
+                {
+                    try { Decode(e, kept); e.State = 2; Interlocked.Increment(ref fromCache); }
+                    catch (Exception) { cache.Remove(e.Url); }   // a kept copy that does not decode: forgotten, downloaded again
+                }
+                if (e.State != 2)
+                {
+                    var bytes = await Tw.GetBytes(e.Url, EmoteLimits.MaxDownloadBytes);
+                    if (bytes == null || !ImageSniff.Acceptable(bytes)) { Interlocked.Increment(ref refused); e.State = 3; }
+                    else { Decode(e, bytes); e.State = 2; if (cache != null) cache.Write(e.Url, bytes); }
+                }
             }
             catch { e.State = 3; }
             finally { gate.Release(); }

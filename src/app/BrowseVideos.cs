@@ -21,6 +21,7 @@ partial class BrowsePage
     /// <summary>How much of a video was watched, 0 to 1 (video id, its length): the red bar on its card.</summary>
     public Func<string, int, double> WatchedFraction;
     string vidKind = "all", vidNext; int clipDays = ChannelVideos.ClipDays; DateTime vidMoreAfter;
+    DateTimeOffset vidRangeNow;   // the clips' time range is fixed for all pages of one list (a cursor belongs to one query)
     readonly ChannelVideos videoFeed = new ChannelVideos(q => Tw.Helix(q));
     readonly Latest videoGuard = new Latest();
     string vidLogin, vidName; bool vidClips, loadingVids, vidsFailed; List<VideoInfo> vids; int vidScroll, vidSel;
@@ -65,7 +66,8 @@ partial class BrowsePage
         loadingVids = true; Invalidate();
         try
         {
-            var r = clips ? await videoFeed.Clips(login, name, DateTimeOffset.UtcNow, clipDays) : await videoFeed.Videos(login, vidKind);
+            vidRangeNow = DateTimeOffset.UtcNow;
+            var r = clips ? await videoFeed.Clips(login, name, vidRangeNow, clipDays) : await videoFeed.Videos(login, vidKind);
             if (!videoGuard.IsCurrent(t) || IsDisposed) return;   // another channel or kind meanwhile
             vidsFailed = r == null;
             if (r != null) { vids = r.Items; vidNext = r.Next; }
@@ -88,12 +90,13 @@ partial class BrowsePage
         loadingVids = true; Invalidate();
         try
         {
-            var r = clips ? await videoFeed.Clips(login, name, DateTimeOffset.UtcNow, clipDays, after) : await videoFeed.Videos(login, vidKind, after);
+            var r = clips ? await videoFeed.Clips(login, name, vidRangeNow, clipDays, after) : await videoFeed.Videos(login, vidKind, after);
             if (!videoGuard.IsCurrent(t) || IsDisposed || vids == null) return;
             if (r == null) { vidsFailed = true; vidMoreAfter = DateTime.UtcNow.AddSeconds(30); return; }   // the header says so; tried again in 30 s
             var have = new HashSet<string>(vids.Select(v => v.Id));
+            int before = vids.Count;
             vids.AddRange(r.Items.Where(v => have.Add(v.Id)));
-            vidNext = r.Items.Count > 0 ? r.Next : null;
+            vidNext = vids.Count > before && r.Next != after ? r.Next : null;   // a page with nothing new, or the same cursor again: the end
             Log.Info("videos: " + vids.Count + " shown" + (vidNext != null ? ", more on Twitch" : ""));
         }
         catch (Exception ex) { Log.Error("videos", ex); }

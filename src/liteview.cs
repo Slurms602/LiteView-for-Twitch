@@ -149,7 +149,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         InitFork();
         hourly.Tick += (s, e) => CheckLogin(); hourly.Start();   // Twitch asks apps to re-check tokens hourly
         KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape && fullscreen) ToggleFullscreen(); else if (e.KeyCode == Keys.F11 && watching) ToggleFullscreen(); };
-        FormClosing += (s, e) => { SaveSettings(); CancelRetry(); StopStream(); nchat.Part(); Log.Info("closing"); };
+        FormClosing += (s, e) => { if (e.Cancel) return; SaveSettings(); CancelRetry(); StopStream(); nchat.Part(); Log.Info("closing"); };   // fork: e.Cancel: closing was called off (unfinished downloads)
         Resize += (s, e) => OnMinimizeChange();
 
         LoadSettings();

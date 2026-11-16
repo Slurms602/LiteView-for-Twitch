@@ -243,20 +243,27 @@ sealed class DownloadsWindow : Form
         readonly List<KeyValuePair<Rectangle, KeyValuePair<Download, int>>> hits = new List<KeyValuePair<Rectangle, KeyValuePair<Download, int>>>();
         public Action<Download, int> Act;   // 0 cancel, 1 show in folder
         const int RowH = 70;
+        int top;   // scrolled by the mouse wheel
 
         public Rows() { SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true); BackColor = Theme.Panel; }
 
-        public void Set(List<Download> l) { list = l.ToList(); Invalidate(); }
+        public void Set(List<Download> l) { list = l.ToList(); Clamp(); Invalidate(); }
+
+        void Clamp() { top = Math.Max(0, Math.Min(top, list.Count * RowH + 16 - Height)); }
+
+        protected override void OnMouseWheel(MouseEventArgs e) { top -= e.Delta / 120 * RowH; Clamp(); Invalidate(); }
+        protected override void OnResize(EventArgs e) { base.OnResize(e); Clamp(); }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; hits.Clear();
             var f = UiFont.Get(FontKind.Semi, 10f); var fs = UiFont.Get(FontKind.Text, 9f);
             if (list.Count == 0) { Txt.In(g, "Nothing downloaded yet: right-click a video or clip on the Following page > Download.", fs, Theme.Dim, new Rectangle(16, 12, Width - 32, 40), false); return; }
-            int y = 8;
+            int y = 8 - top;
             foreach (var d in list)
             {
                 if (y > Height) break;
+                if (y + RowH < 0) { y += RowH; continue; }
                 var v = d.Video;
                 string title = (v.Title.Length > 0 ? v.Title : VideoData.KindName(v.Kind)) + "  ·  " + v.Name;
                 Txt.In(g, title, f, Theme.Text, new Rectangle(16, y, Width - 150, 22), false);
@@ -278,6 +285,11 @@ sealed class DownloadsWindow : Form
                     hits.Add(new KeyValuePair<Rectangle, KeyValuePair<Download, int>>(r, new KeyValuePair<Download, int>(d, d.Finished ? 1 : 0)));
                 }
                 y += RowH;
+            }
+            if (list.Count * RowH + 16 > Height)
+            {   // a thin scroll bar: there are more rows than fit (the mouse wheel scrolls)
+                int total = list.Count * RowH + 16, h = Math.Max(20, Height * Height / total);
+                using (var b = new SolidBrush(Theme.Line)) g.FillRectangle(b, Width - 5, (Height - h) * top / Math.Max(1, total - Height), 3, h);
             }
         }
 

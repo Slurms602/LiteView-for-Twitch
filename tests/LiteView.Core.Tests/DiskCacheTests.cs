@@ -39,9 +39,12 @@ public class DiskCacheTests
                 File.SetLastWriteTimeUtc(Path.Combine(d, DiskCache.Key("u" + i) + ".bin"), DateTime.UtcNow.AddMinutes(-10 + i));
             }
             File.WriteAllText(Path.Combine(d, "left.tmp"), "x");
+            File.SetLastWriteTimeUtc(Path.Combine(d, "left.tmp"), DateTime.UtcNow.AddMinutes(-5));   // left over (a fresh one may be being written)
+            File.WriteAllText(Path.Combine(d, "fresh.tmp"), "x");
             Assert.Equal(200, c.Prune());   // the two newest fit in 250 bytes
             Assert.NotNull(c.Read("u4")); Assert.NotNull(c.Read("u3")); Assert.Null(c.Read("u2")); Assert.Null(c.Read("u0"));
             Assert.False(File.Exists(Path.Combine(d, "left.tmp")));
+            Assert.True(File.Exists(Path.Combine(d, "fresh.tmp")));
             File.SetLastWriteTimeUtc(Path.Combine(d, DiskCache.Key("u4") + ".bin"), DateTime.UtcNow.AddDays(-31));
             Assert.Null(c.Read("u4"));   // too old: not used (and removed)
             Assert.Equal(100, c.Prune());

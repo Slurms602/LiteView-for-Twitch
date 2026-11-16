@@ -56,16 +56,34 @@ const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   RunName = 'LiteView Enhanced';
 var
-  OldPage: TInputDirWizardPage;
+  OldPage: TInputQueryWizardPage;   // a text box (an input-directory page refuses to stay empty)
+
+procedure BrowseClick(Sender: TObject);
+var
+  Dir: String;
+begin
+  Dir := OldPage.Values[0];
+  if BrowseForFolder('Choose the folder with LiteView.exe and liteview.ini in it', Dir, False) then OldPage.Values[0] := Dir;
+end;
 
 // a first install: the folder of the LiteView used until now, to copy its settings from (may stay empty)
 procedure InitializeWizard;
+var
+  Btn: TNewButton;
 begin
-  OldPage := CreateInputDirPage(wpSelectTasks, 'Your settings', 'Copy your settings from the LiteView you used until now?',
+  OldPage := CreateInputQueryPage(wpSelectTasks, 'Your settings', 'Copy your settings from the LiteView you used until now?',
     'If you used LiteView from a folder (the zip), choose that folder: its settings, login, chat preferences and ' +
-    'watched videos are copied. Leave the box empty to start fresh.', False, '');
-  OldPage.Add('LiteView folder (the one with LiteView.exe and liteview.ini):');
+    'watched videos are copied. Leave the box empty to start fresh.');
+  OldPage.Add('LiteView folder (the one with LiteView.exe and liteview.ini):', False);
   OldPage.Values[0] := '';
+  Btn := TNewButton.Create(OldPage);
+  Btn.Parent := OldPage.Surface;
+  Btn.Caption := 'Browse...';
+  Btn.Left := OldPage.Edits[0].Left;
+  Btn.Top := OldPage.Edits[0].Top + OldPage.Edits[0].Height + ScaleY(8);
+  Btn.Width := ScaleX(90);
+  Btn.Height := ScaleY(23);
+  Btn.OnClick := @BrowseClick;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -94,7 +112,7 @@ end;
 procedure CopyIfThere(const FromDir, Name: String);
 begin
   if FileExists(FromDir + Name) then
-    if not FileCopy(FromDir + Name, ExpandConstant('{app}\') + Name, False) then
+    if not CopyFile(FromDir + Name, ExpandConstant('{app}\') + Name, False) then
       Log('Could not copy ' + Name);
 end;
 

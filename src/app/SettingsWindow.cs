@@ -24,7 +24,7 @@ sealed class SettingsWindow : Form
     public SettingsWindow(Func<List<KeyValuePair<string, List<ToolStripItem>>>> pages, string first)
     {
         this.pages = pages;
-        Text = "Settings  -  LiteView"; StartPosition = FormStartPosition.CenterParent; ClientSize = new Size(780, 560); MinimumSize = new Size(560, 380);
+        Text = "Settings  -  LiteView"; StartPosition = FormStartPosition.CenterParent; ClientSize = new Size(780, 580); MinimumSize = new Size(560, 500);   // every page's name fits on the left
         BackColor = Theme.Panel; ForeColor = Theme.Text; KeyPreview = true; ShowInTaskbar = false;
         Font = UiFont.ForControls(FontKind.Text, 9.5f);
         list.Dock = DockStyle.Left; list.Width = 200;
@@ -32,17 +32,25 @@ sealed class SettingsWindow : Form
         scroller.BackColor = Theme.Panel;
         page.Width = 560; page.Clicked += Clicked;
         scroller.Controls.Add(page);
-        scroller.Resize += (s, e) => { page.Width = Math.Max(300, scroller.ClientSize.Width); page.Relayout(); };
+        scroller.Resize += (s, e) => { page.Width = PageWidth; page.Relayout(); };
+        scroller.HandleCreated += (s, e) => Theme.Scrollbars(scroller);
         Controls.Add(scroller); Controls.Add(list);
         KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) Close(); };
         Reload();
         Show(first ?? (current.Count > 0 ? current[0].Key : null), true);
         HandleCreated += (s, e) => Theme.Frame(Handle);
         Activated += (s, e) => { if (shown != null) { Reload(); Show(shown, false); } };   // a setting changed in a menu meanwhile: the page shows it
+        FormClosed += (s, e) => { foreach (var p in current) retired.AddRange(p.Value); foreach (var it in retired) it.Dispose(); retired.Clear(); };
     }
+
+    // the room left of the vertical scroll bar (kept free whether or not it shows, so text never runs under it)
+    int PageWidth { get { return Math.Max(300, scroller.Width - SystemInformation.VerticalScrollBarWidth - 2); } }
+
+    readonly List<ToolStripItem> retired = new List<ToolStripItem>();   // earlier builds' items, disposed when the window closes
 
     void Reload()
     {
+        foreach (var p in current) retired.AddRange(p.Value);
         current = pages();   // fresh items: they show the settings as they are now
         list.Set(current.Select(p => p.Key).ToList());
     }
@@ -54,7 +62,7 @@ sealed class SettingsWindow : Form
         shown = p.Key; list.Selected = p.Key;
         int y = scroller.VerticalScroll.Value;
         page.Set(p.Key, p.Value);
-        page.Width = Math.Max(300, scroller.ClientSize.Width); page.Relayout();
+        page.Width = PageWidth; page.Relayout();
         if (top) scroller.AutoScrollPosition = Point.Empty;
         else scroller.AutoScrollPosition = new Point(0, y);
     }

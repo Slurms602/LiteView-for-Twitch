@@ -92,6 +92,12 @@ static class Theme
         catch (DllNotFoundException) { } catch (EntryPointNotFoundException) { }
     }
 
+    /// <summary>A scrolling panel's scroll bars in the theme (dark ones in Dark and Black).</summary>
+    public static void Scrollbars(Control c)
+    {
+        try { SetWindowTheme(c.Handle, Light ? "Explorer" : "DarkMode_Explorer", null); } catch (DllNotFoundException) { }
+    }
+
     /// <summary>A combo box's drop-down in the theme.</summary>
     public static void Combo(ComboBox cb)
     {

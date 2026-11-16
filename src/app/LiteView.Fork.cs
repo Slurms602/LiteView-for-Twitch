@@ -64,7 +64,7 @@ partial class LiteView
     {
         Shown += (s, e) => windowShown = true;
         InitSwitch(); InitStats(); InitStartup(); InitFocus(); InitSideMenu();
-        title.SizeChanged += (s, e) => { if (watching) FitStatus(); };   // a new title: the status line moves along
+        title.TextChanged += (s, e) => { if (watching) FitStatus(); };   // a new title: its width, and the status line moves along
         if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>
@@ -468,8 +468,10 @@ partial class LiteView
         {   // a long channel or video title ends in "..." before the quality box (Inter is wider than Segoe UI was)
             int left = bar.Width - 6;
             foreach (Control c in BarRight()) if (c.Visible && c.Left > title.Left && c.Left < left) left = c.Left;
-            title.AutoEllipsis = true;
-            title.MaximumSize = new Size(Math.Max(80, left - title.Left - 16), 0);
+            // one line, as wide as the title needs, at most up to there; "..." when it does not fit
+            title.AutoSize = false; title.AutoEllipsis = true;
+            int want = TextRenderer.MeasureText(title.Text, title.Font).Width + 6;
+            title.Size = new Size(Math.Min(want, Math.Max(80, left - title.Left - 16)), title.Font.Height + 6);
             status.Left = title.Right + 14;
         }
         foreach (Control c in BarRight()) if (c.Left > status.Left && c.Left < right) right = c.Left;

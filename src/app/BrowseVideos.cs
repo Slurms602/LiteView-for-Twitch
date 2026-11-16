@@ -85,7 +85,8 @@ partial class BrowsePage
     // OnPaint: the last card is on screen and Twitch has more: the next 40
     void MaybeMoreVideos(int lastDrawn)
     {
-        if (!InVideos || vidNext == null || loadingVids || vids == null || lastDrawn < items.Count - 1 || DateTime.UtcNow < vidMoreAfter) return;
+        // the end of the list is on screen; while searching, older pages are looked through anyway (up to MaxSearchVideos)
+        if (!InVideos || vidNext == null || loadingVids || vids == null || (vidFilter.Length == 0 && lastDrawn < items.Count - 1) || DateTime.UtcNow < vidMoreAfter) return;
         if (lastDrawn < 0 && vidFilter.Length == 0) return;   // nothing drawn and no search: nothing to look further for
         if (vidFilter.Length > 0 && vids.Count >= MaxSearchVideos) return;
         MoreVideos();
@@ -148,7 +149,9 @@ partial class BrowsePage
     void InitVideoSearch()
     {
         if (vidSearch != null) return;
-        vidSearch = new TextBox { BorderStyle = BorderStyle.FixedSingle, BackColor = HoverC, ForeColor = Fg, Visible = false, TabStop = true };
+        // beside the page (a child of its parent, over its header), not inside it: inside, screen readers counted it as an
+        // empty item of the list of videos
+        vidSearch = new TextBox { BorderStyle = BorderStyle.FixedSingle, BackColor = HoverC, ForeColor = Fg, Visible = false, TabStop = true, AccessibleName = "Search titles" };
         vidSearch.HandleCreated += (s, e) => SendMessage(vidSearch.Handle, 0x1501, (IntPtr)1, "Search titles");   // the grey hint
         vidSearch.TextChanged += (s, e) =>
         {
@@ -158,12 +161,12 @@ partial class BrowsePage
             Rebuild();
             if (f.Length > 0 && vids != null) Log.Info("videos: search \"" + f + "\": " + items.Count + " of " + vids.Count + (vidNext != null ? ", looking further back" : ""));
         };
+        VisibleChanged += (s, e) => { if (!Visible) HideVideoSearch(); };   // the page hides (watching): its search box too
         vidSearch.KeyDown += (s, e) =>
         {
             if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; if (vidSearch.Text.Length > 0) vidSearch.Text = ""; else Focus(); }
             else if (e.KeyCode == Keys.Down || e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Focus(); if (items.Count > 0 && sel < 0) { sel = 0; Invalidate(); } }
         };
-        Controls.Add(vidSearch);
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
@@ -215,13 +218,14 @@ partial class BrowsePage
         // the title search box between the tabs and the filter pill
         InitVideoSearch();
         int right = (sortRect.IsEmpty ? refreshRect.Left : sortRect.Left) - S(14), sw = Math.Min(S(280), right - (x + S(10)));
-        if (sw >= S(120))
+        if (sw >= S(120) && Parent != null)
         {
+            if (vidSearch.Parent != Parent) Parent.Controls.Add(vidSearch);
             var font = UiFont.ForControls(FontKind.Text, 9.75f * Zoom);
             if (vidSearch.Font != font) vidSearch.Font = font;
-            var b = new Rectangle(x + S(10), y + (S(30) - vidSearch.Height) / 2, sw, vidSearch.Height);
+            var b = new Rectangle(Left + x + S(10), Top + y + (S(30) - vidSearch.Height) / 2, sw, vidSearch.Height);
             if (vidSearch.Bounds != b) vidSearch.Bounds = b;
-            if (!vidSearch.Visible) vidSearch.Visible = true;
+            if (!vidSearch.Visible) { vidSearch.Visible = true; vidSearch.BringToFront(); }
         }
         else HideVideoSearch();
         if (vidsFailed && vids != null) Txt.In(g, "Could not reach Twitch - showing the last list", FText, Gold, new Rectangle(x + S(10), y, Math.Max(0, refreshRect.Left - x - S(20)), S(30)), false);

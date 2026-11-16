@@ -23,7 +23,7 @@ partial class LiteView
     readonly ToolTip pauseTip = new ToolTip();
     readonly System.Windows.Forms.Timer pauseWait = new System.Windows.Forms.Timer { Interval = PauseShotWait };
     bool paused, pauseShooting;
-    string pauseShot;
+    string pauseShot; int pauseGen = -1;   // the frame's file (one name per pause) and the stream it was asked of
 
     void InitPause()
     {
@@ -38,12 +38,13 @@ partial class LiteView
         pausedNote.Text = "Paused  ·  click or Space: continue at live";
         pausedNote.Click += (s, e) => TogglePause();
         video.Controls.Add(pausedNote);
-        pauseWait.Tick += (s, e) => { if (pauseShooting) StopForPause(false); };
+        pauseWait.Tick += (s, e) => { if (pauseShooting && pauseGen == gen) StopForPause(false); else CancelPauseShot(); };
     }
 
     void TogglePause()
     {
-        if (!watching || channel == null || pauseShooting) return;
+        if (pauseShooting) { CancelPauseShot(); Log.Info("pause called off"); return; }   // pressed again while the picture was being saved: keep playing
+        if (!watching || channel == null) return;
         if (paused) { Log.Info("play"); Replay(); }
         else Pause();
     }
@@ -53,9 +54,8 @@ partial class LiteView
         if (paused || pauseShooting) return;
         if (watching && mpvGen == gen && firstFrameGen == gen)
         {   // the picture as it is now, then the stream stops (StopForPause, when mpv answers)
-            pauseShot = Path.Combine(Path.GetTempPath(), "liteview-paused-" + Process.GetCurrentProcess().Id + ".jpg");
-            try { if (File.Exists(pauseShot)) File.Delete(pauseShot); } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
-            pauseShooting = true;
+            pauseShot = Path.Combine(Path.GetTempPath(), "liteview-paused-" + Guid.NewGuid().ToString("N") + ".jpg");
+            pauseShooting = true; pauseGen = gen;
             SendMpv("{\"command\":[\"screenshot-to-file\"," + Quote(pauseShot.Replace('\\', '/')) + ",\"video\"],\"request_id\":" + PauseShotId + "}");
             pauseWait.Start();
             return;
@@ -68,7 +68,7 @@ partial class LiteView
     {
         if (line.IndexOf("\"request_id\":" + PauseShotId, StringComparison.Ordinal) < 0) return false;
         bool ok = line.IndexOf("\"error\":\"success\"", StringComparison.Ordinal) >= 0;
-        Ui(g, () => { if (pauseShooting) StopForPause(ok); });
+        Ui(g, () => { if (pauseShooting && pauseGen == gen) StopForPause(ok); });
         return true;
     }
 
@@ -77,6 +77,7 @@ partial class LiteView
         pauseShooting = false; pauseWait.Stop();
         Bitmap frame = shot ? LoadFrame(pauseShot) : null;
         CancelRetry(); StopStream();
+        DeleteShot();   // mpv has ended: a file it wrote without answering in time goes too
         paused = true;
         pausedNote.Picture = frame;
         pausedNote.Text = "Paused  ·  click or Space: " + (currentVideo != null ? "continue" : "continue at live");
@@ -106,9 +107,25 @@ partial class LiteView
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is OutOfMemoryException) { return null; }
     }
 
+    // the picture being saved is no longer wanted (pressed again, another stream, the Following page)
+    void CancelPauseShot()
+    {
+        if (!pauseShooting) return;
+        pauseShooting = false; pauseWait.Stop();
+        DeleteShot();
+    }
+
+    void DeleteShot()
+    {
+        string f = pauseShot; pauseShot = null;
+        if (f == null) return;
+        try { if (File.Exists(f)) File.Delete(f); } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+    }
+
     // a stream starts (Play, another channel, a new quality) or the Following page shows
     void EndPause()
     {
+        CancelPauseShot();
         if (!paused) return;
         paused = false;
         pausedNote.Visible = false;

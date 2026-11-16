@@ -797,7 +797,7 @@ partial class BrowsePage : Control
         if (p != null && p.Bmp != null) { g.DrawImage(p.Bmp, r); return; }
         using (var b = new SolidBrush(SelC)) g.FillEllipse(b, r);
         Txt.In(g, login.Substring(0, 1).ToUpperInvariant(), FTitle, Dim, r, true);
-        if (!Active || p != null) return;
+        if (!Active || (p != null && (p.Loading || p.Bmp != null || DateTime.UtcNow - p.At < ThumbAge))) return;   // fork: a skipped or failed one is asked again
         string url;
         if (avatarUrl.TryGetValue(login, out url)) { if (url.Length > 0) Load(avatars, login, url, r.Size, true, MaxAvatars); }
         else avatarWanted.Add(login);

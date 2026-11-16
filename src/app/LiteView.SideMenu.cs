@@ -42,7 +42,8 @@ partial class LiteView
         if (Fixture.On) Log.Info("side menu: " + login);
     }
 
-    // UI fixture (CI): a stream, then a right-click on the first channel in the followed column
+    // UI fixture (CI): a stream, fullscreen and back (the column was gone after that), then a right-click on the first
+    // channel in the followed column
     void SideMenuScene()
     {
         Watch("nightowl_plays");
@@ -51,8 +52,11 @@ partial class LiteView
         t.Tick += (s, e) =>
         {
             waited += 500;
-            if (waited < 5000) return;   // the followed column has loaded (made-up answers)
+            if (waited == 3000) { ToggleFullscreen(); return; }
+            if (waited == 4000) { ToggleFullscreen(); return; }
+            if (waited < 5500) return;   // the followed column has loaded (made-up answers)
             t.Stop(); t.Dispose();
+            Log.Info("side column after fullscreen: " + (side.Visible ? side.Width + " px" : "gone"));
             FixtureClick(side.PointToScreen(new Point(120, 42 + 21)), true);
         };
         t.Start();

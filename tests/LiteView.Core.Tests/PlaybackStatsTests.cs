@@ -132,8 +132,9 @@ public class PicturePresetTests
     [Theory]
     [InlineData(1.0, null)]
     [InlineData(1.05, null)]   // a 1080p stream in a window on a 1440p screen: RTX only softened it (owner's screenshots)
-    [InlineData(1.24, null)]
-    [InlineData(1.25, "1.25")]
+    [InlineData(1.14, null)]
+    [InlineData(1.15, "1.15")]
+    [InlineData(1.23, "1.23")]   // a 1080p stream in the owner's window (stats, 2026-11-16)
     [InlineData(1.3333, "1.33")]   // 1080p in fullscreen at 1440p
     [InlineData(2.0, "2.00")]      // 720p at 1440p
     [InlineData(9.0, "4.00")]

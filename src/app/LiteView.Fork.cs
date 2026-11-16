@@ -60,10 +60,18 @@ partial class LiteView
         }
     }
 
+    // emote and badge pictures on disk (cache\emotes next to LiteView.exe): 200 MB, 60 days; tidied in the background at start
+    void InitEmoteCache()
+    {
+        var cache = new DiskCache(Path.Combine(root, "cache", "emotes"), 200L << 20, EmoteLimits.MaxDownloadBytes, TimeSpan.FromDays(60));
+        Images.Cache = cache;
+        System.Threading.Tasks.Task.Run(() => { long kept = cache.Prune(); Log.Info("emote cache: " + (kept >> 20) + " MB kept"); });
+    }
+
     void InitFork()
     {
         Shown += (s, e) => windowShown = true;
-        InitSwitch(); InitStats(); InitStartup(); InitFocus(); InitSideMenu();
+        InitSwitch(); InitStats(); InitStartup(); InitFocus(); InitSideMenu(); InitWatched(); InitDownloads();
         title.TextChanged += (s, e) => { if (watching) FitStatus(); };   // a new title: its width, and the status line moves along
         if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();

@@ -76,9 +76,10 @@ static class Images
     // Decoded frames are kept within a memory budget (upstream kept every emote ever seen, forever).
     // The budget is only touched on the UI thread, which is also the only thread that draws frames.
     public static long BudgetBytes = 128L * 1024 * 1024;
+    public static DiskCache Cache;   // fork: emote and badge pictures on disk (null: none)
     static readonly ByteBudget<Emote> budget = new ByteBudget<Emote>(BudgetBytes);
     static readonly Stopwatch clock = Stopwatch.StartNew();
-    static int evicted, refused;
+    static int evicted, refused, fromCache;
     public static long Clock { get { return clock.ElapsedMilliseconds; } }
 
     /// <summary>Marks an emote as drawn now (UI thread).</summary>
@@ -102,7 +103,7 @@ static class Images
     public static string Stats()
     {
         int n; lock (byUrl) n = byUrl.Count;
-        return n + " known, " + budget.Count + " decoded, " + (budget.Total / (1024 * 1024)) + " of " + (BudgetBytes / (1024 * 1024)) + " MB, " + evicted + " freed, " + refused + " refused";
+        return n + " known, " + budget.Count + " decoded, " + (budget.Total / (1024 * 1024)) + " of " + (BudgetBytes / (1024 * 1024)) + " MB, " + evicted + " freed, " + refused + " refused, " + fromCache + " from disk";   // fork: from disk (src/core/DiskCache.cs)
     }
 
     public static Emote Get(string url, string name, int w, int h, int fixedH)
@@ -137,9 +138,12 @@ static class Images
             await gate.WaitAsync();
             try
             {
-                var bytes = await Tw.GetBytes(e.Url, EmoteLimits.MaxDownloadBytes);
+                var cache = Cache;   // fork: kept on disk between runs (src/core/DiskCache.cs), checked again like a download
+                var bytes = cache != null ? cache.Read(e.Url) : null;
+                bool fromDisk = bytes != null && ImageSniff.Acceptable(bytes);
+                if (!fromDisk) bytes = await Tw.GetBytes(e.Url, EmoteLimits.MaxDownloadBytes);
                 if (bytes == null || !ImageSniff.Acceptable(bytes)) { Interlocked.Increment(ref refused); e.State = 3; }
-                else { Decode(e, bytes); e.State = 2; }
+                else { Decode(e, bytes); e.State = 2; if (fromDisk) Interlocked.Increment(ref fromCache); else if (cache != null) cache.Write(e.Url, bytes); }
             }
             catch { e.State = 3; }
             finally { gate.Release(); }

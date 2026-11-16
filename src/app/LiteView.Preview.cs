@@ -56,6 +56,13 @@ partial class LiteView
         string cmdline;
         try { cmdline = StreamCommand.Build(r); } catch (ArgumentException) { return none; }
         try { File.Delete(r.LogFile); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        return RunInJob(cmdline, priority);
+    }
+
+    // a Streamlink command line, suspended in a new kill-on-close job, then resumed (also downloads: src/app/LiteView.Downloads.cs)
+    KeyValuePair<IntPtr, Process> RunInJob(string cmdline, uint priority)
+    {
+        var none = new KeyValuePair<IntPtr, Process>(IntPtr.Zero, null);
         var job = CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero) return none;
         var lim = new JOBLIMITS { flags = 0x2000 };   // kill on close

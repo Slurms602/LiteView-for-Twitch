@@ -41,6 +41,27 @@ static class FakeStreamlink
             Log("[cli][error] Unable to open URL: https://usher.ttvnw.net/api/channel/hls/" + channel + ".m3u8 (made-up failure from the CI stand-in)");
             return 1;
         }
+        string output = Arg(args, "--output");
+        if (output != null)
+        {   // a download (LiteView's Download menu): Streamlink 8.6.3's debug lines for an HLS video, ten "segments" of the test video
+            Thread.Sleep(500);
+            Log("[cli][info] Opening stream: 480p (hls)");
+            Log("[stream.hls][debug] First Sequence: 0; Last Sequence: 9");
+            Log("[stream.hls][debug] Start offset: 0; Duration: None; Start Sequence: 0; End Sequence: 9");
+            Log("[cli][info] Writing output to\n" + output);
+            byte[] data = File.ReadAllBytes(Video());
+            int chunk = data.Length / 10;
+            using (var f = new FileStream(output, FileMode.CreateNew, FileAccess.Write))
+                for (int n = 0; n < 10; n++)
+                {
+                    f.Write(data, n * chunk, chunk); f.Flush();
+                    Log("[stream.hls][debug] Writing segment " + n + " to output");
+                    Log("[stream.hls][debug] Segment " + n + " complete");
+                    Thread.Sleep(300);
+                }
+            Log("[cli][info] Stream ended");
+            return 0;
+        }
         Thread.Sleep(1500);   // Streamlink needs a moment to open a stream (Python, Twitch's API, the first segments): seamless switching has something to hide
         Log("[cli][info] Available streams: audio_only, 160p (worst), 360p, 480p, 720p60, 1080p60 (best)");
         Log("[cli][info] Opening stream: 1080p60 (hls)");

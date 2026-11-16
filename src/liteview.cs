@@ -84,6 +84,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         iniPath = Path.Combine(root, exe.ToLowerInvariant() + ".ini");
         Tw.Init(Path.Combine(root, "liteview.token"));
         ChatPanel.RecentPath = Path.Combine(root, "liteview.emotes");
+        InitEmoteCache();   // fork: emote pictures kept between runs (src/app/LiteView.Fork.cs)
         try { streamlink = Directory.GetFiles(Path.Combine(tw, "streamlink"), "streamlinkw.exe", SearchOption.AllDirectories).FirstOrDefault(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         mpv = Path.Combine(tw, "mpv", "mpv.exe");
         slLog = Path.Combine(root, exe.ToLowerInvariant() == "liteview" ? "streamlink.log" : exe + "-streamlink.log");
@@ -207,7 +208,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         chatBox.Visible = cw > 0;
     }
 
-    int SideW { get { return watching && !fullscreen ? side.Width : 0; } }
+    int SideW { get { return watching && !fullscreen ? (side.Collapsed ? FollowBar.ClosedW : FollowBar.OpenW) : 0; } }   // fork: not side.Width, which fullscreen sets to 0 (the column was gone after leaving fullscreen)
 
     // Keep the video area 16:9 while the window is resized (no black bars).
     protected override void WndProc(ref Message m)
@@ -697,6 +698,9 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     static void Main(string[] args)
     {
         Application.EnableVisualStyles();
+        // fork: the window's own controls (labels, buttons, boxes) draw text with GDI, which uses ClearType like the rest;
+        // without this .NET Framework draws them with GDI+ in grey (the owner saw the top bar less smooth than the chat)
+        Application.SetCompatibleTextRenderingDefault(false);
         CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();

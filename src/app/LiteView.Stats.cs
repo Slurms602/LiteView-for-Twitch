@@ -13,6 +13,7 @@ using LiteViewCore;
 partial class LiteView
 {
     bool statsOn;
+    int statsShownGen = -1;
     readonly System.Windows.Forms.Timer statsTimer = new System.Windows.Forms.Timer { Interval = 1000 };
     string openedVariant = ""; int openedVariantGen = -1;
     readonly Dictionary<int, TimeSpan> cpuPrev = new Dictionary<int, TimeSpan>();
@@ -105,6 +106,7 @@ partial class LiteView
         row("CPU", cpuText);
         row("Memory", memText);
         SendMpv(PlaybackStats.OverlayCommand(PlaybackStats.Ass(rows, "LiteView stats  (I hides this)"), this.video.Height));
+        if (statsShownGen != gen) { statsShownGen = gen; Log.Info("stats: overlay on stream " + gen); }
     }
 
     // CPU (share of the whole processor, like Task Manager) and private memory of LiteView and of the stream's processes

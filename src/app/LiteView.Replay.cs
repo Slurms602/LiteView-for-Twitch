@@ -71,6 +71,7 @@ partial class LiteView
         if (fixturePos >= 0) pos = fixturePos;
         videoBar.Set(pos, 0);
         ReplayAt(pos);
+        RememberVideo(pos, false);   // src/app/LiteView.Watched.cs
     }
 
     // PipeLoop thread: mpv seeked (its own keys, or a loop): the next position decides whether it was a jump

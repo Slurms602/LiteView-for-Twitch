@@ -503,14 +503,17 @@ partial class BrowsePage : Control
         if (msg != null) DrawMessage(g, msg);
         else
         {
+            int lastDrawn = -1;
             for (int i = FirstVisible(); i < items.Count; i++)
             {
                 var r = ItemRect(i);
                 if (r.Top > ClientSize.Height) break;
                 if (r.Bottom < HeadH) continue;
                 if (items[i].Card) DrawCard(g, items[i], r, i); else DrawRow(g, items[i], r, i);
+                lastDrawn = i;
             }
             DrawScrollbar(g);
+            MaybeMoreVideos(lastDrawn);   // the end of a channel's videos is on screen: the next ones (src/app/BrowseVideos.cs)
         }
         g.ResetClip();
         if (avatarWanted.Count > 0 && !avatarDelay.Enabled) avatarDelay.Start();
@@ -935,7 +938,7 @@ partial class BrowsePage : Control
         {
             if (h == HotBtn) { if (Message() != null && Message().StartsWith("Log in", StringComparison.Ordinal)) { if (LoginRequested != null) LoginRequested(); } else Retry(); return; }
             if (h == HotLink) { if (UseWebsite != null) UseWebsite(); return; }
-            if (h == HotSort) { ShowSortMenu(); return; }
+            if (h == HotSort) { if (InVideos && query == null && !history) ShowVideoFilterMenu(); else ShowSortMenu(); return; }
             if (h == HotRefresh) { Reload(); return; }
             if (h == HotClear) { ClearHistory(); return; }
             if (h == HotLang) { ShowLanguageMenu(); return; }

@@ -104,20 +104,49 @@ public class VideoTests
             if (q.StartsWith("users?", StringComparison.Ordinal)) return Task.FromResult(Json.Parse("{\"data\":[{\"id\":\"777\",\"login\":\"nightowl\"}]}"));
             return Task.FromResult(Json.Parse("{\"data\":[]}"));
         });
-        Assert.Empty((await cv.Videos("nightowl"))!);
-        Assert.Empty((await cv.Clips("nightowl", "NightOwl", Now))!);
+        Assert.Empty((await cv.Videos("nightowl"))!.Items);
+        Assert.Empty((await cv.Clips("nightowl", "NightOwl", Now))!.Items);
         Assert.Equal("users?login=nightowl", asked[0]);
         Assert.Equal("videos?user_id=777&first=40&type=all&sort=time", asked[1]);
         Assert.Equal("clips?broadcaster_id=777&first=40&started_at=2026-10-16T12%3A00%3A00Z&ended_at=2026-11-15T12%3A00%3A00Z", asked[2]);
         Assert.Equal(3, asked.Count);   // the id was kept
-        Assert.Empty((await cv.Videos("bad login"))!);
+        Assert.Empty((await cv.Videos("bad login"))!.Items);
         Assert.Equal(3, asked.Count);
+    }
+
+    [Fact]
+    public async Task MoreVideosByKindAndPageAndClipsOfAllTime()
+    {
+        var asked = new List<string>();
+        string answer = "{\"data\":[],\"pagination\":{\"cursor\":\"eyJiIjpudWxsfQ==\"}}";
+        var cv = new ChannelVideos(q =>
+        {
+            asked.Add(q);
+            if (q.StartsWith("users?", StringComparison.Ordinal)) return Task.FromResult(Json.Parse("{\"data\":[{\"id\":\"777\",\"login\":\"nightowl\"}]}"));
+            return Task.FromResult(Json.Parse(answer));
+        });
+        var p = (await cv.Videos("nightowl", "highlight"))!;
+        Assert.Equal("eyJiIjpudWxsfQ==", p.Next);
+        await cv.Videos("nightowl", "upload", p.Next);
+        await cv.Videos("nightowl", "calc.exe");          // an unknown kind is "all"
+        await cv.Clips("nightowl", "NightOwl", Now, 0);    // all time: no dates
+        await cv.Clips("nightowl", "NightOwl", Now, 7, "a&b=c");   // a cursor with other characters is not sent
+        Assert.Equal("videos?user_id=777&first=40&type=highlight&sort=time", asked[1]);
+        Assert.Equal("videos?user_id=777&first=40&type=upload&sort=time&after=eyJiIjpudWxsfQ%3D%3D", asked[2]);
+        Assert.Equal("videos?user_id=777&first=40&type=all&sort=time", asked[3]);
+        Assert.Equal("clips?broadcaster_id=777&first=40", asked[4]);
+        Assert.StartsWith("clips?broadcaster_id=777&first=40&started_at=2026-11-08", asked[5]);
+        Assert.DoesNotContain("after", asked[5]);
+        answer = "{\"data\":[],\"pagination\":{\"cursor\":\"x y\"}}";
+        Assert.Null((await cv.Videos("nightowl"))!.Next);   // an unsafe cursor ends the paging
+        answer = "{\"data\":[],\"pagination\":{}}";
+        Assert.Null((await cv.Videos("nightowl"))!.Next);
     }
 
     [Fact]
     public async Task UnreachableIsNullAndUnknownChannelsAreEmpty()
     {
         Assert.Null(await new ChannelVideos(q => Task.FromResult<object?>(null)).Videos("nightowl"));
-        Assert.Empty((await new ChannelVideos(q => Task.FromResult(Json.Parse("{\"data\":[]}"))).Videos("nobody"))!);
+        Assert.Empty((await new ChannelVideos(q => Task.FromResult(Json.Parse("{\"data\":[]}"))).Videos("nobody"))!.Items);
     }
 }

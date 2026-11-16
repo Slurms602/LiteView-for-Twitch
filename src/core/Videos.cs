@@ -146,13 +146,39 @@ namespace LiteViewCore
         }
     }
 
+    /// <summary>One page of a channel's videos or clips, and Helix's cursor for the next one (null: no more).</summary>
+    public sealed class VideoPage
+    {
+        public List<VideoInfo> Items = new List<VideoInfo>();
+        public string? Next;
+    }
+
     public sealed class ChannelVideos
     {
         public const int Max = 40, ClipDays = 30;
+        /// <summary>The videos filter: Helix's video types.</summary>
+        public static readonly string[] Kinds = { "all", "archive", "highlight", "upload" };
+        /// <summary>The clips' range in days (0: all time).</summary>
+        public static readonly int[] ClipRanges = { 7, 30, 365, 0 };
+        static readonly System.Text.RegularExpressions.Regex Cursor = new System.Text.RegularExpressions.Regex(@"\A[A-Za-z0-9+/=_-]{1,1024}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         readonly Func<string, Task<object?>> helix;
         readonly Dictionary<string, string> ids = new Dictionary<string, string>(StringComparer.Ordinal);
 
         public ChannelVideos(Func<string, Task<object?>> helix) { this.helix = helix; }
+
+        public static string KindsName(string kind)
+        {
+            switch (kind) { case "archive": return "Past broadcasts"; case "highlight": return "Highlights"; case "upload": return "Uploads"; default: return "All videos"; }
+        }
+
+        public static string RangeName(int days) { return days == 0 ? "All time" : days == 365 ? "Last year" : "Last " + days + " days"; }
+
+        /// <summary>Helix's pagination cursor when it is safe to send back (letters, digits, +/=_-); else null.</summary>
+        public static string? SafeCursor(object? json)
+        {
+            string? c = Json.S(Json.V(json, "pagination"), "cursor");
+            return c != null && Cursor.IsMatch(c) ? c : null;
+        }
 
         async Task<string?> IdOf(string login)
         {
@@ -166,28 +192,36 @@ namespace LiteViewCore
             return id ?? "";
         }
 
-        /// <summary>The newest videos of a channel; null when Twitch could not be reached (empty: none, or no such channel).</summary>
-        public async Task<List<VideoInfo>?> Videos(string login)
+        /// <summary>A page of a channel's videos, newest first (kind: one of Kinds; after: the last page's Next); null when Twitch could not be reached.</summary>
+        public async Task<VideoPage?> Videos(string login, string kind = "all", string? after = null)
         {
-            if (!ChannelName.IsValidLogin(login)) return new List<VideoInfo>();
+            if (!ChannelName.IsValidLogin(login)) return new VideoPage();
+            if (Array.IndexOf(Kinds, kind) < 0) kind = "all";
             var id = await IdOf(login).ConfigureAwait(false);
             if (id == null) return null;
-            if (id.Length == 0) return new List<VideoInfo>();
-            var j = await helix("videos?user_id=" + id + "&first=" + Max + "&type=all&sort=time").ConfigureAwait(false);
-            return j == null ? null : VideoData.Videos(j);
+            if (id.Length == 0) return new VideoPage();
+            var j = await helix("videos?user_id=" + id + "&first=" + Max + "&type=" + kind + "&sort=time" + After(after)).ConfigureAwait(false);
+            return j == null ? null : new VideoPage { Items = VideoData.Videos(j), Next = SafeCursor(j) };
         }
 
-        /// <summary>The most viewed clips of the last ClipDays days; null when Twitch could not be reached.</summary>
-        public async Task<List<VideoInfo>?> Clips(string login, string name, DateTimeOffset now)
+        /// <summary>A page of a channel's most viewed clips of the last `days` days (0: of all time); null when Twitch could not be reached.</summary>
+        public async Task<VideoPage?> Clips(string login, string name, DateTimeOffset now, int days = ClipDays, string? after = null)
         {
-            if (!ChannelName.IsValidLogin(login)) return new List<VideoInfo>();
+            if (!ChannelName.IsValidLogin(login)) return new VideoPage();
             var id = await IdOf(login).ConfigureAwait(false);
             if (id == null) return null;
-            if (id.Length == 0) return new List<VideoInfo>();
-            string from = now.UtcDateTime.AddDays(-ClipDays).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
-            string to = now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
-            var j = await helix("clips?broadcaster_id=" + id + "&first=" + Max + "&started_at=" + Uri.EscapeDataString(from) + "&ended_at=" + Uri.EscapeDataString(to)).ConfigureAwait(false);
-            return j == null ? null : VideoData.Clips(j, login, name);
+            if (id.Length == 0) return new VideoPage();
+            string range = "";
+            if (days > 0)
+            {
+                string from = now.UtcDateTime.AddDays(-days).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+                string to = now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+                range = "&started_at=" + Uri.EscapeDataString(from) + "&ended_at=" + Uri.EscapeDataString(to);
+            }
+            var j = await helix("clips?broadcaster_id=" + id + "&first=" + Max + range + After(after)).ConfigureAwait(false);
+            return j == null ? null : new VideoPage { Items = VideoData.Clips(j, login, name), Next = SafeCursor(j) };
         }
+
+        static string After(string? after) { return after != null && Cursor.IsMatch(after) ? "&after=" + Uri.EscapeDataString(after) : ""; }
     }
 }

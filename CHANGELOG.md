@@ -53,14 +53,19 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   than High without looking harsher.
 - The "Replying to" line above replies in the chat was empty at the larger text sizes. A reply also no longer
   repeats "@name" at its start (like Twitch).
+- The followed channels column was gone after leaving fullscreen (until LiteView started again).
+- The top bar's text (channel, status line, buttons, boxes) was drawn in grey instead of ClearType like the chat;
+  all of the window's controls now use ClearType.
+- An extra window's quality change no longer goes black: the old picture plays until the new one is ready, like the
+  main window. The gear in an extra window's chat did nothing; it now has *Hide the chat* and *Open the chat on twitch.tv*.
 - After typing in the chat box, clicking anywhere else (the video, the chat's messages, the followed channels, the top
   bar) now gives the keyboard back to the window, so Space, M, I, B and the other keys work again.
 - Choosing a lighter picture preset after Ultra (or High) now gives back the memory the heavier one needed: the player
   restarts behind the picture a moment later (seamless switching; the picture does not stop). It kept about 1 GB with
   Ultra until a pause or the next channel.
 - **RTX** made the picture softer when the video was shown at about its own size (a 1080p stream in the window on a
-  1440p screen: it was enlarged only 1.05x). RTX now enlarges only when the video is enlarged at least 1.25x (a 720p
-  or 936p stream, or 1080p in fullscreen on a 1440p screen), and then does the whole enlarging, with the preset's
+  1440p screen: it was enlarged only 1.05x). RTX now enlarges only when the video is enlarged at least 1.15x (a 720p
+  or 936p stream, or 1080p in a large window or fullscreen on a 1440p screen), and then does the whole enlarging, with the preset's
   sharpening after it; otherwise it waits. The stats (I) say which, and that RTX's own GPU work is not in "GPU per
   frame" (mpv cannot measure it).
 
@@ -109,6 +114,18 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   chat settings as in live chat), and jumping in the video starts the chat again from there. It comes from the same
   Twitch service the website uses, asked anonymously (no login is sent). Chat gear > *Chat replay for videos* turns it
   off (then the channel's live chat shows, as for clips).
+- **Where you left off**: a red bar under a video's picture on its channel's Videos page shows how much you watched,
+  and the video plays on from there (right-click: *Play from the start*, *Forget where I stopped*). Kept in
+  `liteview.videos` for the last 500 videos.
+- **More videos**: a channel's Videos page loads the next 40 as you scroll to the end, and its filter shows all
+  videos, past broadcasts, highlights or uploads (years-old highlights and uploads are still there); Clips can be of the
+  last 7 days, 30 days, year or all time.
+- **Download videos and clips** (right-click > Download > quality, with the size it will be about): Streamlink writes
+  them to `Videos\LiteView Downloads` in their original quality (`.ts` for videos, `.mp4` for clips), two at a time;
+  menu > *Downloads...* shows their progress, Cancel and Show in folder. An unfinished download is never left looking
+  finished (`.part` until done).
+- **Emotes stay on disk** between starts (`cache\emotes` next to LiteView.exe, at most 200 MB, 60 days), so a chat
+  shows its emotes at once instead of downloading them again.
 - **Save clips on your PC**: the scissors button (or Alt+X) saves the last 60 s of what plays, live or a video, in its
   original quality to `Videos\LiteView Clips` (`.mkv`, plays in VLC, mpv or the Media Player). Menu > Playback > Clips:
   30 s, 60 s, 2 minutes, or Off; the player keeps that much of the stream in memory (about 1 MB a second).

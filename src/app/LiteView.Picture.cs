@@ -28,8 +28,8 @@ partial class LiteView
     const double RtxMinScale = PicturePreset.RtxMinScale;
     string rtxNote = "";   // the stats overlay's word on RTX
     const string RtxTip = "NVIDIA RTX Video Super Resolution: NVIDIA's AI enlarges the video to the size it is shown at,\n"
-        + "then the picture preset sharpens it. It only works when the video is enlarged at least 1.25x (a 720p or 936p stream,\n"
-        + "or 1080p in fullscreen on a 1440p screen); at about its own size it would only make the picture softer, so it waits.\n"
+        + "then the picture preset sharpens it. It only works when the video is enlarged at least 1.15x (a 720p or 936p stream,\n"
+        + "1080p in a large window or fullscreen on a 1440p screen); at about its own size it would only make the picture softer, so it waits.\n"
         + "Its GPU work is not in the stats' \"GPU per frame\". Needs RTX Video Enhancement > Super Resolution on in the NVIDIA app.";
 
     // ApplyEnhance: d3d11vpp's scale for RTX, or "off"
@@ -132,7 +132,7 @@ partial class LiteView
         t.Tick += (s, e) =>
         {
             waited += 500;
-            if (step == 0) { if (firstFrameGen != gen || waited < 2000) return; picture.SelectedIndex = 3; step = 1; waited = 0; return; }
+            if (step == 0) { if (firstFrameGen != gen || waited < 2000) return; if (!statsOn) ToggleStats(); picture.SelectedIndex = 3; step = 1; waited = 0; return; }   // stats on: they must stay on the new player
             if (step == 1 && waited >= 3000) { picture.SelectedIndex = 1; t.Stop(); t.Dispose(); }
         };
         t.Start();

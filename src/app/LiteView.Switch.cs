@@ -111,6 +111,7 @@ partial class LiteView
             Log.Info("stream " + gen + ": first frame after " + took + " s; the last stream played until then");
         }
         else Log.Info("stream " + gen + ": first frame after " + took + " s");
+        if (statsOn) StatsTick();   // the stats on the new picture at once (src/app/LiteView.Stats.cs)
     }
 
     // mpv's IPC: the event at the start of playback, or the answer to FirstFrameQuery when it was already playing when

@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 using LiteViewCore;
 using SortOrder = LiteViewCore.SortOrder;   // not System.Windows.Forms.SortOrder
@@ -151,9 +152,10 @@ partial class LiteView
                 {
                     ticks++;
                     if (ticks == 1) { OpenWindow("pixelforge", "Pixelforge"); return; }
-                    if (ticks < 4) return;
+                    if (ticks == 4) { foreach (var x in extras) x.FixtureVolume(35); return; }
+                    if (ticks < 5) return;
                     t.Stop(); t.Dispose();
-                    foreach (var x in extras) x.FixtureVolume(35);
+                    foreach (var x in extras) x.FixtureQuality("480p");   // opens behind the picture, takes over at its first frame
                 };
                 t.Start();
                 return;
@@ -161,6 +163,7 @@ partial class LiteView
             if (Fixture.SceneName == "focus") { FocusScene(); return; }        // src/app/LiteView.Focus.cs
             if (Fixture.SceneName == "settings") { SettingsScene(); return; }  // src/app/LiteView.Settings.cs
             if (Fixture.SceneName == "clip") { ClipScene(); return; }          // src/app/LiteView.Clips.cs
+            if (Fixture.SceneName == "download") { DownloadScene(); return; }  // src/app/LiteView.Downloads.cs
             if (Fixture.SceneName == "sidemenu") { SideMenuScene(); return; }  // src/app/LiteView.SideMenu.cs
             if (Fixture.SceneName == "release") { ReleaseScene(); return; }    // src/app/LiteView.Picture.cs
             if (Fixture.SceneName == "preview")
@@ -261,6 +264,8 @@ partial class LiteView
         }
         DarkMenuColors.Apply(quietMenu.DropDown);
 
+        var dls = new ToolStripMenuItem("Downloads..." + (downloads.Any(d => d.Running) ? "  (" + downloads.Count(d => d.Running) + " running)" : ""));
+        dls.Click += (s, e) => ShowDownloads();   // src/app/LiteView.Downloads.cs
         var settings = new ToolStripMenuItem("Back up and reset");
         foreach (var it in BackupItems()) settings.DropDownItems.Add(it);
         DarkMenuColors.Apply(settings.DropDown);
@@ -276,7 +281,7 @@ partial class LiteView
         var all = new ToolStripMenuItem("Settings...") { Font = new Font(appMenu.Font, FontStyle.Bold) };
         all.Click += (s, e) => OpenSettings(null);   // src/app/LiteView.Settings.cs
         appMenu.Items.AddRange(new ToolStripItem[] { all, login, new ToolStripSeparator(), page, StartMenu(), PlaybackMenu(), ExtraWindowsMenu(), text, AppearanceMenu(), new ToolStripSeparator(), live, quietMenu,
-            new ToolStripSeparator(), rec, srch, clear, new ToolStripSeparator(), PerformanceMenu(), settings, upd, autoUpd, keys });
+            new ToolStripSeparator(), rec, srch, clear, new ToolStripSeparator(), dls, PerformanceMenu(), settings, upd, autoUpd, keys });
         AddForkMenuItems(appMenu);
     }
 

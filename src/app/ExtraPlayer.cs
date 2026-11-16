@@ -27,7 +27,9 @@ sealed class ExtraPlayer : Form
     static readonly Color Bg = Theme.Page, BarC = Theme.Panel, Fg = Theme.Text, Dim = Theme.Dim, Hover = Theme.Hover, Accent = Theme.Accent;
 
     readonly Panel body = new Panel { Dock = DockStyle.Fill, BackColor = Color.Black };
-    readonly Panel surface = new Panel { Dock = DockStyle.Fill, BackColor = Color.Black };
+    // two video surfaces: a new quality opens behind the one playing, which keeps playing until the new one shows its picture
+    readonly Panel[] surfaces = { new Panel { Dock = DockStyle.Fill, BackColor = Color.Black }, new Panel { Dock = DockStyle.Fill, BackColor = Color.Black } };
+    int front;
     readonly Label note = new Label { Dock = DockStyle.Fill, BackColor = Color.Black, ForeColor = Theme.OnVideo, TextAlign = ContentAlignment.MiddleCenter };
     readonly Panel bar = new Panel { Dock = DockStyle.Bottom, Height = BarH, BackColor = BarC };
     readonly Button muteBtn = new Button(), chatBtn = new Button(), pinBtn = new Button(), moreBtn = new Button();
@@ -42,10 +44,10 @@ sealed class ExtraPlayer : Form
     readonly PopOptions opts;
     readonly string login, log;
     ChatPanel chat;
-    MpvPipe pipe;
-    IntPtr job; Process proc; DateTime started; bool seen, muted;
+    sealed class Session { public IntPtr Job; public Process Proc; public MpvPipe Pipe; public int Surface; public DateTime Started; public string Quality, Log; public bool Seen; }
+    Session cur, next;   // what plays; what opens behind it (a new quality)
+    bool muted;
     bool onTop, chatOn; string quality;   // this window's own choices; a change also becomes the default for new windows (opts)
-    string playingQuality = "";
 
     public event Action LoginRequested, WatchHere;
 
@@ -61,8 +63,8 @@ sealed class ExtraPlayer : Form
         onTop = opts.OnTop; chatOn = opts.Chat; quality = opts.Quality;
         StartPosition = FormStartPosition.WindowsDefaultLocation; TopMost = onTop; KeyPreview = true;
         note.Cursor = Cursors.Hand;
-        note.Click += (s, e) => { if (job == IntPtr.Zero) Start(); };
-        body.Controls.Add(surface); body.Controls.Add(note); note.BringToFront();
+        note.Click += (s, e) => { if (cur == null) Start(); };
+        body.Controls.Add(surfaces[0]); body.Controls.Add(surfaces[1]); body.Controls.Add(note); surfaces[0].BringToFront(); note.BringToFront();
 
         Flat(muteBtn, "", "Mute (M on the video)"); muteBtn.Click += (s, e) => SetMute(!muted);
         volBar.Value = opts.Volume; volBar.Width = 90; volBar.BackColor = BarC;
@@ -90,7 +92,7 @@ sealed class ExtraPlayer : Form
         FormClosed += (s, e) =>
         {
             watch.Stop(); watch.Dispose(); saveLater.Stop(); saveLater.Dispose(); save();
-            Stop();
+            StopAll();
             if (chat != null) { chat.Part(); chat.Dispose(); chat = null; }
         };
     }
@@ -99,6 +101,9 @@ sealed class ExtraPlayer : Form
 
     /// <summary>UI fixture (CI): moves the volume bar, as a click would.</summary>
     public void FixtureVolume(int v) { volBar.Set(v); }
+
+    /// <summary>UI fixture (CI): another quality, as the menu would.</summary>
+    public void FixtureQuality(string q) { quality = q; if (cur == null || QualityNow() != cur.Quality) ChangeQuality(); }
 
     public void SetFonts()
     {
@@ -150,7 +155,7 @@ sealed class ExtraPlayer : Form
         {
             var choice = name;
             var it = new ToolStripMenuItem(PopOptions.QualityName(name) + (name == PopOptions.DefaultQuality ? "  (default)" : "")) { Checked = quality == name };
-            it.Click += (s, e) => { if (quality == choice) return; quality = choice; opts.Quality = choice; save(); if (QualityNow() != playingQuality) Start(); };
+            it.Click += (s, e) => { if (quality == choice) return; quality = choice; opts.Quality = choice; save(); if (cur == null || QualityNow() != cur.Quality) ChangeQuality(); };
             q.DropDownItems.Add(it);
         }
         DarkMenuColors.Apply(q.DropDown);
@@ -176,6 +181,11 @@ sealed class ExtraPlayer : Form
         {
             chat = new ChatPanel { Dock = DockStyle.Right, Width = ChatW };
             chat.LoginRequested += () => { if (LoginRequested != null) LoginRequested(); };
+            var hide = new ToolStripMenuItem("Hide the chat");   // the chat's gear (owner: it did nothing in an extra window)
+            hide.Click += (s2, e2) => chatBtn.PerformClick();
+            var site = new ToolStripMenuItem("Open " + login + "'s chat on twitch.tv");
+            site.Click += (s2, e2) => Launcher.Open("https://www.twitch.tv/popout/" + login + "/chat");
+            chat.Menu.Items.AddRange(new ToolStripItem[] { hide, site });
             chat.SetControlFonts();
             Controls.Add(chat);
             // docking goes from the last child to the first: the bar (bottom, full width), then the chat (right), then the video
@@ -237,29 +247,62 @@ sealed class ExtraPlayer : Form
 
     void Start()
     {
-        Stop();
-        playingQuality = QualityNow();
+        StopAll();
         note.Text = "Opening " + login + "..."; note.Visible = true; note.BringToFront();
-        var req = new StreamRequest { Channel = login, LogFile = log, WindowHandle = surface.Handle.ToInt64(), Quality = playingQuality, Volume = volBar.Value, StartMuted = muted };
-        var r = launch(req);
-        if (r.Key == IntPtr.Zero) { note.Text = "Could not start Streamlink. Click to try again."; return; }
-        job = r.Key; proc = r.Value; started = DateTime.Now; seen = false;
-        var p = new MpvPipe(req.PipeName);
-        p.Changed += (what, value) => OnMpvChange(p, what, value);
-        pipe = p;
-        p.Start();
+        cur = Launch(front, muted);
+        if (cur == null) { note.Text = "Could not start Streamlink. Click to try again."; return; }
         watch.Start();
-        Log.Info("window: " + login + " (" + playingQuality + ")");
+        Log.Info("window: " + login + " (" + cur.Quality + ")");
+    }
+
+    // a new quality: it opens behind the picture, muted, and takes over at its first frame (or a fresh start when nothing plays)
+    void ChangeQuality()
+    {
+        if (cur == null || !cur.Seen) { Start(); return; }
+        Stop(ref next);
+        next = Launch(1 - front, true);
+        if (next == null) { Log.Warn("window: " + login + ": could not start the new quality"); return; }
+        Log.Info("window: " + login + " opening " + next.Quality + " behind the picture");
+    }
+
+    Session Launch(int surface, bool startMuted)
+    {
+        string q = QualityNow(), lf = surface == 0 ? log : Path.Combine(Path.GetDirectoryName(log), Path.GetFileNameWithoutExtension(log) + "-b.log");
+        var req = new StreamRequest { Channel = login, LogFile = lf, WindowHandle = surfaces[surface].Handle.ToInt64(), Quality = q, Volume = volBar.Value, StartMuted = startMuted || muted };
+        var r = launch(req);
+        if (r.Key == IntPtr.Zero) return null;
+        var ses = new Session { Job = r.Key, Proc = r.Value, Surface = surface, Started = DateTime.Now, Quality = q, Log = lf };
+        var p = new MpvPipe(req.PipeName);
+        p.Changed += (what, value) => OnMpvChange(ses, what, value);
+        p.Playing += () => { try { BeginInvoke((Action)(() => OnPlaying(ses))); } catch (InvalidOperationException) { } };
+        ses.Pipe = p;
+        p.Start();
+        return ses;
+    }
+
+    // a player's first frame (UI thread): the one opening behind the picture takes over
+    void OnPlaying(Session ses)
+    {
+        if (ses == cur && !cur.Seen) { cur.Seen = true; note.Visible = false; Log.Info("window: " + login + " playing"); return; }
+        if (ses != next) return;
+        surfaces[ses.Surface].BringToFront(); front = ses.Surface;
+        if (note.Visible) note.BringToFront();
+        ses.Seen = true;
+        ses.Pipe.Send("{\"command\":[\"set_property\",\"volume\"," + volBar.Value + "]}");   // as the bar is now (it may have moved meanwhile)
+        ses.Pipe.Send("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}");
+        var old = cur; cur = ses; next = null;
+        Stop(ref old);
+        Log.Info("window: " + login + " now at " + ses.Quality + " (the last one played until then)");
     }
 
     // mpv's volume or mute changed (its mouse wheel or M on the video): the bar follows (pipe thread)
-    void OnMpvChange(MpvPipe from, string what, string value)
+    void OnMpvChange(Session from, string what, string value)
     {
         try
         {
             BeginInvoke((Action)(() =>
             {
-                if (from != pipe) return;   // a player this window already stopped (a quality change restarts it)
+                if (from != cur) return;   // a player opening behind the picture, or one already stopped
                 double v;
                 if (Fixture.On) Log.Info("window: mpv " + what + " " + value);
                 if (what == "volume" && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out v))
@@ -273,37 +316,54 @@ sealed class ExtraPlayer : Form
         catch (InvalidOperationException) { }   // closing
     }
 
-    void Send(string json) { var p = pipe; if (p != null) p.Send(json); }
+    void Send(string json) { var c = cur; if (c != null) c.Pipe.Send(json); }
+
+    static bool Alive(Session ses)
+    {
+        try { return ses != null && ses.Proc != null && !ses.Proc.HasExited; } catch (InvalidOperationException) { return false; }
+    }
 
     void Check()
     {
-        bool alive = false;
-        try { alive = proc != null && !proc.HasExited; } catch (InvalidOperationException) { }
-        if (!alive)
+        if (next != null && (!Alive(next) || DateTime.Now - next.Started > TimeSpan.FromSeconds(15)))
         {
-            Stop();
-            note.Text = (seen ? "The stream ended." : "The stream could not be opened (" + login + " may be offline).") + "  Click to try again.";
+            Log.Warn("window: " + login + ": " + next.Quality + " did not open; " + (cur != null ? cur.Quality : "the last one") + " keeps playing");
+            Stop(ref next);
+        }
+        if (!Alive(cur))
+        {
+            bool was = cur != null && cur.Seen;
+            StopAll();
+            note.Text = (was ? "The stream ended." : "The stream could not be opened (" + login + " may be offline).") + "  Click to try again.";
             note.Visible = true; note.BringToFront();
             return;
         }
-        if (seen) return;
-        if (FindWindowEx(surface.Handle, IntPtr.Zero, null, null) != IntPtr.Zero) { seen = true; note.Visible = false; Log.Info("window: " + login + " playing"); return; }
-        if (DateTime.Now - started > TimeSpan.FromSeconds(4))
+        if (cur.Seen) return;
+        if (FindWindowEx(surfaces[cur.Surface].Handle, IntPtr.Zero, null, null) != IntPtr.Zero) { OnPlaying(cur); return; }
+        if (DateTime.Now - cur.Started > TimeSpan.FromSeconds(4))
         {
             string text = "";
-            try { if (File.Exists(log)) using (var fs = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) using (var rd = new StreamReader(fs)) text = rd.ReadToEnd(); }
+            try { if (File.Exists(cur.Log)) using (var fs = new FileStream(cur.Log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) using (var rd = new StreamReader(fs)) text = rd.ReadToEnd(); }
             catch (IOException) { } catch (UnauthorizedAccessException) { }
             var lines = text.Split('\n');
             if (StreamOutcome.Waiting(lines)) note.Text = login + " is offline. It starts here by itself when the channel goes live.";
         }
     }
 
-    void Stop()
+    void Stop(ref Session ses)
+    {
+        if (ses == null) return;
+        if (ses.Pipe != null) ses.Pipe.Dispose();
+        if (ses.Job != IntPtr.Zero) { TerminateJobObject(ses.Job, 0); Native.CloseHandle(ses.Job); }
+        if (ses.Proc != null) ses.Proc.Dispose();
+        ses = null;
+    }
+
+    void StopAll()
     {
         watch.Stop();
-        if (pipe != null) { pipe.Dispose(); pipe = null; }
-        if (job != IntPtr.Zero) { TerminateJobObject(job, 0); Native.CloseHandle(job); job = IntPtr.Zero; }
-        if (proc != null) { proc.Dispose(); proc = null; }
+        Stop(ref next);
+        Stop(ref cur);
     }
 }
 
@@ -320,6 +380,8 @@ sealed class MpvPipe : IDisposable
     volatile NamedPipeClientStream stream;
     volatile bool stop;
     public event Action<string, string> Changed;   // property name, value (JSON text)
+    public event Action Playing;                    // the first frame (once)
+    bool played;
 
     public MpvPipe(string name) { this.name = name; }
 
@@ -340,6 +402,7 @@ sealed class MpvPipe : IDisposable
             if (stop) { s.Dispose(); return; }
             Send("{\"command\":[\"observe_property\",1,\"volume\"]}");
             Send("{\"command\":[\"observe_property\",2,\"mute\"]}");
+            Send("{\"command\":[\"get_property\",\"playback-time\"],\"request_id\":71}");   // already playing when connected?
             try
             {
                 using (var rd = new StreamReader(s, Encoding.UTF8))
@@ -347,7 +410,15 @@ sealed class MpvPipe : IDisposable
                     string line;
                     while (!stop && (line = rd.ReadLine()) != null)
                     {
-                        if (line.Length > 4096 || line.IndexOf("\"property-change\"", StringComparison.Ordinal) < 0) continue;
+                        if (line.Length > 4096) continue;
+                        if (!played && (line.IndexOf("\"event\":\"playback-restart\"", StringComparison.Ordinal) >= 0
+                            || (line.IndexOf("\"request_id\":71", StringComparison.Ordinal) >= 0 && line.IndexOf("\"error\":\"success\"", StringComparison.Ordinal) >= 0)))
+                        {
+                            played = true;
+                            var pl = Playing; if (pl != null) pl();
+                            continue;
+                        }
+                        if (line.IndexOf("\"property-change\"", StringComparison.Ordinal) < 0) continue;
                         var j = Json.Parse(line);
                         string prop = Json.S(j, "name"), data = Json.S(j, "data");
                         var c = Changed;

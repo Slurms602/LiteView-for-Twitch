@@ -31,7 +31,7 @@ partial class LiteView
     // Watch: is it a video this time? (a click on a channel anywhere means its live stream)
     void TakeVideo(string name, bool isRetry)
     {
-        if (videoNext != null) { currentVideo = videoNext; videoNext = null; videoPos = 0; return; }
+        if (videoNext != null) { currentVideo = videoNext; videoNext = null; videoPos = StartAt(currentVideo); return; }   // where it was left (src/app/LiteView.Watched.cs)
         if (currentVideo != null && (isRetry || replaying) && currentVideo.Login == name) return;
         currentVideo = null; videoPos = 0;
     }
@@ -91,6 +91,7 @@ partial class LiteView
         if (wasPlaying && videoEofGen == gen)
         {
             Log.Info(what + " ended");
+            RememberVideo(0, true);   // watched to the end (src/app/LiteView.Watched.cs)
             StopStream();
             videoPos = 0; canRetry = true;
             status.ForeColor = Dim;

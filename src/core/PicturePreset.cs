@@ -15,9 +15,10 @@ namespace LiteViewCore
     {
         public static readonly string[] SharpnessNames = { "Off", "Soft", "Normal (default)", "Strong" };
 
-        /// <summary>RTX Video Super Resolution only when the video is enlarged at least this much (at 1.05x it only softened the
-        /// picture on the owner's PC; 1.15x lets it work for a 1080p stream in the owner's usual window, shown at 1.23x).</summary>
-        public const double RtxMinScale = 1.15;
+        /// <summary>RTX Video Super Resolution only when the video is enlarged at least this much: on the owner's PC it made a
+        /// 1080p stream softer than Enhance alone at 1.05x and again at 1.23x (their usual window), so it starts at 1.3x
+        /// (1080p in fullscreen on a 1440p screen is 1.33x; a 720p stream is about 2x).</summary>
+        public const double RtxMinScale = 1.3;
 
         /// <summary>d3d11vpp's scale for RTX ("1.33"), or null: RTX waits (the video is shown at about its own size).</summary>
         public static string? RtxScale(double scale)

@@ -53,6 +53,9 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   than High without looking harsher.
 - The "Replying to" line above replies in the chat was empty at the larger text sizes. A reply also no longer
   repeats "@name" at its start (like Twitch).
+- Video pictures on a channel's Videos page stopped loading for minutes after scrolling quickly through years of
+  videos: the ones scrolled past were still downloaded first. Now only pictures still on screen are downloaded, and a
+  failed one is tried again after 20 s (not 5 minutes).
 - The followed channels column was gone after leaving fullscreen (until LiteView started again).
 - The top bar's text (channel, status line, buttons, boxes) was drawn in grey instead of ClearType like the chat;
   all of the window's controls now use ClearType.
@@ -64,8 +67,8 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   restarts behind the picture a moment later (seamless switching; the picture does not stop). It kept about 1 GB with
   Ultra until a pause or the next channel.
 - **RTX** made the picture softer when the video was shown at about its own size (a 1080p stream in the window on a
-  1440p screen: it was enlarged only 1.05x). RTX now enlarges only when the video is enlarged at least 1.15x (a 720p
-  or 936p stream, or 1080p in a large window or fullscreen on a 1440p screen), and then does the whole enlarging, with the preset's
+  1440p screen: it was enlarged only 1.05x). RTX now enlarges only when the video is enlarged at least 1.3x (a 720p
+  or 936p stream, or 1080p in fullscreen on a 1440p screen; at 1.23x in the window it was still softer than Enhance), and then does the whole enlarging, with the preset's
   sharpening after it; otherwise it waits. The stats (I) say which, and that RTX's own GPU work is not in "GPU per
   frame" (mpv cannot measure it).
 
@@ -114,6 +117,10 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   chat settings as in live chat), and jumping in the video starts the chat again from there. It comes from the same
   Twitch service the website uses, asked anonymously (no login is sent). Chat gear > *Chat replay for videos* turns it
   off (then the channel's live chat shows, as for clips).
+- **Pause keeps the picture**: the frame on screen stays (to read something on it) while the stream stops as before
+  (nothing downloads or plays while paused); a small note at the bottom says how to continue.
+- **Search a channel's videos** by title (the box on its Videos page): words in any order; while searching, older
+  videos are looked through by themselves (up to the newest 4000).
 - **Where you left off**: a red bar under a video's picture on its channel's Videos page shows how much you watched,
   and the video plays on from there (right-click: *Play from the start*, *Forget where I stopped*). Kept in
   `liteview.videos` for the last 500 videos.

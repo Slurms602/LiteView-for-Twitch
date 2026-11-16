@@ -28,8 +28,8 @@ partial class LiteView
     const double RtxMinScale = PicturePreset.RtxMinScale;
     string rtxNote = "";   // the stats overlay's word on RTX
     const string RtxTip = "NVIDIA RTX Video Super Resolution: NVIDIA's AI enlarges the video to the size it is shown at,\n"
-        + "then the picture preset sharpens it. It only works when the video is enlarged at least 1.15x (a 720p or 936p stream,\n"
-        + "1080p in a large window or fullscreen on a 1440p screen); at about its own size it would only make the picture softer, so it waits.\n"
+        + "then the picture preset sharpens it. It only works when the video is enlarged at least 1.3x (a 720p or 936p stream,\n"
+        + "or 1080p in fullscreen on a 1440p screen); below that it made the picture softer than the presets, so it waits.\n"
         + "Its GPU work is not in the stats' \"GPU per frame\". Needs RTX Video Enhancement > Super Resolution on in the NVIDIA app.";
 
     // ApplyEnhance: d3d11vpp's scale for RTX, or "off"

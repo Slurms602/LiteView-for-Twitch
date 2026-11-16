@@ -22,6 +22,10 @@ partial class BrowsePage
     public Func<string, int, double> WatchedFraction;
     string vidKind = "all", vidNext; int clipDays = ChannelVideos.ClipDays; DateTime vidMoreAfter;
     DateTimeOffset vidRangeNow;   // the clips' time range is fixed for all pages of one list (a cursor belongs to one query)
+    // the title search (owner's request: years of a channel's past broadcasts): words in any order, any case; while it is
+    // on, older pages are loaded by themselves (up to MaxSearchVideos) so older matches show too
+    const int MaxSearchVideos = 4000;
+    TextBox vidSearch; string vidFilter = "";
     readonly ChannelVideos videoFeed = new ChannelVideos(q => Tw.Helix(q));
     readonly Latest videoGuard = new Latest();
     string vidLogin, vidName; bool vidClips, loadingVids, vidsFailed; List<VideoInfo> vids; int vidScroll, vidSel;
@@ -35,6 +39,7 @@ partial class BrowsePage
         if (!ChannelName.IsValidLogin(login)) return;
         if (!InVideos) { vidScroll = scroll; vidSel = sel; vidQuery = query; vidHistory = history; }
         vidLogin = login; vidName = string.IsNullOrEmpty(name) ? login : name; vidClips = clips; vidNext = null;
+        if (vidSearch != null && vidSearch.Text.Length > 0) vidSearch.Text = "";   // another channel: a new search
         query = null; history = false; vids = null; vidsFailed = false; scroll = 0; sel = -1;
         ReloadVideos();
         Rebuild();
@@ -44,6 +49,7 @@ partial class BrowsePage
     {
         if (!InVideos) return;
         vidLogin = null; vids = null; videoGuard.Next(); loadingVids = false;
+        if (vidSearch != null) { vidSearch.Text = ""; vidSearch.Visible = false; }
         string q = vidQuery; history = vidHistory; vidQuery = null; vidHistory = false;
         if (q != null) SetQuery(q);   // the search again (from its cache, or asked again if it was still on its way)
         Rebuild();
@@ -80,6 +86,8 @@ partial class BrowsePage
     void MaybeMoreVideos(int lastDrawn)
     {
         if (!InVideos || vidNext == null || loadingVids || vids == null || lastDrawn < items.Count - 1 || DateTime.UtcNow < vidMoreAfter) return;
+        if (lastDrawn < 0 && vidFilter.Length == 0) return;   // nothing drawn and no search: nothing to look further for
+        if (vidFilter.Length > 0 && vids.Count >= MaxSearchVideos) return;
         MoreVideos();
     }
 
@@ -129,15 +137,51 @@ partial class BrowsePage
     {
         if (vids == null) return;
         var now = DateTimeOffset.UtcNow;
+        var words = vidFilter.Length > 0 ? vidFilter.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries) : null;
         foreach (var v in vids)
+        {
+            if (words != null && !words.All(wd => v.Title.IndexOf(wd, StringComparison.CurrentCultureIgnoreCase) >= 0 || (v.Creator.Length > 0 && v.Creator.IndexOf(wd, StringComparison.CurrentCultureIgnoreCase) >= 0))) continue;
             list.Add(new Item { Login = v.Login, Name = v.Name, Title = v.Title, Game = v.IsClip && v.Creator.Length > 0 ? "Clip by " + v.Creator : VideoData.KindName(v.Kind) + "  -  " + VideoData.Ago(v.Created, now), Card = true, Video = v, Thumb = v.Thumb });
+        }
     }
+
+    void InitVideoSearch()
+    {
+        if (vidSearch != null) return;
+        vidSearch = new TextBox { BorderStyle = BorderStyle.FixedSingle, BackColor = HoverC, ForeColor = Fg, Visible = false, TabStop = true };
+        vidSearch.HandleCreated += (s, e) => SendMessage(vidSearch.Handle, 0x1501, (IntPtr)1, "Search titles");   // the grey hint
+        vidSearch.TextChanged += (s, e) =>
+        {
+            string f = vidSearch.Text.Trim();
+            if (f == vidFilter) return;
+            vidFilter = f; scroll = 0; sel = -1;
+            Rebuild();
+            if (f.Length > 0 && vids != null) Log.Info("videos: search \"" + f + "\": " + items.Count + " of " + vids.Count + (vidNext != null ? ", looking further back" : ""));
+        };
+        vidSearch.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; if (vidSearch.Text.Length > 0) vidSearch.Text = ""; else Focus(); }
+            else if (e.KeyCode == Keys.Down || e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Focus(); if (items.Count > 0 && sel < 0) { sel = 0; Invalidate(); } }
+        };
+        Controls.Add(vidSearch);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, string l);
+
+    void HideVideoSearch() { if (vidSearch != null && vidSearch.Visible) vidSearch.Visible = false; }
+
+    /// <summary>UI fixture (CI): a title search.</summary>
+    public void FixtureSearchVideos(string text) { InitVideoSearch(); vidSearch.Text = text; }
 
     string VideosMessage()
     {
         if (Tw.Token == null) return "Log in with Twitch to see a channel's videos and clips.";
         if (vids == null) return vidsFailed ? "Could not reach Twitch." : "Loading...";
         if (items.Count > 0) return null;
+        if (vidFilter.Length > 0)
+            return "No titles with \"" + vidFilter + "\" in the " + vids.Count + " " + (vidClips ? "clips" : "videos") + " looked at"
+                + (vidNext != null && vids.Count < MaxSearchVideos ? " - looking further back..." : vidNext != null ? " (the newest " + MaxSearchVideos + ")." : ".");
         return vidClips ? vidName + " has no clips " + (clipDays == 0 ? "" : "from the " + ChannelVideos.RangeName(clipDays).ToLowerInvariant() + " ") + "(the pill on the right: a longer time)."
             : vidName + " has no " + (vidKind == "all" ? "videos" : ChannelVideos.KindsName(vidKind).ToLowerInvariant()) + " (or keeps them for subscribers).";
     }
@@ -168,6 +212,18 @@ partial class BrowsePage
         TextRenderer.DrawText(g, RefreshGlyph, FIcon, refreshRect, loadingVids ? Accent : Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         string f = vidClips ? ChannelVideos.RangeName(clipDays) : ChannelVideos.KindsName(vidKind);
         sortRect = MenuPill(g, (vidClips ? "From: " : "Show: ") + f, f, x, y, hot == HotSort, Dim);   // the filter (ShowVideoFilterMenu)
+        // the title search box between the tabs and the filter pill
+        InitVideoSearch();
+        int right = (sortRect.IsEmpty ? refreshRect.Left : sortRect.Left) - S(14), sw = Math.Min(S(280), right - (x + S(10)));
+        if (sw >= S(120))
+        {
+            var font = UiFont.ForControls(FontKind.Text, 9.75f * Zoom);
+            if (vidSearch.Font != font) vidSearch.Font = font;
+            var b = new Rectangle(x + S(10), y + (S(30) - vidSearch.Height) / 2, sw, vidSearch.Height);
+            if (vidSearch.Bounds != b) vidSearch.Bounds = b;
+            if (!vidSearch.Visible) vidSearch.Visible = true;
+        }
+        else HideVideoSearch();
         if (vidsFailed && vids != null) Txt.In(g, "Could not reach Twitch - showing the last list", FText, Gold, new Rectangle(x + S(10), y, Math.Max(0, refreshRect.Left - x - S(20)), S(30)), false);
     }
 

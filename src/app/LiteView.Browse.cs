@@ -123,6 +123,14 @@ partial class LiteView
                 next.Start();
                 return;
             }
+            if (Fixture.SceneName == "vidsearch")
+            {   // a channel's videos, then a title search
+                browse.ShowVideos("nightowl_plays", "NightowlPlays", false);
+                var t = new Timer { Interval = 3000 };
+                t.Tick += (s2, e2) => { t.Stop(); t.Dispose(); browse.FixtureSearchVideos("run"); };
+                t.Start();
+                return;
+            }
             if (Fixture.SceneName == "videos" || Fixture.SceneName == "clips" || Fixture.SceneName == "vod")
             {   // a channel's videos or clips (made-up); vod: the first video plays (with tests/FakeStreamlink)
                 browse.ShowVideos("nightowl_plays", "NightowlPlays", Fixture.SceneName == "clips");

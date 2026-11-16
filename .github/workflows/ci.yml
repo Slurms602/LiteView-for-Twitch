@@ -63,7 +63,7 @@ jobs:
           dotnet build tests/FakeStreamlink -c Release --no-restore -o fake
           $fake = (Resolve-Path fake/streamlinkw.exe).Path
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'download', 'paused', 'offline', 'fail', 'settings', 'live@light', 'chatlog@light', 'settings@light', 'watch@black') {
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'vidsearch', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'download', 'paused', 'offline', 'fail', 'settings', 'live@light', 'chatlog@light', 'settings@light', 'watch@black') {
             $theme = ''; if ($scene -match '^(.+)@(light|black)$') { $scene = $Matches[1]; $theme = $Matches[2] }   # scene@theme: the same scene in another theme
             $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
             if ($theme) { $vars.LITEVIEW_UI_FIXTURE_THEME = $theme }
@@ -74,7 +74,8 @@ jobs:
             if ($scene -eq 'browse') { $more.A11yExpect = @("^LIST 'Browse categories' \([1-9][0-9]* items\)", '^  - Elden Ring, category') }
             if ($scene -eq 'category') { $more.A11yExpect = @("^LIST 'Browse, Music' \(2 items\)") }
             if ($scene -eq 'picker') { $more.Expect = @('picker: open'); $more.A11yExpect = @("^LIST 'Emotes' \([1-9][0-9]* items\)", "^MSAA LIST 'Emotes' \([1-9][0-9]* items\)") }
-            if ($scene -eq 'paused') { $more.Expect = @('stream 1: playing', 'paused: stream stopped') }
+            if ($scene -eq 'paused') { $more.Expect = @('stream 1: playing', 'paused: stream stopped \(its last picture stays\)') }
+            if ($scene -eq 'vidsearch') { $more.Expect = @('videos: search "run": 1 of 8') }
             if ($scene -eq 'watch') { $more.Expect = @('stream 1: first frame after', "font: the window's controls use Inter too") }
             if ($scene -eq 'videos') { $more.A11yExpect = @("^LIST 'Videos of NightowlPlays' \(8 items\)", '^  - Full run, new route, past broadcast, 1:03:00') }
             if ($scene -eq 'clips') { $more.A11yExpect = @("^LIST 'Clips of NightowlPlays' \(6 items\)", '^  - that jump though, clip by ') }

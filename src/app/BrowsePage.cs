@@ -500,7 +500,7 @@ partial class BrowsePage : Control
         btnRect = linkRect = Rectangle.Empty;
         g.SetClip(new Rectangle(0, HeadH, ClientSize.Width, ViewH));
         string msg = Message();
-        if (msg != null) DrawMessage(g, msg);
+        if (msg != null) { DrawMessage(g, msg); MaybeMoreVideos(-1); }   // a title search with nothing found yet looks further back
         else
         {
             int lastDrawn = -1;
@@ -526,6 +526,7 @@ partial class BrowsePage : Control
         clearRect = sortRect = refreshRect = langRect = backRect = Rectangle.Empty;
         for (int i = 0; i < tabRects.Length; i++) tabRects[i] = Rectangle.Empty;
         if (query == null && !history && InVideos) { DrawVideosHeader(g); return; }
+        HideVideoSearch();   // src/app/BrowseVideos.cs
         if (query == null && !history && InCategory)
         {   // the category's name, and the way back to the categories
             const string back = "\u2039  All categories";
@@ -825,12 +826,20 @@ partial class BrowsePage : Control
         if (p.Loading) return;
         p.Loading = true;
         int g = picGen;
+        bool again = false, failed = false;   // fork: not on screen any more when its turn came / the download failed
         try
         {
             byte[] bytes;
             await downloads.WaitAsync();
-            try { bytes = await Tw.GetBytes(url, MaxImageBytes); }
+            try
+            {
+                // fork: a picture scrolled past while waiting for its turn is not downloaded now (scrolling through years of
+                // videos queued hundreds of them before the ones on screen); it is asked again when it is drawn again
+                if (clock - p.Used > 2) { again = true; return; }
+                bytes = await Tw.GetBytes(url, MaxImageBytes);
+            }
             finally { downloads.Release(); }
+            if (bytes == null) failed = true;
             if (bytes == null || !ImageSniff.Acceptable(bytes) || IsDisposed) return;
             int w = Math.Max(1, size.Width), h = Math.Max(1, size.Height);
             var bmp = await Task.Run(() => Decode(bytes, w, h, round));
@@ -842,7 +851,11 @@ partial class BrowsePage : Control
             Invalidate();
         }
         catch (Exception ex) { Log.Warn("image: " + ex.GetType().Name); }
-        finally { p.Loading = false; p.At = DateTime.UtcNow; }   // a failed download is tried again only after ThumbAge
+        finally
+        {   // fork: a picture skipped while off screen is asked again at once when drawn; a failed download after 20 s (not ThumbAge)
+            p.Loading = false;
+            p.At = again ? DateTime.MinValue : failed ? DateTime.UtcNow - ThumbAge + TimeSpan.FromSeconds(20) : DateTime.UtcNow;
+        }
     }
 
     // decoded at the drawn size: a preview card costs its own pixels, not the download's

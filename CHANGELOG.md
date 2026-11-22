@@ -48,8 +48,38 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Names and titles on the Following page and sent chat messages no longer end in half an emoji; a `/me` message
   longer than Twitch allows keeps its action form.
 - A broken emote size from an emote service can no longer give an emote a negative width.
+- **Ultra was oversharpened**: it sharpened twice (NLMeans' sharpening variant and the strong Adaptive Sharpen).
+  It now cleans up the stream's compression noise without sharpening and sharpens once, like High, so it is cleaner
+  than High without looking harsher.
+- The "Replying to" line above replies in the chat was empty at the larger text sizes. A reply also no longer
+  repeats "@name" at its start (like Twitch).
+- Video pictures on a channel's Videos page stopped loading for minutes after scrolling quickly through years of
+  videos: the ones scrolled past were still downloaded first. Now only pictures still on screen are downloaded, and a
+  failed one is tried again after 20 s (not 5 minutes).
+- The followed channels column was gone after leaving fullscreen (until LiteView started again).
+- The top bar's text (channel, status line, buttons, boxes) was drawn in grey instead of ClearType like the chat;
+  all of the window's controls now use ClearType.
+- An extra window's quality change no longer goes black: the old picture plays until the new one is ready, like the
+  main window. The gear in an extra window's chat did nothing; it now has *Hide the chat* and *Open the chat on twitch.tv*.
+- After typing in the chat box, clicking anywhere else (the video, the chat's messages, the followed channels, the top
+  bar) now gives the keyboard back to the window, so Space, M, I, B and the other keys work again.
+- Choosing a lighter picture preset after Ultra (or High) now gives back the memory the heavier one needed: the player
+  restarts behind the picture a moment later (seamless switching; the picture does not stop). It kept about 1 GB with
+  Ultra until a pause or the next channel.
+- **RTX** made the picture softer when the video was shown at about its own size (a 1080p stream in the window on a
+  1440p screen: it was enlarged only 1.05x). RTX now enlarges only when the video is enlarged enough: from 1.15x
+  with High and Ultra (their sharpening comes after RTX, and the owner found them good at 1.23x in the window), from
+  1.3x with Off and Enhance (Enhance's shaders do not run after RTX, so it stayed soft; 1080p in fullscreen at 1440p is 1.33x), and then does the whole enlarging, with the preset's
+  sharpening after it; otherwise it waits. The stats (I) say which, and that RTX's own GPU work is not in "GPU per
+  frame" (mpv cannot measure it).
 
 ### Added
+
+- **Installer** (`LiteView-Enhanced-Setup-<version>.exe`): installs for your Windows user only, without
+  administrator rights, into `%LOCALAPPDATA%\Programs\LiteView Enhanced` with a Start menu shortcut and an optional
+  desktop one; a first install can copy your settings, login and watched videos from the LiteView folder you used
+  until now (and moves *Start with Windows* to the installed LiteView). Installing a newer one over it keeps your
+  settings; uninstalling (Settings > Apps) asks whether to remove them too. The portable zip stays.
 
 - Gear menu: **Sign out of twitch.tv in LiteView** (the website login used by the Following page and web chat;
   *Log out* still ends only the chat login).
@@ -79,6 +109,69 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
 - Chat gear menu: **Chat on the left** (between the followed channels and the video; drag its right edge for the width).
 - Emote picker by keyboard: **Ctrl+E** in the chat box opens it; Down goes from its search into the grid, arrow keys
   choose, Enter inserts, typing searches again, Esc closes. Screen readers read each emote and its set.
+- **Seamless channel switching**: the playing stream keeps playing until the next channel shows its first picture,
+  then it switches at once (no black wait). Also for a quality change. Menu > Playback turns it off.
+- **Stats on the video** (I, or menu > Playback): the stream's quality, codec, hardware or software decoding, dropped
+  frames, buffer, how long it took to open, the GPU time the picture preset costs per frame (measured by mpv), and
+  CPU and memory of LiteView and the player.
+- Menu > Playback > **Sharpness** for High and Ultra (Off, Soft, Normal, Strong), and **B** to see the original
+  picture and back, to compare.
+- **Videos and clips**: right-click a channel on the Following page > *Videos and clips*: its newest past
+  broadcasts, highlights and uploads, or its most viewed clips of the last 30 days. They play in LiteView with a
+  **seek bar** under the picture (click or drag; Left/Right jump 10 s), and Pause, F5 or a new quality continue where
+  the video was.
+- **Chat replay**: a past broadcast shows its chat as it was at that moment of the broadcast (emotes, badges and your
+  chat settings as in live chat), and jumping in the video starts the chat again from there. It comes from the same
+  Twitch service the website uses, asked anonymously (no login is sent). Chat gear > *Chat replay for videos* turns it
+  off (then the channel's live chat shows, as for clips).
+- **Pause keeps the picture**: the frame on screen stays (to read something on it) while the stream stops as before
+  (nothing downloads or plays while paused); a small note at the bottom says how to continue.
+- **Search a channel's videos** by title (the box on its Videos page): words in any order; while searching, older
+  videos are looked through by themselves (up to the newest 4000).
+- **Where you left off**: a red bar under a video's picture on its channel's Videos page shows how much you watched,
+  and the video plays on from there (right-click: *Play from the start*, *Forget where I stopped*). Kept in
+  `liteview.videos` for the last 500 videos.
+- **More videos**: a channel's Videos page loads the next 40 as you scroll to the end, and its filter shows all
+  videos, past broadcasts, highlights or uploads (years-old highlights and uploads are still there); Clips can be of the
+  last 7 days, 30 days, year or all time.
+- **Download videos and clips** (right-click > Download > quality, with the size it will be about): Streamlink writes
+  them to `Videos\LiteView Downloads` in their original quality (`.ts` for videos, `.mp4` for clips), two at a time;
+  menu > *Downloads...* shows their progress, Cancel and Show in folder. An unfinished download is never left looking
+  finished (`.part` until done).
+- **Emotes stay on disk** between starts (`cache\emotes` next to LiteView.exe, at most 200 MB, 60 days), so a chat
+  shows its emotes at once instead of downloading them again.
+- **Save clips on your PC**: the scissors button (or Alt+X) saves the last 60 s of what plays, live or a video, in its
+  original quality to `Videos\LiteView Clips` (`.mkv`, plays in VLC, mpv or the Media Player). Menu > Playback > Clips:
+  30 s, 60 s, 2 minutes, or Off; the player keeps that much of the stream in memory (about 1 MB a second).
+- **Colour emoji** in the chat (drawn with DirectWrite like the browser does; where that is not available they stay
+  as before).
+- **More streams at once**: right-click a channel > *Watch in a new window* plays it in a separate window, up to 3
+  next to the main one. Each has a bar with mute and its own volume (kept for the next window), the chat beside the
+  video (button), on top of other windows or not (pin button; on by default, for picture in picture), and a menu with
+  the quality (720p60 by default, or the same as the main window, Best, 1080p60, 480p, 360p), *Keep the video's
+  shape* (resizing keeps it 16:9, no black bars; off by default) and *Watch in the main window*.
+- Right-click a channel in the **followed column** while watching: watch it, watch it in a new window, its videos or
+  clips, favourite, open on twitch.tv, copy link (a right-click no longer switches to it).
+- LiteView has **its own icon** (a purple chat bubble with a play button) instead of mpv's.
+- **Settings window** (menu > *Settings...*): every setting in one place, in pages on the left (Playback, Chat, Text and
+  font, Appearance, Following page, Notifications, Start and tray, Extra windows, Performance, Account and help, Back up
+  and reset), with switches, choices and a line of explanation under each. It uses the same settings as the menus,
+  which stay. The menus' *Settings* submenu is now *Back up and reset*.
+- **Themes** (menu > *Appearance*, or Settings > Appearance): Dark (as before), **Black** (black backgrounds, for OLED
+  screens and dark rooms) and **Light** (Twitch's light colours). The video area stays black. A new theme applies when
+  LiteView starts again (it offers to restart).
+- Menu > Text size > **Smoothing**: ClearType (as before, follows Windows), Grey (no colour fringes) or Smooth (no
+  font hinting: softer, rounder letters, closer to how some browsers draw) - to pick the one that looks best on your
+  screen.
+- Menu > **Extra windows**: how new extra windows start (on top, with the chat, keep the video's shape, quality).
+- **Previews on hover**: rest the mouse on a live channel's card on the Following page and it plays there, muted, at
+  the lowest quality (menu > Playback turns it off).
+- Menu > **Start and tray**: start with Windows (no administrator rights), start minimised, minimise to the tray
+  (all off unless you turn them on), and *Open the last channel at start* (moved here).
+- The chat and the Following page use **Inter**, the font of Twitch's own site, drawn with ClearType when Windows
+  uses it. Words with characters Inter does not have (Chinese, emoji, ...) are drawn in Segoe UI as before.
+  Menu > Text size > Font switches back to Segoe UI. The top bar (channel, status line, buttons), the chat box and the
+  extra windows use it too.
 
 ### For developers
 
@@ -88,6 +181,11 @@ Based on LiteView for Twitch 1.2.0 (upstream `46e76df`). **Not yet tested on Win
   GDI/USER objects and UI lag against a budget (`tools/stress-check.ps1`).
 - Random-input tests (`FuzzTests`) for every parser of outside data: IRC, JSON, the chat history, image headers,
   links, channel names, Helix answers, Streamlink's log, settings files.
+- CI's channel-switching run checks that each switch keeps the old stream until the new one plays and that no
+  player is left behind (`players` in the `stress:` lines, `-MaxPlayers`), and prints how long streams took to
+  their first frame. Fixture scene `stats` screenshots the stats overlay.
+- CI plays a known test picture at half size with every picture preset in fullscreen and saves what mpv shows;
+  `tools/preset-metrics.py` compares each with the original (PSNR, SSIM, overshoot = halos, detail = sharpness).
 
 - Twitch login/API and the chat connection moved into the tested library and are tested against a simulated
   Twitch and chat server; JSON is read by a small built-in reader instead of `JavaScriptSerializer`.

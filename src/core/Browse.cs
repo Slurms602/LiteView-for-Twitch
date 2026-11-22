@@ -49,7 +49,7 @@ namespace LiteViewCore
     }
 
     /// <summary>users: a channel's display name and picture.</summary>
-    public sealed class UserInfo { public string Login = "", Name = "", Avatar = ""; }
+    public sealed class UserInfo { public string Id = "", Login = "", Name = "", Avatar = ""; }
 
     public enum SortOrder { Viewers, Name, Newest, Longest }
 
@@ -128,7 +128,7 @@ namespace LiteViewCore
             {
                 string? login = Json.S(u, "login");
                 if (!ChannelName.IsValidLogin(login)) continue;
-                d[login!] = new UserInfo { Login = login!, Name = Or(Text(Json.S(u, "display_name")), login!), Avatar = Avatar(Json.S(u, "profile_image_url")) };
+                d[login!] = new UserInfo { Id = Id(Json.S(u, "id")), Login = login!, Name = Or(Text(Json.S(u, "display_name")), login!), Avatar = Avatar(Json.S(u, "profile_image_url")) };
             }
             return d;
         }

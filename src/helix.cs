@@ -46,6 +46,7 @@ static class Tw
     public static Task<object> Helix(string query) { return Api.Helix(query); }
     public static Task<string> Get(string url) { return Api.Get(url); }
     public static Task<byte[]> GetBytes(string url, int max) { return Api.GetBytes(url, max); }
+    public static Task<object> Gql(string body) { return Api.Gql(body); }   // fork: chat replay (src/core/ChatReplay.cs)
     public static Task<object> StartDevice() { return Api.StartDevice(); }
     public static Task<string> PollDevice(string deviceCode) { return Api.PollDevice(deviceCode); }
 

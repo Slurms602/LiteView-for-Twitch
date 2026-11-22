@@ -43,7 +43,8 @@ partial class LiteView
     // ---------- command line ----------
 
     static int stressRate;   // --chat-stress=<messages per second>
-    static bool stressGc;    // CI leak check: a full garbage collection before each sample, so only real leaks grow
+    static bool stressGc;
+    static bool autostarted;    // CI leak check: a full garbage collection before each sample, so only real leaks grow
 
     static void ParseArgs(string[] args)
     {
@@ -54,13 +55,24 @@ partial class LiteView
                 int eq = a.IndexOf('='), r;
                 stressRate = eq > 0 && int.TryParse(a.Substring(eq + 1), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out r) ? Math.Max(1, Math.Min(5000, r)) : 100;
             }
+            else if (a.Equals("--autostart", StringComparison.OrdinalIgnoreCase)) autostarted = true;   // Windows started it (src/app/LiteView.Startup.cs)
             else if (!a.StartsWith("--", StringComparison.Ordinal) && startChannel == null) startChannel = a;
         }
+    }
+
+    // emote and badge pictures on disk (cache\emotes next to LiteView.exe): 200 MB, 60 days; tidied in the background at start
+    void InitEmoteCache()
+    {
+        var cache = new DiskCache(Path.Combine(root, "cache", "emotes"), 200L << 20, EmoteLimits.MaxDownloadBytes, TimeSpan.FromDays(60));
+        Images.Cache = cache;
+        System.Threading.Tasks.Task.Run(() => { long kept = cache.Prune(); Log.Info("emote cache: " + (kept >> 20) + " MB kept"); });
     }
 
     void InitFork()
     {
         Shown += (s, e) => windowShown = true;
+        InitSwitch(); InitStats(); InitStartup(); InitFocus(); InitSideButtons(); InitSideMenu(); InitWatched(); InitDownloads();
+        title.TextChanged += (s, e) => { if (watching) FitStatus(); };   // a new title: its width, and the status line moves along
         if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();
         retry.Tick += (s, e) =>
@@ -70,7 +82,7 @@ partial class LiteView
         };
         InitProblems();
         InitScreens();
-        status.Click += (s, e) => { if (problemTitle != null) ShowProblemDetails(); else if (canRetry && watching && slProc == null && channel != null) Watch(channel); };
+        status.Click += (s, e) => { if (problemTitle != null) ShowProblemDetails(); else if (canRetry && watching && slProc == null && channel != null) Replay(); };
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPower;
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetwork;
         FormClosed += (s, e) =>
@@ -122,6 +134,14 @@ partial class LiteView
 
     System.Threading.Timer stressTimer;
 
+    // mpv processes running (CI: an old stream's player must end once the next one plays: at most 2, while one opens)
+    static int Players()
+    {
+        var ps = Process.GetProcessesByName("mpv");
+        foreach (var p in ps) p.Dispose();
+        return ps.Length;
+    }
+
     void StartStress()
     {
         var gen0 = new ChatStress("stress", Environment.TickCount);
@@ -167,7 +187,7 @@ partial class LiteView
                         Log.Info("stress: " + gen0.Count + " messages (" + ((gen0.Count - lastCount) * 1000 / Math.Max(1, now - lastLog)) + "/s), working set "
                             + me.WorkingSet64 / (1024 * 1024) + " MB, private " + me.PrivateMemorySize64 / (1024 * 1024) + " MB, threads " + me.Threads.Count
                             + ", handles " + me.HandleCount + ", GDI " + GetGuiResources(me.Handle, 0) + ", USER " + GetGuiResources(me.Handle, 1)
-                            + ", CPU " + me.TotalProcessorTime.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s, UI lag max " + takeLag() + " ms, emotes: " + Images.Stats());
+                            + ", CPU " + me.TotalProcessorTime.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s, UI lag max " + takeLag() + " ms, players " + Players() + ", emotes: " + Images.Stats());
                     lastLog = now; lastCount = gen0.Count;
                 }
             }
@@ -205,7 +225,7 @@ partial class LiteView
             Log.Info("network: connected again");
             if (!watching || channel == null) return;
             if (chatOn.Checked && !webChat) nchat.Reconnect();
-            if (slProc == null && canRetry) Watch(channel);   // a stream that gave up or is waiting to retry: now
+            if (slProc == null && canRetry) Replay();   // a stream that gave up or is waiting to retry: now
         });
     }
 
@@ -264,16 +284,18 @@ partial class LiteView
         string cmdline;
         try
         {
-            cmdline = StreamCommand.Build(new StreamRequest
+            var req = new StreamRequest
             {
-                Streamlink = streamlink, Mpv = mpv, LogFile = slLog, Channel = name, Quality = q,
-                PipeName = pipeName, WindowHandle = video.Handle.ToInt64(),
-            });
+                Streamlink = streamlink, Mpv = mpv, LogFile = curLog, Channel = name, Quality = q,
+                PipeName = pipeName, WindowHandle = surfaces[streamSurface].Handle.ToInt64(), StartMuted = muteNext, BackBufferMiB = ClipBufferMiB,
+            };
+            VideoRequest(req);   // a video or clip (src/app/LiteView.Videos.cs)
+            cmdline = StreamCommand.Build(req);
         }
         catch (ArgumentException ex) { ShowProblem("Cannot play this channel", ex.Message, null); Log.Error("stream command", ex); return; }
-        try { File.Delete(slLog); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { File.Delete(curLog); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         job = CreateJobObject(IntPtr.Zero, null);
-        if (job == IntPtr.Zero) { ShowProblem("Could not start Streamlink", "Windows refused to create a job object (error " + Marshal.GetLastWin32Error() + ").", () => Watch(channel)); Log.Error("CreateJobObject failed"); return; }
+        if (job == IntPtr.Zero) { ShowProblem("Could not start Streamlink", "Windows refused to create a job object (error " + Marshal.GetLastWin32Error() + ").", Replay); Log.Error("CreateJobObject failed"); return; }
         var lim = new JOBLIMITS { flags = 0x2000 };   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: closing LiteView also ends its stream
         if (!SetInformationJobObject(job, 9, ref lim, Marshal.SizeOf(typeof(JOBLIMITS)))) Log.Warn("job: kill-on-close could not be set");
         var si = new Native.STARTUPINFO(); si.cb = Marshal.SizeOf(si);
@@ -289,12 +311,12 @@ partial class LiteView
             slPid = pi.pid; slStart = DateTime.Now;
             streamOn.Set();
             status.ForeColor = Dim; status.Text = "opening...";
-            Log.Info("stream " + g + ": Streamlink started (quality " + q + ")");
+            Log.Info("stream " + g + ": Streamlink started (quality " + q + (currentVideo != null ? ", " + (currentVideo.IsClip ? "clip" : "video from " + Secs(videoPos) + " s") : "") + ")");
         }
         else
         {
             int err = Marshal.GetLastWin32Error();
-            ShowProblem("Could not start Streamlink", "Windows error " + err + " starting\n" + streamlink + "\n\nAn antivirus quarantine or a damaged unzip can cause this: unzip LiteView again.", () => Watch(channel));
+            ShowProblem("Could not start Streamlink", "Windows error " + err + " starting\n" + streamlink + "\n\nAn antivirus quarantine or a damaged unzip can cause this: unzip LiteView again.", Replay);
             Log.Error("stream " + g + ": CreateProcess failed, error " + err);
             canRetry = true;
         }
@@ -308,12 +330,12 @@ partial class LiteView
         if (++openingTicks % 4 != 0) return;
         try
         {
-            if (!File.Exists(slLog)) return;
-            var lines = ReadShared(slLog);
+            if (!File.Exists(curLog)) return;
+            var lines = ReadShared(curLog);
             string err = StreamOutcome.LastError(lines);
             status.ForeColor = Dim;
-            if (StreamOutcome.Waiting(lines)) status.Text = "Offline - it starts by itself when the channel goes live";
-            else if (err.Length > 0) status.Text = "Retrying: " + err;
+            if (StreamOutcome.Waiting(lines)) { EndHandOver(); status.Text = "Offline - it starts by itself when the channel goes live"; }
+            else if (err.Length > 0) { EndHandOver(); status.Text = "Retrying: " + err; }
         }
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
@@ -329,8 +351,8 @@ partial class LiteView
         if ((DateTime.Now - slStart).TotalSeconds > 60) { variantsGen = gen; return; }   // never printed: keep the list
         try
         {
-            if (!File.Exists(slLog)) return;
-            var found = Quality.Available(ReadShared(slLog));
+            if (!File.Exists(curLog)) return;
+            var found = Quality.Available(ReadShared(curLog));
             if (found.Count == 0) return;
             variantsGen = gen;
             var choices = Quality.ChoicesFor(found);
@@ -362,13 +384,15 @@ partial class LiteView
 
     void OnStreamExited()
     {
+        if (WaitForVideoEnd()) return;   // mpv's end-of-file message may still be on its way (src/app/LiteView.Videos.cs)
         var ran = DateTime.Now - slStart;
         string err = "";
-        try { if (File.Exists(slLog)) err = StreamOutcome.LastError(ReadShared(slLog)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { if (File.Exists(curLog)) err = StreamOutcome.LastError(ReadShared(curLog)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         var end = StreamOutcome.Classify(err, ran, played);
         int code = int.MinValue; try { code = slProc.ExitCode; } catch (InvalidOperationException) { }
         Log.Warn("stream " + gen + ": Streamlink exited (code " + code + ", after " + (int)ran.TotalSeconds + " s, " + end + ")" + (err.Length > 0 ? ": " + Redact.ForSharing(err) : ""));
         bool wasPlaying = played;
+        if (VideoExit(wasPlaying, end, err)) return;   // a video that ended or cannot play (src/app/LiteView.Videos.cs)
         StopStream();   // also ends an mpv left behind if Streamlink died
         if (wasPlaying) playBackoff.Ended(ran);
         ScheduleRetry(end, StreamOutcome.Describe(end, err), err);
@@ -380,7 +404,7 @@ partial class LiteView
     {
         canRetry = channel != null;
         string ch = channel;
-        Action again = ch != null ? () => { if (channel == ch) Watch(ch); } : (Action)null;
+        Action again = ch != null ? () => { if (channel == ch) Replay(); } : (Action)null;
         if (!watching || channel == null || end == StreamEnd.Fatal) { ShowProblem(summary, StreamDetail(err), again); return; }
         TimeSpan wait;
         if (end == StreamEnd.Offline) wait = TimeSpan.FromSeconds(60);
@@ -408,7 +432,7 @@ partial class LiteView
     // An error shows as "⚠ summary" in the status line (shortened to fit); a click opens the whole message with
     // Try again / Open log folder / Copy details (src/app/ProblemPopup.cs). Any other status text ends it.
 
-    static readonly Color ErrorC = Color.FromArgb(255, 140, 140);
+    static Color ErrorC { get { return Theme.Error; } }   // a property: Main (this class) runs before the theme is loaded
     static readonly string WarnSign = ((char)0x26A0).ToString();
     string problemTitle, problemDetail; Action problemRetry; bool settingProblem;
     readonly ToolTip statusTip = new ToolTip();
@@ -448,6 +472,16 @@ partial class LiteView
     void FitStatus()
     {
         int right = bar.Width - 6;
+        if (watching)
+        {   // a long channel or video title ends in "..." before the quality box (Inter is wider than Segoe UI was)
+            int left = bar.Width - 6;
+            foreach (Control c in BarRight()) if (c.Visible && c.Left > title.Left && c.Left < left) left = c.Left;
+            // one line, as wide as the title needs, at most up to there; "..." when it does not fit
+            title.AutoSize = false; title.AutoEllipsis = true;
+            int want = TextRenderer.MeasureText(title.Text, title.Font).Width + 6;
+            title.Size = new Size(Math.Min(want, Math.Max(80, left - title.Left - 16)), title.Font.Height + 6);
+            status.Left = title.Right + 14;
+        }
         foreach (Control c in BarRight()) if (c.Left > status.Left && c.Left < right) right = c.Left;
         status.Width = Math.Max(0, right - status.Left - 10);
     }
@@ -456,7 +490,7 @@ partial class LiteView
     {
         yield return menuBtn;
         if (!watching) yield break;
-        foreach (var c in new Control[] { fsBtn, volBar, muteBtn, pauseBtn, picture, chatOn, quality }) yield return c;
+        foreach (var c in new Control[] { fsBtn, volBar, muteBtn, pauseBtn, clipBtn, picture, chatOn, quality }) yield return c;
         if (HasNvidia) yield return rtx;
     }
 
@@ -472,9 +506,9 @@ partial class LiteView
         if (err.Length > 0) sb.Append(Redact.ForSharing(err)).Append("\n\n");
         try
         {
-            if (File.Exists(slLog))
+            if (File.Exists(curLog))
             {
-                var tail = ReadShared(slLog).Where(l => l.Trim().Length > 0).Reverse().Take(12).Reverse().ToList();
+                var tail = ReadShared(curLog).Where(l => l.Trim().Length > 0).Reverse().Take(12).Reverse().ToList();
                 if (tail.Count > 0) { sb.Append("Last lines of streamlink.log:\n"); foreach (var l in tail) sb.Append(Redact.ForSharing(l)).Append('\n'); }
             }
         }
@@ -570,7 +604,7 @@ partial class LiteView
             }
             add("Emote image cache", ImagesStats());
             var tail = new List<string>(Log.Tail(300));
-            try { if (File.Exists(slLog)) { tail.Add("--- streamlink.log (last 60 lines) ---"); tail.AddRange(ReadShared(slLog).Where(l => l.Length > 0).Reverse().Take(60).Reverse()); } }
+            try { if (File.Exists(curLog)) { tail.Add("--- streamlink.log (last 60 lines) ---"); tail.AddRange(ReadShared(curLog).Where(l => l.Length > 0).Reverse().Take(60).Reverse()); } }
             catch (IOException) { }
             string text = Diagnostics.Report(f, IniStore.Read(iniPath), tail);
             string path = Path.Combine(root, "diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".txt");

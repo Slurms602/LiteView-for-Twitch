@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 using LiteViewCore;
 using SortOrder = LiteViewCore.SortOrder;   // not System.Windows.Forms.SortOrder
@@ -49,7 +50,11 @@ partial class LiteView
         menuBtn.Click += (s, e) => { BuildAppMenu(); appMenu.Show(menuBtn, new Point(menuBtn.Width, menuBtn.Height), ToolStripDropDownDirection.BelowLeft); };
         new ToolTip().SetToolTip(menuBtn, "Menu");
         DarkMenuColors.Apply(appMenu); appMenu.ShowImageMargin = false;
+        browse.VideoPicked += PlayVideo;   // src/app/LiteView.Videos.cs
+        InitPreview();   // src/app/LiteView.Preview.cs
+        browse.WindowWanted += OpenWindow;   // src/app/ExtraPlayer.cs
         InitPause();   // src/app/LiteView.Pause.cs
+        InitClips();   // src/app/LiteView.Clips.cs
         bar.Controls.Add(menuBtn);
         LayoutBar();
 
@@ -118,6 +123,73 @@ partial class LiteView
                 next.Start();
                 return;
             }
+            if (Fixture.SceneName == "vidsearch")
+            {   // a channel's videos, then a title search
+                browse.ShowVideos("nightowl_plays", "NightowlPlays", false);
+                var t = new Timer { Interval = 3000 };
+                t.Tick += (s2, e2) => { t.Stop(); t.Dispose(); browse.FixtureSearchVideos("run"); };
+                t.Start();
+                return;
+            }
+            if (Fixture.SceneName == "videos" || Fixture.SceneName == "clips" || Fixture.SceneName == "vod")
+            {   // a channel's videos or clips (made-up); vod: the first video plays (with tests/FakeStreamlink)
+                browse.ShowVideos("nightowl_plays", "NightowlPlays", Fixture.SceneName == "clips");
+                if (Fixture.SceneName != "vod") return;
+                var t = new Timer { Interval = 500 }; int waited = 0, step = 0;
+                t.Tick += (s2, e2) =>
+                {
+                    waited += 500;
+                    if (step == 0) { if (!browse.PlayFirstVideo() && waited < 10000) return; step = 1; waited = 0; return; }
+                    // the test video is 2 s long (looped): a jump to 10:00 is simulated as mpv's position, for the chat replay
+                    if (firstFrameGen != gen && waited < 20000) return;
+                    if (waited < 5000) return;
+                    t.Stop(); t.Dispose();
+                    Log.Info("video: position 10:00 (simulated)"); fixturePos = 600; VideoAt(600);
+                };
+                t.Start();
+                return;
+            }
+            if (Fixture.SceneName == "presets") { PresetShots(); return; }   // src/app/LiteView.Picture.cs
+            if (Fixture.SceneName == "window")
+            {   // a second channel in an extra window with its chat (with tests/FakeStreamlink), next to the main one; then
+                // its volume bar moved, which mpv confirms through the pipe ("window: mpv volume 35")
+                Watch("nightowl_plays");
+                popOptions.Chat = true;
+                var t = new Timer { Interval = 3000 }; int ticks = 0;
+                t.Tick += (s2, e2) =>
+                {
+                    ticks++;
+                    if (ticks == 1) { OpenWindow("pixelforge", "Pixelforge"); return; }
+                    if (ticks == 4) { foreach (var x in extras) x.FixtureVolume(35); return; }
+                    if (ticks < 5) return;
+                    t.Stop(); t.Dispose();
+                    foreach (var x in extras) x.FixtureQuality("480p");   // opens behind the picture, takes over at its first frame
+                };
+                t.Start();
+                return;
+            }
+            if (Fixture.SceneName == "focus") { FocusScene(); return; }        // src/app/LiteView.Focus.cs
+            if (Fixture.SceneName == "sidebuttons") { SideButtonScene(); return; }   // src/app/LiteView.Mouse.cs
+            if (Fixture.SceneName == "settings") { SettingsScene(); return; }  // src/app/LiteView.Settings.cs
+            if (Fixture.SceneName == "clip") { ClipScene(); return; }          // src/app/LiteView.Clips.cs
+            if (Fixture.SceneName == "download") { DownloadScene(); return; }  // src/app/LiteView.Downloads.cs
+            if (Fixture.SceneName == "sidemenu") { SideMenuScene(); return; }  // src/app/LiteView.SideMenu.cs
+            if (Fixture.SceneName == "release") { ReleaseScene(); return; }    // src/app/LiteView.Picture.cs
+            if (Fixture.SceneName == "preview")
+            {   // a hover preview of the first live card (with tests/FakeStreamlink), as if the mouse rested on it
+                var t = new Timer { Interval = 500 }; int waited = 0;
+                t.Tick += (s2, e2) => { waited += 500; if (!browse.PreviewFirst() && waited < 10000) return; t.Stop(); t.Dispose(); };
+                t.Start();
+                return;
+            }
+            if (Fixture.SceneName == "stats")
+            {   // with tests/FakeStreamlink: the stats overlay on the test video, 2 s after its first frame
+                Watch("play_demo");
+                var t = new Timer { Interval = 500 }; int waited = 0;
+                t.Tick += (s2, e2) => { waited += 500; if (firstFrameGen != gen && waited < 15000) return; if (waited < 2000) return; t.Stop(); t.Dispose(); if (!statsOn) ToggleStats(); };
+                t.Start();
+                return;
+            }
             if (Fixture.SceneName == "watch" || Fixture.SceneName == "offline" || Fixture.SceneName == "fail" || Fixture.SceneName == "paused")
             {   // with tests/FakeStreamlink: real mpv with a test video / Streamlink waiting / a failing stream / paused
                 // watch: a made-up live channel, so the status line has its viewers, uptime and title (FakeStreamlink plays any name)
@@ -182,7 +254,6 @@ partial class LiteView
         page.DropDownItems.AddRange(new ToolStripItem[] { pn, pw });
         DarkMenuColors.Apply(page.DropDown);
 
-        var last = Toggle("Open the last channel at start", openLast, v => openLast = v);
         var text = TextSizeMenu();
         var rec = Toggle("Remember watched channels", browse.RememberRecent, v => { browse.RememberRecent = v; if (!v) browse.Recent.Clear(); });
         var srch = Toggle("Remember searches", browse.RememberSearches, v => { browse.RememberSearches = v; if (!v) browse.Searches.Clear(); });
@@ -202,13 +273,10 @@ partial class LiteView
         }
         DarkMenuColors.Apply(quietMenu.DropDown);
 
-        var settings = new ToolStripMenuItem("Settings");
-        settings.DropDownItems.Add("Export settings...", null, (s, e) => ExportSettings());
-        settings.DropDownItems.Add("Import settings...", null, (s, e) => ImportSettings());
-        settings.DropDownItems.Add(new ToolStripSeparator());
-        settings.DropDownItems.Add("Reset favourites, watched channels and searches...", null, (s, e) => ResetLists());
-        settings.DropDownItems.Add("Reset window size and position", null, (s, e) => ResetWindow());
-        settings.DropDownItems.Add("Reset all settings...", null, (s, e) => ResetAll());
+        var dls = new ToolStripMenuItem("Downloads..." + (downloads.Any(d => d.Running) ? "  (" + downloads.Count(d => d.Running) + " running)" : ""));
+        dls.Click += (s, e) => ShowDownloads();   // src/app/LiteView.Downloads.cs
+        var settings = new ToolStripMenuItem("Back up and reset");
+        foreach (var it in BackupItems()) settings.DropDownItems.Add(it);
         DarkMenuColors.Apply(settings.DropDown);
 
         var upd = new ToolStripMenuItem("Check for updates...");
@@ -219,8 +287,10 @@ partial class LiteView
         keys.Click += (s, e) => MessageBox.Show(this, Shortcuts, "Keyboard shortcuts");
 
         appMenu.ShowItemToolTips = true;
-        appMenu.Items.AddRange(new ToolStripItem[] { login, new ToolStripSeparator(), page, last, text, new ToolStripSeparator(), live, quietMenu,
-            new ToolStripSeparator(), rec, srch, clear, new ToolStripSeparator(), PerformanceMenu(), settings, upd, autoUpd, keys });
+        var all = new ToolStripMenuItem("Settings...") { Font = new Font(appMenu.Font, FontStyle.Bold) };
+        all.Click += (s, e) => OpenSettings(null);   // src/app/LiteView.Settings.cs
+        appMenu.Items.AddRange(new ToolStripItem[] { all, login, new ToolStripSeparator(), page, StartMenu(), PlaybackMenu(), ExtraWindowsMenu(), text, AppearanceMenu(), new ToolStripSeparator(), live, quietMenu,
+            new ToolStripSeparator(), rec, srch, clear, new ToolStripSeparator(), dls, PerformanceMenu(), settings, upd, autoUpd, keys });
         AddForkMenuItems(appMenu);
     }
 
@@ -228,7 +298,7 @@ partial class LiteView
     ToolStripMenuItem TextSizeMenu()
     {
         var m = new ToolStripMenuItem("Text size");
-        m.DropDownItems.Add(new ToolStripMenuItem("Following page") { Enabled = false });
+        m.DropDownItems.Add(new ToolStripMenuItem("Following page") { Enabled = false, Tag = "label" });
         for (int i = 0; i < BrowsePage.Zooms.Length; i++)
         {
             float z = BrowsePage.Zooms[i];
@@ -237,12 +307,31 @@ partial class LiteView
             m.DropDownItems.Add(it);
         }
         m.DropDownItems.Add(new ToolStripSeparator());
-        m.DropDownItems.Add(new ToolStripMenuItem("Chat") { Enabled = false });
+        m.DropDownItems.Add(new ToolStripMenuItem("Chat") { Enabled = false, Tag = "label" });
         for (int i = 0; i < ChatPrefs.Sizes.Length; i++)
         {
             int k = i;
             var it = new ToolStripMenuItem("    " + ChatPrefs.SizeNames[i]) { Checked = chatSize == i };
             it.Click += (s, e) => { chatSize = k; nchat.View.SetTextSize(ChatPrefs.Sizes[k]); SaveSettings(); };
+            m.DropDownItems.Add(it);
+        }
+        m.DropDownItems.Add(new ToolStripSeparator());
+        m.DropDownItems.Add(new ToolStripMenuItem("Font") { Enabled = false, Tag = "label" });
+        foreach (var inter in new[] { true, false })
+        {
+            bool k = inter;
+            var it = new ToolStripMenuItem(k ? "    Inter (like Twitch)" : "    Segoe UI (Windows)") { Checked = UiFont.UseInter == k, Enabled = !k || UiFont.Available };
+            if (k && !UiFont.Available) it.ToolTipText = "The font files are missing from the fonts folder";
+            it.Click += (s, e) => { if (UiFont.UseInter == k) return; UiFont.UseInter = k; ApplyFont(); SaveSettings(); };
+            m.DropDownItems.Add(it);
+        }
+        m.DropDownItems.Add(new ToolStripSeparator());
+        m.DropDownItems.Add(new ToolStripMenuItem("Smoothing") { Enabled = false, Tag = "label", ToolTipText = "How the letters' edges are drawn (the chat, the Following page, the followed channels)." });
+        foreach (var sm in UiFont.Smoothings)
+        {
+            string k = sm;
+            var it = new ToolStripMenuItem("    " + UiFont.SmoothingName(k)) { Checked = UiFont.Smoothing == k };
+            it.Click += (s, e) => { if (UiFont.Smoothing == k) return; UiFont.SetSmoothing(k); ApplyFont(); SaveSettings(); Log.Info("font: smoothing " + k); };
             m.DropDownItems.Add(it);
         }
         DarkMenuColors.Apply(m.DropDown);
@@ -251,7 +340,7 @@ partial class LiteView
 
     ToolStripMenuItem Toggle(string text, bool on, Action<bool> set)
     {
-        var it = new ToolStripMenuItem(text) { Checked = on };
+        var it = new ToolStripMenuItem(text) { Checked = on, Tag = "toggle" };   // "toggle": a switch in the Settings window
         it.Click += (s, e) => { set(!on); SaveSettings(); if (!watching) browse.Invalidate(); };
         return it;
     }
@@ -270,6 +359,14 @@ partial class LiteView
         yield return Kv("keepsearches", browse.RememberSearches ? "1" : "0");
         yield return Kv("searches", browse.RememberSearches ? browse.Searches.Save() : "");
         yield return Kv("openlast", openLast ? "1" : "0");
+        yield return Kv("seamless", seamless ? "1" : "0");
+        yield return Kv("previews", browse.Previews ? "1" : "0");
+        yield return Kv("startmin", startMin ? "1" : "0");
+        yield return Kv("sharpness", PicturePreset.Save(sharpness));
+        yield return Kv("clipsecs", clipSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        yield return Kv("theme", themeSaved ?? Theme.Name);
+        yield return Kv("smoothing", UiFont.Smoothing);
+        yield return Kv("totray", toTray ? "1" : "0");
         yield return Kv("pagesize", Array.FindIndex(BrowsePage.Zooms, z => Math.Abs(z - browse.Zoom) < 0.001f).ToString(System.Globalization.CultureInfo.InvariantCulture));
         yield return Kv("notify", notify ? "1" : "0");
         yield return Kv("quiet", quiet);
@@ -277,6 +374,8 @@ partial class LiteView
         yield return Kv("updatechecked", updateChecked);
         foreach (var kv in ChatSettings()) yield return kv;
         foreach (var kv in PerformanceSettings()) yield return kv;
+        foreach (var kv in SideButtonSettings()) yield return kv;   // src/app/LiteView.Mouse.cs
+        foreach (var kv in popOptions.Save()) yield return kv;   // extra windows (src/app/ExtraPlayer.cs)
     }
 
     void LoadForkSettings(Dictionary<string, string> ini)
@@ -292,6 +391,12 @@ partial class LiteView
         browse.Recent.Load(browse.RememberRecent ? Native.Get(ini, "recent", "") : "");
         browse.Searches.Load(browse.RememberSearches ? Native.Get(ini, "searches", "") : "");
         openLast = Native.Get(ini, "openlast", "0") == "1";
+        seamless = Native.Get(ini, "seamless", "1") != "0";
+        browse.Previews = Native.Get(ini, "previews", "1") != "0";
+        startMin = Native.Get(ini, "startmin", "0") == "1";
+        sharpness = PicturePreset.ParseSharpness(Native.Get(ini, "sharpness", "normal"));
+        int cs; clipSeconds = int.TryParse(Native.Get(ini, "clipsecs", "60"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out cs) && Array.IndexOf(ClipChoices, cs) >= 0 ? cs : 60;
+        toTray = Native.Get(ini, "totray", "0") == "1";
         int ps;
         if (int.TryParse(Native.Get(ini, "pagesize", "1"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ps) && ps < BrowsePage.Zooms.Length) browse.Zoom = BrowsePage.Zooms[ps];
         notify = Native.Get(ini, "notify", "0") == "1";
@@ -301,6 +406,8 @@ partial class LiteView
         updateChecked = Native.Get(ini, "updatechecked", "");
         LoadChatSettings(ini);
         LoadPerformanceSettings(ini);
+        LoadSideButtonSettings(ini);
+        popOptions = PopOptions.Load((k, d) => Native.Get(ini, k, d));
     }
 
     static KeyValuePair<string, string> Kv(string k, string v) { return new KeyValuePair<string, string>(k, v); }

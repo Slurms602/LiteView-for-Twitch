@@ -180,6 +180,7 @@ else {
     }
 }
 Get-ChildItem $app -File -Filter '*.ini' | Copy-Item -Destination $Out
+Get-ChildItem $app -File -Filter 'preset-*.png' | Copy-Item -Destination $Out   # the picture-preset comparison (scene presets)
 Note ("logs: " + ((Get-ChildItem $Out -File | Select-Object -ExpandProperty Name) -join ', '))
 Note ($(if ($ok) { 'PASS' } else { 'FAIL' }))
 $report | Set-Content (Join-Path $Out 'result.txt') -Encoding utf8

@@ -30,7 +30,12 @@ partial class LiteView
         "Space  Pause / play (play continues at live)\n" +
         "M  Mute\n" +
         "Ctrl+Up / Ctrl+Down  Volume\n" +
-        "C  Show or hide the chat\n" +
+        "C  Show or hide the chat (in fullscreen: leave it, with the chat)\n" +
+        "Mouse back / forward buttons  Show or hide the chat (menu > Playback: choose what each one does)\n" +
+        "I  Playback stats on the video (codec, decoding, dropped frames, buffer, GPU time, CPU, memory)\n" +
+        "B  The original picture without enhancement, to compare (B again: back)\n" +
+        "Alt+X  Save a clip of the last seconds (Videos\\LiteView Clips)\n" +
+        "Left / Right  A video: back / forward 10 s (or its bar under the picture)\n" +
         "Ctrl+E  Emotes (in the chat box; arrow keys choose, Enter inserts)\n\n" +
         "On the Following page: arrow keys choose, Enter watches, the menu key opens the channel menu.\n" +
         "With the video clicked, mpv's keys apply (double-click or F: fullscreen, M: mute, wheel: volume).";
@@ -43,13 +48,17 @@ partial class LiteView
             bool typing = Typing, plain = !e.Control && !e.Alt && !e.Shift;
             if (e.Control && e.KeyCode == Keys.L) { if (watching) Browse(); search.Focus(); search.SelectAll(); }
             else if (!watching) return;
-            else if (e.KeyCode == Keys.F5 && channel != null) Watch(channel);
+            else if (e.KeyCode == Keys.F5 && channel != null) Replay();
             else if (e.KeyCode == Keys.MediaPlayPause) TogglePause();
+            else if (e.Alt && e.KeyCode == Keys.X) SaveClip();   // src/app/LiteView.Clips.cs
             else if (e.Alt && e.KeyCode == Keys.Left || e.KeyCode == Keys.Back && plain && !typing) Browse();
+            else if ((e.KeyCode == Keys.BrowserBack || e.KeyCode == Keys.BrowserForward) && SideActs(e.KeyCode == Keys.BrowserForward)) SideButton(e.KeyCode == Keys.BrowserForward, "key");   // mouse software's side buttons (src/app/LiteView.Mouse.cs)
             else if (typing) return;
             else if (e.KeyCode == Keys.Space && plain) TogglePause();
-            else if (e.KeyCode == Keys.M && plain) muteBtn.PerformClick();
-            else if (e.KeyCode == Keys.C && plain) chatOn.Checked = !chatOn.Checked;
+            else if (e.KeyCode == Keys.M && plain) ToggleMute();
+            else if (e.KeyCode == Keys.C && plain) ToggleChat();   // src/app/LiteView.Mouse.cs
+            else if (e.KeyCode == Keys.I && plain) ToggleStats();
+            else if (e.KeyCode == Keys.B && plain) ToggleCompare();
             else if (e.Control && e.KeyCode == Keys.Up) { volBar.Set(volBar.Value + 5); SaveSettings(); }
             else if (e.Control && e.KeyCode == Keys.Down) { volBar.Set(volBar.Value - 5); SaveSettings(); }
             else return;
@@ -75,25 +84,9 @@ partial class LiteView
     void ApplyNotify()
     {
         notifyTimer.Enabled = notify;
-        if (notify && tray == null)
-        {
-            tray = new NotifyIcon { Icon = Icon ?? SystemIcons.Application, Text = "LiteView - notifies when favourites go live", Visible = true };
-            tray.BalloonTipClicked += (s, e) => { ShowWindow(); if (notifyLogin != null) Watch(notifyLogin); };
-            tray.DoubleClick += (s, e) => ShowWindow();
-            var m = new ContextMenuStrip(); DarkMenuColors.Apply(m); m.ShowImageMargin = false;
-            m.Items.Add("Open LiteView", null, (s, e) => ShowWindow());
-            m.Items.Add("Turn off live notifications", null, (s, e) => { notify = false; ApplyNotify(); SaveSettings(); });
-            tray.ContextMenuStrip = m;
-        }
-        else if (!notify && tray != null) { tray.Visible = false; tray.Dispose(); tray = null; }
+        UpdateTray();   // src/app/LiteView.Startup.cs: also there for "minimise to the tray"
         if (!notify) favWatch.Reset();
         else CheckFavourites();
-    }
-
-    void ShowWindow()
-    {
-        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-        Activate();
     }
 
     async void CheckFavourites()
@@ -183,6 +176,7 @@ partial class LiteView
             "Reset all settings", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
         try { File.Delete(iniPath); File.Delete(iniPath + ".bak"); }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { ShowProblem("Could not reset the settings", ex.Message, null); return; }
+        if (StartsWithWindows()) SetStartWithWindows(false);   // part of the settings, though kept in the registry
         Log.Info("settings reset");
         RestartWithoutSaving();
     }

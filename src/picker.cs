@@ -14,7 +14,7 @@ partial class EmotePicker : Control   // fork: partial (keyboard and screen read
     public event Action<string> Picked;
     public event Action HintClicked, Closed;
     public string Hint;
-    static readonly Color Bg = Color.FromArgb(31, 31, 35), HoverC = Color.FromArgb(53, 53, 59), Line = Color.FromArgb(53, 53, 59);
+    static readonly Color Bg = Theme.Side, HoverC = Theme.Line, Line = Theme.Line;   // fork: themes (src/app/Theme.cs)
     static readonly Font FHead = new Font("Segoe UI Semibold", 8.75f), FHint = new Font("Segoe UI", 9f);
     const int Cw = 40, Ch = 38, Hh = 26, Top0 = 46;
 
@@ -28,7 +28,7 @@ partial class EmotePicker : Control   // fork: partial (keyboard and screen read
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         BackColor = Bg;
-        Search.BorderStyle = BorderStyle.FixedSingle; Search.BackColor = Color.FromArgb(38, 38, 44); Search.ForeColor = ChatView.Fg; Search.Font = new Font("Segoe UI", 10f);
+        Search.BorderStyle = BorderStyle.FixedSingle; Search.BackColor = Theme.Hover; Search.ForeColor = ChatView.Fg; Search.Font = new Font("Segoe UI", 10f);
         Search.Location = new Point(10, 10); Search.Width = 200; Search.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         Search.HandleCreated += (s, e) => SendMessage(Search.Handle, 0x1501, (IntPtr)1, "Search emotes");
         Search.TextChanged += (s, e) => { top = 0; Build(); Invalidate(); };

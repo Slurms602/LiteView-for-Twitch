@@ -34,19 +34,19 @@ static class Txt
         f.FormatFlags |= StringFormatFlags.NoWrap; f.Trimming = StringTrimming.EllipsisCharacter; f.Alignment = a; f.LineAlignment = StringAlignment.Center;
         return f;
     }
-    public static Graphics Prep(Graphics g) { g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit; return g; }
+    public static Graphics Prep(Graphics g) { g.TextRenderingHint = UiFont.Hint; return g; }   // fork: ClearType when Windows uses it (src/app/UiFont.cs)
     public static SolidBrush Brush(Color c)
     {
         SolidBrush b; int k = c.ToArgb();
         if (!brushes.TryGetValue(k, out b)) { b = new SolidBrush(c); brushes[k] = b; }
         return b;
     }
-    public static int Width(string s, Font f) { lock (mg) return (int)Math.Round(mg.MeasureString(s, f, PointF.Empty, Typo).Width); }
+    public static int Width(string s, Font f) { lock (mg) { if (mg.TextRenderingHint != UiFont.Hint) Prep(mg); return (int)Math.Round(mg.MeasureString(s, UiFont.For(f, s), PointF.Empty, Typo).Width); } }   // fork: UiFont.For = Segoe UI for what Inter lacks
     public static int Height(Font f) { lock (mg) return (int)Math.Ceiling(f.GetHeight(mg)); }
-    public static void At(Graphics g, string s, Font f, Color c, int x, int y) { Prep(g).DrawString(s, f, Brush(c), x, y, Typo); }
+    public static void At(Graphics g, string s, Font f, Color c, int x, int y) { var u = UiFont.For(f, s); Prep(g).DrawString(s, u, Brush(c), x, y + UiFont.Shift(f, u), Typo); }   // fork: Segoe UI words on Inter's baseline
     // one line in a box, vertically centred, "..." when it does not fit
-    public static void In(Graphics g, string s, Font f, Color c, Rectangle r, bool centred) { Prep(g).DrawString(s, f, Brush(c), r, centred ? center : clip); }
-    public static void Wrap(Graphics g, string s, Font f, Color c, Rectangle r) { Prep(g).DrawString(s, f, Brush(c), r, wrap); }
+    public static void In(Graphics g, string s, Font f, Color c, Rectangle r, bool centred) { Prep(g).DrawString(s, UiFont.For(f, s), Brush(c), r, centred ? center : clip); }
+    public static void Wrap(Graphics g, string s, Font f, Color c, Rectangle r) { Prep(g).DrawString(s, UiFont.For(f, s), Brush(c), r, wrap); }
 }
 
 // One emote or badge image
@@ -76,9 +76,10 @@ static class Images
     // Decoded frames are kept within a memory budget (upstream kept every emote ever seen, forever).
     // The budget is only touched on the UI thread, which is also the only thread that draws frames.
     public static long BudgetBytes = 128L * 1024 * 1024;
+    public static DiskCache Cache;   // fork: emote and badge pictures on disk (null: none)
     static readonly ByteBudget<Emote> budget = new ByteBudget<Emote>(BudgetBytes);
     static readonly Stopwatch clock = Stopwatch.StartNew();
-    static int evicted, refused;
+    static int evicted, refused, fromCache;
     public static long Clock { get { return clock.ElapsedMilliseconds; } }
 
     /// <summary>Marks an emote as drawn now (UI thread).</summary>
@@ -102,7 +103,7 @@ static class Images
     public static string Stats()
     {
         int n; lock (byUrl) n = byUrl.Count;
-        return n + " known, " + budget.Count + " decoded, " + (budget.Total / (1024 * 1024)) + " of " + (BudgetBytes / (1024 * 1024)) + " MB, " + evicted + " freed, " + refused + " refused";
+        return n + " known, " + budget.Count + " decoded, " + (budget.Total / (1024 * 1024)) + " of " + (BudgetBytes / (1024 * 1024)) + " MB, " + evicted + " freed, " + refused + " refused, " + fromCache + " from disk";   // fork: from disk (src/core/DiskCache.cs)
     }
 
     public static Emote Get(string url, string name, int w, int h, int fixedH)
@@ -137,9 +138,19 @@ static class Images
             await gate.WaitAsync();
             try
             {
-                var bytes = await Tw.GetBytes(e.Url, EmoteLimits.MaxDownloadBytes);
-                if (bytes == null || !ImageSniff.Acceptable(bytes)) { Interlocked.Increment(ref refused); e.State = 3; }
-                else { Decode(e, bytes); e.State = 2; }
+                var cache = Cache;   // fork: kept on disk between runs (src/core/DiskCache.cs), checked again like a download
+                var kept = cache != null ? cache.Read(e.Url) : null;
+                if (kept != null && ImageSniff.Acceptable(kept))
+                {
+                    try { Decode(e, kept); e.State = 2; Interlocked.Increment(ref fromCache); }
+                    catch (Exception) { cache.Remove(e.Url); }   // a kept copy that does not decode: forgotten, downloaded again
+                }
+                if (e.State != 2)
+                {
+                    var bytes = await Tw.GetBytes(e.Url, EmoteLimits.MaxDownloadBytes);
+                    if (bytes == null || !ImageSniff.Acceptable(bytes)) { Interlocked.Increment(ref refused); e.State = 3; }
+                    else { Decode(e, bytes); e.State = 2; if (cache != null) cache.Write(e.Url, bytes); }
+                }
             }
             catch { e.State = 3; }
             finally { gate.Release(); }
@@ -188,7 +199,7 @@ static class Images
 // IrcMsg (one parsed IRC line) moved to src/core/IrcMsg.cs, unchanged in use, so it is unit tested.
 
 // A piece of a chat line: 0 word, 1 emote, 2 badge, 3 name, 4 link, 5 @mention, 6 dim word
-class Piece { public byte Kind; public string Text; public Emote E; public Color C; }
+class Piece { public byte Kind; public string Text; public Emote E; public Color C; public bool Glue; }   // fork: Kind 8 = an emoji in colour (src/app/ColorEmoji.cs); Glue = no space after (a word split around an emoji)
 class Place { public Rectangle R; public Piece P; public int Last = -1; }
 
 class Msg
@@ -202,11 +213,11 @@ class Msg
 }
 
 // The message list: lays out and draws chat lines like Twitch (Segoe UI 13 px, 20 px lines).
-class ChatView : Control
+partial class ChatView : Control   // fork: partial (src/app/ColorEmoji.cs)
 {
-    public static readonly Color Bg = Color.FromArgb(24, 24, 27), Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184),
-        MentionBg = Color.FromArgb(62, 22, 26), NoticeBg = Color.FromArgb(31, 31, 35), Accent = Color.FromArgb(145, 71, 255), LinkC = Color.FromArgb(191, 148, 255);
-    static Font F = new Font("Segoe UI", 9.75f), FB = new Font("Segoe UI Semibold", 9.75f), FS = new Font("Segoe UI", 8.75f);   // fork: SetTextSize
+    public static readonly Color Bg = Theme.Panel, Fg = Theme.Text, Dim = Theme.Dim,   // fork: themes (src/app/Theme.cs)
+        MentionBg = Theme.Mention, NoticeBg = Theme.Notice, Accent = Theme.Accent, LinkC = Theme.AccentText;
+    static Font F = UiFont.New(FontKind.Text, 9.75f), FB = UiFont.New(FontKind.Bold, 9.75f), FS = UiFont.New(FontKind.Text, 8.75f);   // fork: SetTextSize, UiFont (Inter like Twitch, or Segoe UI)
     public readonly List<Msg> Msgs = new List<Msg>();
     public event Action<string> NameClicked;
     public event Action<Msg, Point> MessageMenu;   // fork: right-click on a message (src/app/ChatReply.cs)
@@ -247,8 +258,8 @@ class ChatView : Control
     // fork (chat text size, src/app/LiteView.Chat.cs): new fonts, then every message is laid out again
     public void SetTextSize(float pt)
     {
-        if (Math.Abs(F.Size - pt) < 0.01f) return;
-        F = new Font("Segoe UI", pt); FB = new Font("Segoe UI Semibold", pt); FS = new Font("Segoe UI", pt - 1f);
+        if (Math.Abs(F.Size - pt) < 0.01f && UiFont.On == (F.Name != "Segoe UI")) return;
+        F = UiFont.New(FontKind.Text, pt); FB = UiFont.New(FontKind.Bold, pt); FS = UiFont.New(FontKind.Text, pt - 1f);
         widths.Clear();
         spaceW = Txt.Width("x x", F) - Txt.Width("xx", F);
         textH = Txt.Height(F);
@@ -304,7 +315,7 @@ class ChatView : Control
         m.LW = W; m.Places = new List<Place>(); m.Dynamic = false;
         m.Shown = m.Deleted ? m.P.Where(p => p.Kind == 2 || p.Kind == 3).Concat(new[] { new Piece { Kind = 6, Text = "<message deleted>", C = Dim } }).ToList() : m.P;
         int x0 = m.Style == 2 ? 14 : 10, right = W - 10, y = 5;
-        if (m.Reply != null) { m.Places.Add(new Place { R = new Rectangle(x0, y, right - x0, 16), P = new Piece { Kind = 7, Text = m.Reply, C = Dim } }); y += 18; }
+        if (m.Reply != null) { int rh = Txt.Height(FS) + 1; m.Places.Add(new Place { R = new Rectangle(x0, y, right - x0, rh), P = new Piece { Kind = 7, Text = m.Reply, C = Dim } }); y += rh + 2; }   // fork: the line's height follows the text size (a box lower than the text drew nothing)
         var lines = new List<List<Place>>(); var line = new List<Place>(); int x = x0;
         Place prevEmote = null;
         foreach (var p0 in m.Shown)
@@ -322,9 +333,10 @@ class ChatView : Control
                     line.Add(new Place { R = new Rectangle(r.X + (r.Width - w) / 2, 0, w, h), P = p }); continue;
                 }
             }
+            else if (p.Kind == 8 && EmojiSize(p.Text, out w, out h)) { }   // fork: a colour emoji's picture
             else { w = Measure(p.Text, FontOf(p)); h = textH; }
             if (x + w > right && x > x0) { lines.Add(line); line = new List<Place>(); x = x0; }
-            if (w > right - x0 && p.Kind != 1 && p.Kind != 2)
+            if (w > right - x0 && p.Kind != 1 && p.Kind != 2 && p.Kind != 8)
             {   // a very long word: break it over lines
                 string rest = p.Text;
                 while (rest.Length > 0)
@@ -335,14 +347,14 @@ class ChatView : Control
                     line.Add(new Place { R = new Rectangle(x, 0, Measure(q.Text, F), h), P = q });
                     rest = rest.Substring(n);
                     if (rest.Length > 0) { lines.Add(line); line = new List<Place>(); x = x0; }
-                    else x += Measure(q.Text, F) + spaceW;
+                    else x += Measure(q.Text, F) + (p.Glue ? 0 : spaceW);   // fork: Glue (an emoji follows)
                 }
                 prevEmote = null; continue;
             }
             var pl = new Place { R = new Rectangle(x, 0, w, h), P = p };
             line.Add(pl);
             prevEmote = p.Kind == 1 ? pl : null;
-            x += w + (p.Kind == 2 ? 3 : p.Kind == 3 && p.Text.EndsWith(":") ? spaceW : p.Kind == 3 ? spaceW : spaceW);
+            x += w + (p.Glue ? 0 : p.Kind == 2 ? 3 : p.Kind == 3 && p.Text.EndsWith(":") ? spaceW : p.Kind == 3 ? spaceW : spaceW);
         }
         if (line.Count > 0) lines.Add(line);
         foreach (var l in lines)
@@ -365,7 +377,7 @@ class ChatView : Control
         {
             g.Clear(bg);
             if (m.Style == 2) using (var br = new SolidBrush(Accent)) g.FillRectangle(br, 0, 0, 4, m.H);
-            if (m.Style == 1) using (var br = new SolidBrush(Color.FromArgb(235, 4, 0))) g.FillRectangle(br, 0, 0, 3, m.H);
+            if (m.Style == 1) using (var br = new SolidBrush(Theme.Live)) g.FillRectangle(br, 0, 0, 3, m.H);
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
             foreach (var pl in m.Places)
             {
@@ -377,6 +389,7 @@ class ChatView : Control
                 }
                 else if (p.Kind == 7)
                     Txt.In(g, "↳ " + p.Text, FS, Dim, pl.R, false);
+                else if (p.Kind == 8 && DrawEmoji(g, p.Text, pl.R)) { }   // fork: a colour emoji
                 else
                 {
                     Txt.At(g, p.Text, FontOf(p), p.Kind == 4 ? LinkC : p.C, pl.R.X, pl.R.Y);
@@ -421,7 +434,7 @@ class ChatView : Control
             string t = "⏸  Chat paused due to scroll";
             int tw = Txt.Width(t, FB);
             pausedBox = new Rectangle((ClientSize.Width - tw - 28) / 2, ClientSize.Height - 44, tw + 28, 32);
-            using (var br = new SolidBrush(Color.FromArgb(230, 14, 14, 16))) g.FillRectangle(br, pausedBox);
+            using (var br = new SolidBrush(Color.FromArgb(230, Theme.Page))) g.FillRectangle(br, pausedBox);
             Txt.In(g, t, FB, Fg, pausedBox, true);
         }
         else pausedBox = Rectangle.Empty;
@@ -500,7 +513,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
 {
     public readonly ChatView View = new ChatView();
     readonly Panel head = new Panel(), foot = new Panel();
-    static readonly Font HeadFont = new Font("Segoe UI Semibold", 9f);
+    static Font HeadFont { get { return UiFont.Get(FontKind.Semi, 9f); } }   // fork: UiFont
     readonly Button gear = new Button();
     readonly TextBox input = new TextBox();
     readonly LinkLabel loginLink = new LinkLabel();
@@ -538,19 +551,19 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         BackColor = ChatView.Bg;
         head.Dock = DockStyle.Top; head.Height = 38; head.BackColor = ChatView.Bg;
         gear.Text = ""; gear.Font = new Font("Segoe MDL2 Assets", 10f); gear.FlatStyle = FlatStyle.Flat; gear.FlatAppearance.BorderSize = 0;
-        gear.FlatAppearance.MouseOverBackColor = Color.FromArgb(38, 38, 44); gear.ForeColor = ChatView.Fg; gear.Width = 34; gear.Dock = DockStyle.Right; gear.Cursor = Cursors.Hand;
+        gear.FlatAppearance.MouseOverBackColor = Theme.Hover; gear.ForeColor = ChatView.Fg; gear.Width = 34; gear.Dock = DockStyle.Right; gear.Cursor = Cursors.Hand;
         gear.Click += (s, e) => Menu.Show(gear, new Point(gear.Width - Menu.Width, gear.Height));
         Menu.Renderer = new ToolStripProfessionalRenderer(new DarkColors()); Menu.ForeColor = ChatView.Fg; Menu.ShowImageMargin = false;
         head.Controls.Add(gear);
         head.Paint += (s, e) =>
         {
-            using (var p = new Pen(Color.FromArgb(53, 53, 59))) e.Graphics.DrawLine(p, 0, head.Height - 1, head.Width, head.Height - 1);
-            Txt.In(e.Graphics, "STREAM CHAT", HeadFont, ChatView.Fg, new Rectangle(gear.Width, 0, head.Width - 2 * gear.Width, head.Height - 1), true);
+            using (var p = new Pen(Theme.Line)) e.Graphics.DrawLine(p, 0, head.Height - 1, head.Width, head.Height - 1);
+            Txt.In(e.Graphics, replay ? "CHAT REPLAY" : "STREAM CHAT", HeadFont, ChatView.Fg, new Rectangle(gear.Width, 0, head.Width - 2 * gear.Width, head.Height - 1), true);   // fork: replay (src/app/ChatReplayPanel.cs)
         };
         head.Resize += (s, e) => head.Invalidate();
 
         foot.Dock = DockStyle.Bottom; foot.Height = 50; foot.BackColor = ChatView.Bg; foot.Padding = new Padding(10, 8, 10, 10);
-        input.BorderStyle = BorderStyle.FixedSingle; input.BackColor = Color.FromArgb(38, 38, 44); input.ForeColor = ChatView.Fg; input.Font = new Font("Segoe UI", 10.5f);
+        input.BorderStyle = BorderStyle.FixedSingle; input.BackColor = Theme.Hover; input.ForeColor = ChatView.Fg; input.Font = new Font("Segoe UI", 10.5f);
         input.Dock = DockStyle.Fill; input.MaxLength = 500;
         input.HandleCreated += (s, e) => SendMessage(input.Handle, 0x1501, (IntPtr)1, "Send a message");
         input.PreviewKeyDown += (s, e) => { if (e.KeyCode == Keys.Tab) e.IsInputKey = true; };
@@ -559,7 +572,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         loginLink.TextAlign = ContentAlignment.MiddleCenter; loginLink.LinkBehavior = LinkBehavior.HoverUnderline;
         loginLink.LinkClicked += (s, e) => { if (LoginRequested != null) LoginRequested(); };
         emoteBtn.Text = ""; emoteBtn.Font = new Font("Segoe MDL2 Assets", 11f); emoteBtn.FlatStyle = FlatStyle.Flat; emoteBtn.FlatAppearance.BorderSize = 0;
-        emoteBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(53, 53, 59); emoteBtn.BackColor = Color.FromArgb(38, 38, 44); emoteBtn.ForeColor = ChatView.Fg;
+        emoteBtn.FlatAppearance.MouseOverBackColor = Theme.Line; emoteBtn.BackColor = Theme.Hover; emoteBtn.ForeColor = ChatView.Fg;
         emoteBtn.Width = 32; emoteBtn.Dock = DockStyle.Right; emoteBtn.Cursor = Cursors.Hand; emoteBtn.TabStop = false;
         emoteBtn.Click += (s, e) => TogglePicker();
         new ToolTip().SetToolTip(emoteBtn, "Emotes");
@@ -576,7 +589,8 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         irc.Status += s => inbox.Enqueue(Sys(s));
         drain.Tick += (s, e) => Drain();
         // a decoded image is counted in the frame budget when it arrives, even if it is never drawn
-        Images.Loaded += e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { Images.Used(e); Images.Trim(); View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
+        imageLoaded = e => { try { if (IsHandleCreated) BeginInvoke((Action)(() => { Images.Used(e); Images.Trim(); View.OnImage(e); if (picker.Visible) picker.Invalidate(); })); } catch { } };
+        Images.Loaded += imageLoaded;   // fork: kept, so a closed extra window's chat lets go of it (src/app/ChatReply.cs)
         InitPickerAccess(); InitReply();   // fork: the emote picker by keyboard (src/app/PickerAccess.cs), replies (src/app/ChatReply.cs)
         UpdateLogin();
     }
@@ -589,7 +603,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
     public void UpdateLogin()
     {
         // logged in, out or as someone else since the chat connected: reconnect as the current account
-        if (channel != null && drain.Enabled && joinedAs != Tw.Login) { Reconnect(); return; }
+        if (channel != null && drain.Enabled && joinedAs != Tw.Login && !replay) { Reconnect(); return; }   // fork: a chat replay has no connection to redo
         bool can = Tw.Token != null && Tw.Login != null;   // a validated session (not a token kept while Twitch was unreachable)
         input.Visible = emoteBtn.Visible = can; loginLink.Visible = !can;
         if (!can) picker.Visible = false;
@@ -600,7 +614,8 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
 
     public void Join(string ch)
     {
-        if (ch == channel && drain.Enabled) return;
+        if (ch == channel && drain.Enabled && !replay) return;
+        EndReplay();   // fork: from a past broadcast's chat replay to the live chat (src/app/ChatReplayPanel.cs)
         channel = ch; roomId = null; badges = new Dictionary<string, Emote>(); third = globals ?? new Dictionary<string, Emote>();
         channelSets = new List<KeyValuePair<string, List<Named>>>(); RefreshPicker();
         View.Clear(); Msg dummy; while (inbox.TryDequeue(out dummy)) { }
@@ -614,9 +629,9 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         LoadGlobals();
     }
 
-    public void Part() { irc.Stop(); drain.Stop(); StopHistory(); CancelReply(); channel = null; View.Clear(); }
+    public void Part() { irc.Stop(); drain.Stop(); StopHistory(); CancelReply(); EndReplay(); channel = null; View.Clear(); }   // fork: EndReplay
 
-    public void Reconnect() { if (channel != null) { var c = channel; channel = null; Join(c); } }
+    public void Reconnect() { if (channel != null && !replay) { var c = channel; channel = null; Join(c); } }   // fork: not in a chat replay (src/app/ChatReplayPanel.cs)
 
     // ---------- emotes and badges ----------
     void LoadGlobals()
@@ -894,10 +909,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
         Color c;
         try { c = ColorTranslator.FromHtml(string.IsNullOrEmpty(hex) ? DefaultColors[(int)((uint)(login ?? "").GetHashCode() % DefaultColors.Length)] : hex); }
         catch { c = ChatView.Fg; }
-        // readable on the dark background, like Twitch's own colour adjustment
-        double l = (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255;
-        if (l < 0.35) { double k = (0.35 - l) / 0.35 * 0.6 + 0.25; c = Color.FromArgb((int)(c.R + (255 - c.R) * k), (int)(c.G + (255 - c.G) * k), (int)(c.B + (255 - c.B) * k)); }
-        return c;
+        return Theme.Readable(c);   // fork: readable on the theme's background, like Twitch's own colour adjustment (src/app/Theme.cs)
     }
 
     Msg Build(IrcMsg im, string text, string login)
@@ -964,6 +976,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             pos = r.Value;
         }
         Words(m, text.Substring(pos), tc, login == Tw.Login && login != null && im.Tag("emotes") == null);
+        if (rp != null) DropReplyMention(m, rp, im.Tag("reply-parent-user-login"));   // fork: like Twitch, a reply does not repeat "@name" (src/app/ChatReply.cs)
         if (Tw.Login != null && login != Tw.Login && Regex.IsMatch(text, @"(^|\W)@?" + Regex.Escape(Tw.Login) + @"(\W|$)", RegexOptions.IgnoreCase)) m.Style = 1;
         if (m.Reply != null && Tw.Login != null && im.Tag("reply-parent-user-login") == Tw.Login && login != Tw.Login) m.Style = 1;
         if (m.Style == 0 && login != null && login != Tw.Login && ChatPrefs.Filter.Highlights(text)) m.Style = 1;   // fork: highlight words
@@ -981,7 +994,7 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
             else if (own && twitchEmotes.TryGetValue(w, out id))
                 m.P.Add(new Piece { Kind = 1, E = Images.Get("https://static-cdn.jtvnw.net/emoticons/v2/" + id + "/default/dark/1.0", w, 28, 28, 0) });
             else if (w.Length > 4 && w.IndexOf('.') > 0 && UrlRx.IsMatch(w)) m.P.Add(new Piece { Kind = 4, Text = w });
-            else m.P.Add(new Piece { Kind = (byte)(w[0] == '@' && w.Length > 1 ? 5 : 0), Text = w, C = tc });
+            else AddWord(m, w, (byte)(w[0] == '@' && w.Length > 1 ? 5 : 0), tc);   // fork: emoji in colour (src/app/ColorEmoji.cs)
         }
     }
 
@@ -1044,13 +1057,13 @@ partial class ChatPanel : Panel   // fork: partial for the chat history (src/app
 
     class DarkColors : ProfessionalColorTable
     {
-        public override Color ToolStripDropDownBackground { get { return Color.FromArgb(31, 31, 35); } }
-        public override Color MenuItemSelected { get { return Color.FromArgb(53, 53, 59); } }
-        public override Color MenuItemBorder { get { return Color.FromArgb(53, 53, 59); } }
-        public override Color MenuBorder { get { return Color.FromArgb(53, 53, 59); } }
-        public override Color ImageMarginGradientBegin { get { return Color.FromArgb(31, 31, 35); } }
-        public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(31, 31, 35); } }
-        public override Color ImageMarginGradientEnd { get { return Color.FromArgb(31, 31, 35); } }
-        public override Color SeparatorDark { get { return Color.FromArgb(53, 53, 59); } }
+        public override Color ToolStripDropDownBackground { get { return Theme.Side; } }   // fork: themes
+        public override Color MenuItemSelected { get { return Theme.Line; } }
+        public override Color MenuItemBorder { get { return Theme.Line; } }
+        public override Color MenuBorder { get { return Theme.Line; } }
+        public override Color ImageMarginGradientBegin { get { return Theme.Side; } }
+        public override Color ImageMarginGradientMiddle { get { return Theme.Side; } }
+        public override Color ImageMarginGradientEnd { get { return Theme.Side; } }
+        public override Color SeparatorDark { get { return Theme.Line; } }
     }
 }

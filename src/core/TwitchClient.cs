@@ -231,6 +231,38 @@ namespace LiteViewCore
             return null;
         }
 
+        /// <summary>
+        /// A chat replay request to Twitch's website API (src/core/ChatReplay.cs): POSTed to the fixed GqlUrl with the
+        /// website's public client id and no token (anonymous), at most MaxJsonBytes back, one deadline. Null on failure.
+        /// </summary>
+        public async Task<object?> Gql(string body)
+        {
+            using (var cts = new CancellationTokenSource(DownloadTimeout))
+            {
+                try
+                {
+                    using (var rq = new HttpRequestMessage(HttpMethod.Post, ChatReplay.GqlUrl))
+                    {
+                        rq.Headers.Add("Client-Id", ChatReplay.WebClientId);
+                        rq.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                        using (var r = await http.SendAsync(rq, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false))
+                        using (cts.Token.Register(() => { try { r.Dispose(); } catch (Exception) { } }))
+                        {
+                            if (!r.IsSuccessStatusCode) return null;
+                            long? len = r.Content.Headers.ContentLength;
+                            if (len.HasValue && len.Value > MaxJsonBytes) return null;
+                            using (var st = await r.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                            {
+                                var b = await Bounded.ReadAllAsync(st, MaxJsonBytes, cts.Token).ConfigureAwait(false);
+                                return b == null ? null : Json.Parse(Encoding.UTF8.GetString(b));
+                            }
+                        }
+                    }
+                }
+                catch (Exception) { return null; }
+            }
+        }
+
         /// <summary>JSON from the emote services: only their API hosts over https, at most MaxJsonBytes.</summary>
         public async Task<string?> Get(string url)
         {

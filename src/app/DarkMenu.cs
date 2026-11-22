@@ -4,7 +4,7 @@ using System.Windows.Forms;
 
 sealed class DarkMenuColors : ProfessionalColorTable
 {
-    static readonly Color Back = Color.FromArgb(31, 31, 35), Line = Color.FromArgb(53, 53, 59);
+    static readonly Color Back = Theme.Side, Line = Theme.Line;
     public override Color ToolStripDropDownBackground { get { return Back; } }
     public override Color MenuItemSelected { get { return Line; } }
     public override Color MenuItemBorder { get { return Line; } }
@@ -20,6 +20,6 @@ sealed class DarkMenuColors : ProfessionalColorTable
     public static void Apply(ToolStrip menu)
     {
         menu.Renderer = new ToolStripProfessionalRenderer(new DarkMenuColors());
-        menu.ForeColor = Color.FromArgb(239, 239, 241);
+        menu.ForeColor = Theme.Text;
     }
 }

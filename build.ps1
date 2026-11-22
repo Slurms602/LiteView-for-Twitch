@@ -72,6 +72,8 @@ if (-not (Get-ChildItem "$out\twitch\streamlink" -Recurse -Filter streamlinkw.ex
 if (-not (Test-Path "$out\twitch\mpv\mpv.exe")) { throw 'mpv.exe missing after unpacking' }
 Copy-Item "$root\config\mpv" "$out\twitch\mpv\portable_config" -Recurse
 Set-Content "$out\twitch\mpv\portable_config\screen.conf" '' -Encoding ascii
+Copy-Item "$root\config\fonts" "$out\fonts" -Recurse
+if (-not (Test-Path "$out\fonts\Inter-Regular.ttf")) { throw 'fonts\Inter-Regular.ttf missing' }
 Copy-Item "$root\config\gamefirst.ini", "$root\README.md", "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md", "$root\CHANGELOG.md" $out
 
 # A token, settings or log must never end up in a release

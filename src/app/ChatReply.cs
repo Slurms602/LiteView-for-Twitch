@@ -21,7 +21,7 @@ partial class ChatPanel
 
     void InitReply()
     {
-        replyBar.Dock = DockStyle.Bottom; replyBar.Height = 26; replyBar.BackColor = Color.FromArgb(31, 31, 35); replyBar.Padding = new Padding(10, 4, 4, 0); replyBar.Visible = false;
+        replyBar.Dock = DockStyle.Bottom; replyBar.Height = 26; replyBar.BackColor = Theme.Side; replyBar.Padding = new Padding(10, 4, 4, 0); replyBar.Visible = false;
         replyText.Dock = DockStyle.Fill; replyText.ForeColor = ChatView.Dim; replyText.AutoEllipsis = true; replyText.Font = new Font("Segoe UI", 9f); replyText.TextAlign = ContentAlignment.MiddleLeft;
         replyClose.Dock = DockStyle.Right; replyClose.Width = 26; replyClose.FlatStyle = FlatStyle.Flat; replyClose.FlatAppearance.BorderSize = 0; replyClose.ForeColor = ChatView.Fg;
         replyClose.Text = ((char)0xE711).ToString(); replyClose.Font = new Font("Segoe MDL2 Assets", 8f); replyClose.AccessibleName = "Cancel the reply"; replyClose.TabStop = false;
@@ -55,8 +55,16 @@ partial class ChatPanel
     // the words of a message as typed: names, badges and the timestamp left out, emotes by name
     static string Body(Msg m)
     {
-        return string.Join(" ", m.P.Where(p => p.Kind == 0 || p.Kind == 1 || p.Kind == 4 || p.Kind == 5).Select(p => p.Kind == 1 ? (p.E != null ? p.E.Name : "") : p.Text)
-            .Where(t => !string.IsNullOrEmpty(t))).Trim();
+        var sb = new System.Text.StringBuilder();
+        foreach (var p in m.P)
+        {
+            if (p.Kind != 0 && p.Kind != 1 && p.Kind != 4 && p.Kind != 5 && p.Kind != 8) continue;
+            string t = p.Kind == 1 ? (p.E != null ? p.E.Name : "") : p.Text;
+            if (string.IsNullOrEmpty(t)) continue;
+            sb.Append(t);
+            if (!p.Glue) sb.Append(' ');   // a word split around an emoji stays one word
+        }
+        return sb.ToString().Trim();
     }
 
     static void Copy(string text) { try { Clipboard.SetText(text); } catch (System.Runtime.InteropServices.ExternalException) { } }
@@ -108,6 +116,16 @@ partial class ChatPanel
         return entry;
     }
 
+    // a received reply starts with "@name " of the person it answers; Twitch's chat leaves that out (the "Replying to" line
+    // above says it), unless it is the whole message
+    static void DropReplyMention(Msg m, string display, string login)
+    {
+        int i = m.P.FindIndex(p => p.Kind != 6 && p.Kind != 2 && p.Kind != 3);
+        if (i < 0 || i == m.P.Count - 1 || m.P[i].Kind != 5) return;
+        string t = m.P[i].Text.Substring(1);
+        if (t.Equals(display, StringComparison.OrdinalIgnoreCase) || (login != null && t.Equals(login, StringComparison.OrdinalIgnoreCase))) m.P.RemoveAt(i);
+    }
+
     // IRC thread: our own message as Twitch confirmed it (USERSTATE), with its "Replying to" line when it was a reply
     Msg Echo(IrcMsg im, string entry)
     {
@@ -115,5 +133,32 @@ partial class ChatPanel
         var m = Build(im, cut < 0 ? entry : entry.Substring(0, cut), Tw.Login);
         if (m != null && cut >= 0) m.Reply = entry.Substring(cut + 1);
         return m;
+    }
+}
+
+// the chat's own controls (GDI) in the chosen font (UiFont.ForControls; the window's font setting)
+partial class ChatPanel
+{
+    /// <summary>UI fixture (CI): the keyboard in the chat box.</summary>
+    public void FixtureFocusInput() { if (input.Visible) input.Focus(); else { input.Visible = true; input.Focus(); } }
+
+    public void SetControlFonts()
+    {
+        input.Font = UiFont.ForControls(FontKind.Text, 10.5f);
+        replyText.Font = UiFont.ForControls(FontKind.Text, 9f);
+        loginLink.Font = UiFont.ForControls(FontKind.Text, 9.5f);
+        head.Invalidate();
+    }
+}
+
+// a chat that closes (an extra window's) stops hearing about images
+partial class ChatPanel
+{
+    Action<Emote> imageLoaded;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && imageLoaded != null) { Images.Loaded -= imageLoaded; imageLoaded = null; }
+        base.Dispose(disposing);
     }
 }

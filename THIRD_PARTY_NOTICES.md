@@ -13,8 +13,9 @@ licence; the LiteView source code itself (src/, tests/, tools/, build.ps1, confi
 | FSRCNNX (`FSRCNNX_x2_8-0-4-1_any.glsl`, `FSRCNNX_x2_16-0-4-1_any.glsl`) by igv | 1.1 | GPL-3.0 | https://github.com/igv/FSRCNN-TensorFlow (the `_any` copies only change the minimum upscale factor from 1.3 to 1.0) |
 | KrigBilateral (`KrigBilateral.glsl`) by igv | - | LGPL-3.0 | https://gist.github.com/igv/a015fc885d5c22e6891820ad89555637 |
 | SSimDownscaler (`SSimDownscaler.glsl`) by igv | - | LGPL-3.0 | https://gist.github.com/igv/36508af3ffc84410fe39761d6969be10 |
-| NLMeans (`nlmeans_sharpen_denoise.glsl`) by an3223 | - | LGPL-3.0 | https://github.com/AN3223/dotfiles/tree/master/.config/mpv/shaders |
-| Adaptive Sharpen (`adaptive-sharpen.glsl`, `adaptive-sharpen_strong.glsl`) by bacondither, mpv port by igv | - | BSD-2-Clause | https://gist.github.com/igv/8a77e4eb8276753b54bb94c1c50c317e (`_strong` only raises `curve_height` from 1.0 to 1.5) |
+| NLMeans (`nlmeans.glsl`, `nlmeans_sharpen_denoise.glsl`) by an3223, based on FFmpeg's vf_nlmeans | commit bd8864f (2023-09-22) | LGPL-2.1-or-later (as their headers say) | https://github.com/AN3223/dotfiles/tree/master/.config/mpv/shaders (`nlmeans.glsl` SHA-256 25eafbf1d743342fd8c531ed27cb0b8d23cd4bba2f244c6a0afd3c4931e91e21) |
+| Inter font (`fonts/Inter-Regular.ttf`, `Inter-SemiBold.ttf`, `Inter-Bold.ttf`, "Hinted for Windows" files) by Rasmus Andersson | 3.19 | SIL Open Font License 1.1 (`fonts/LICENSE-Inter.txt`) | https://github.com/rsms/inter/releases/tag/v3.19 (zip SHA-256 150ab6230d1762a57bebf35dfc04d606ff91598a31d785f7f100356ecdcc0032) |
+| Adaptive Sharpen (`adaptive-sharpen.glsl`, `adaptive-sharpen_strong.glsl`, `adaptive-sharpen_soft.glsl`) by bacondither, mpv port by igv | - | BSD-2-Clause | https://gist.github.com/igv/8a77e4eb8276753b54bb94c1c50c317e (`_strong` only raises `curve_height` from 1.0 to 1.5, `adaptive-sharpen_soft.glsl` only lowers it to 0.5) |
 
 The 7TV browser extension is **no longer** loaded by this fork (upstream copied it from Chrome or downloaded it
 from the Chrome Web Store for the web chat).

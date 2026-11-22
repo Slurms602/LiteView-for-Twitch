@@ -85,6 +85,39 @@ collection before each sample (as the scene does now, `d58c1a0`) handles went 66
 threads 28 → 26, GDI and USER flat. No leak across channel switches; CI's budget (40 handles over about 20 switches)
 would catch one.
 
+**Seamless switching** (`p3-playback`, run 43709662523, commit `1a673be`): the same switching scene with the old stream
+kept until the new one's first frame. All 26 switches handed over that way; mpv players counted at each sample: 1
+(the hand-over itself lasts about 1.6 s, of which 1.5 s is FakeStreamlink imitating Streamlink opening a stream, so
+mpv's own start to its first frame is about 0.1-0.3 s on the runner); private memory 40-42 MB, handles 641 → 659, GDI
+64, USER 83-85, threads 23-26, UI wait at most 372 ms (one sample; the rest under 20 ms). This is also why a persistent
+mpv was not chosen: on a real PC most of a switch's wait is Streamlink and Twitch, which only hand-over hides.
+`liteview.log` has "stream N: first frame after X s" for every stream, so the owner's real numbers can be read there.
+
+**Picture presets compared** (fixture scene `presets`, run 43710858661, commit `b612178`): a test picture (chat text in
+six sizes, a score box, a Siemens star, fine lines, coloured shapes, texture) at 1024x576 is the original; the stream
+is it at 512x288 after a JPEG round trip at quality 55 (blocks and ringing like a stream); LiteView shows it 2x in
+fullscreen and mpv saves what it shows with each preset (`tools/preset-metrics.py`, brightness only):
+
+| Preset | PSNR (dB) | SSIM | Overshoot | Detail |
+|---|---|---|---|---|
+| Off (mpv's fast scaling) | 24.04 | 0.866 | 0.93 | 0.64 |
+| Enhance | 24.55 | 0.855 | 2.23 | 1.13 |
+| High, sharpness Soft | 25.67 | 0.870 | 2.55 | 1.16 |
+| High (Normal) | 24.89 | 0.854 | 3.18 | 1.27 |
+| High, Strong | 24.26 | 0.841 | 3.69 | 1.35 |
+| Ultra, sharpness Off | **26.68** | **0.893** | 1.16 | 0.86 |
+| Ultra, Soft | 25.84 | 0.887 | 1.88 | **1.01** |
+| **Ultra (Normal, new)** | 25.09 | 0.880 | 2.33 | 1.10 |
+| Ultra as it was (two sharpeners) | 20.94 | 0.836 | 5.22 | 1.45 |
+
+PSNR/SSIM: closeness to the original (higher is better). Overshoot: luma levels per pixel beyond the original's local
+brightest/darkest, i.e. halos (lower is better). Detail: edge energy against the original (1.00 = as sharp; above =
+sharper than the original). The old Ultra was the furthest from the original of all presets, with the most halos and
+the most "detail" (oversharpening, as the owner saw). The new Ultra is closer to the original than High at every
+sharpness with fewer halos, because NLMeans removes the compression noise before the sharpener could amplify it;
+Ultra with sharpness Soft is as sharp as the original. GPU cost is not measured here (the runner renders in software);
+the stats overlay (I) shows it on a real card.
+
 CI now fails when a run goes over this budget (`tools/stress-check.ps1` in `.github/workflows/ci.yml`): private
 memory 250 MB, growth over the last 30 s 30 MB / 100 handles / 20 GDI / 20 USER objects, UI wait 250 ms, the
 generator at 80 % of its rate, at least 100 emotes decoded and none refused.

@@ -34,8 +34,14 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern bool CreateProcessW(string app, StringBuilder cmd, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string dir, ref Native.STARTUPINFO si, out Native.PROCESS_INFORMATION pi);
 
-    static readonly Color Bg = Color.FromArgb(14, 14, 16), Bar = Color.FromArgb(24, 24, 27), Hover = Color.FromArgb(38, 38, 44),
-        Fg = Color.FromArgb(239, 239, 241), Dim = Color.FromArgb(173, 173, 184), Accent = Color.FromArgb(145, 71, 255), Live = Color.FromArgb(235, 4, 0);
+    // fork: themes (src/app/Theme.cs); properties, not fields: Main is in this class and runs before the theme is loaded
+    static Color Bg { get { return Theme.Page; } }
+    static Color Bar { get { return Theme.Panel; } }
+    static Color Hover { get { return Theme.Hover; } }
+    static Color Fg { get { return Theme.Text; } }
+    static Color Dim { get { return Theme.Dim; } }
+    static Color Accent { get { return Theme.Accent; } }
+    static Color Live { get { return Theme.Live; } }
     const int BarH = 40;   // fork: ChatW is a setting (src/app/LiteView.Chat.cs)
     const string Home = "https://www.twitch.tv/directory/following/live";
     static readonly string[] Qualities = Quality.Choices;
@@ -78,13 +84,14 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         iniPath = Path.Combine(root, exe.ToLowerInvariant() + ".ini");
         Tw.Init(Path.Combine(root, "liteview.token"));
         ChatPanel.RecentPath = Path.Combine(root, "liteview.emotes");
+        InitEmoteCache();   // fork: emote pictures kept between runs (src/app/LiteView.Fork.cs)
         try { streamlink = Directory.GetFiles(Path.Combine(tw, "streamlink"), "streamlinkw.exe", SearchOption.AllDirectories).FirstOrDefault(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         mpv = Path.Combine(tw, "mpv", "mpv.exe");
         slLog = Path.Combine(root, exe.ToLowerInvariant() == "liteview" ? "streamlink.log" : exe + "-streamlink.log");
 
         Text = "LiteView for Twitch"; BackColor = Bg; ForeColor = Fg; Font = new Font("Segoe UI", 9.5f);
         KeyPreview = true; StartPosition = FormStartPosition.Manual; MinimumSize = new Size(640, 400);
-        try { Icon = Icon.ExtractAssociatedIcon(mpv); } catch { }
+        Icon = AppIcon.Load() ?? Icon;   // fork: LiteView's own icon, no longer mpv's (src/app/AppIcon.cs)
 
         // top bar
         bar.Dock = DockStyle.Top; bar.Height = BarH; bar.BackColor = Bar;
@@ -96,23 +103,23 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         SetCue(search, "Go to channel...");
         status.AutoSize = true; status.ForeColor = Dim; status.Location = new Point(250, 12);
         quality.DropDownStyle = ComboBoxStyle.DropDownList; quality.FlatStyle = FlatStyle.Flat; quality.BackColor = Hover; quality.ForeColor = Fg;
-        quality.Items.AddRange(Qualities); quality.Width = 96; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
+        quality.Items.AddRange(Qualities); quality.Width = 96; quality.HandleCreated += (s, e) => SetWindowTheme(quality.Handle, Theme.Light ? "CFD" : "DarkMode_CFD", null); quality.DrawMode = DrawMode.OwnerDrawFixed; quality.ItemHeight = 20;
         quality.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
-            TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused && !qualityRebuild) Watch(channel); };
+            TextRenderer.DrawText(e.Graphics, (string)quality.Items[e.Index], quality.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); }; quality.SelectedIndexChanged += (s, e) => { if (watching && quality.Focused && !qualityRebuild) Replay(); };   // fork: Replay keeps a video a video
         chatOn.Text = "Chat"; chatOn.ForeColor = Dim; chatOn.AutoSize = true; chatOn.ContextMenuStrip = nchat.Menu; chatOn.CheckedChanged += (s, e) => { if (watching) { if (chatOn.Checked) StartChat(); else StopChat(); Relayout(); FitWindow(); } };
-        Flat(fsBtn, "⛶"); fsBtn.Width = 34; fsBtn.Click += (s, e) => ToggleFullscreen();
+        Flat(fsBtn, "\uE740"); fsBtn.Font = new Font("Segoe MDL2 Assets", 11f); fsBtn.Width = 34; fsBtn.Click += (s, e) => ToggleFullscreen();   // fork: the icon font's glyph (with GDI text, "⛶" came from a tiny fallback font)
         Flat(muteBtn, "\uE767"); muteBtn.Font = new Font("Segoe MDL2 Assets", 11f); muteBtn.Width = 34;
-        muteBtn.Click += (s, e) => { muted = !muted; SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}"); UpdateMute(); SaveSettings(); };
+        muteBtn.Click += (s, e) => ToggleMute();   // fork: also for M and the mouse buttons when the bar is hidden (fullscreen; src/app/LiteView.Mouse.cs)
         new ToolTip().SetToolTip(muteBtn, "Mute (M on the video)");
-        volBar.Changed += v => { volume = v; if (muted) { muted = false; SendMpv("{\"command\":[\"set_property\",\"mute\",false]}"); }
+        volBar.Changed += v => { EndHandOver(); volume = v; if (muted) { muted = false; SendMpv("{\"command\":[\"set_property\",\"mute\",false]}"); }
             SendMpv("{\"command\":[\"set_property\",\"volume\"," + v + "]}"); UpdateMute(); };
         volBar.MouseUp += (s, e) => SaveSettings();
         new ToolTip().SetToolTip(volBar, "Volume (or the mouse wheel on the video)");
-        DarkCombo(picture, Pictures, 128); picture.SelectedIndexChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); };
-        new ToolTip().SetToolTip(picture, "Enhance: AMD FSR 1 upscaling + sharpening, any graphics card (light).\nHigh: FSRCNNX neural upscaling, any graphics card (more GPU).\nHigh: + Adaptive Sharpen on the final picture.\nUltra: best possible - NLMeans clean-up, bigger FSRCNNX, KrigBilateral colour, SSimDownscaler, strong sharpening, motion smoothing (most GPU).\nBoth add AMD CAS sharpening at 1:1 and debanding.");
+        DarkCombo(picture, Pictures, 142); picture.SelectedIndexChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); PictureChosen(); };   // fork: 142 wide (Inter is wider than Segoe UI); PictureChosen gives back a heavier preset's memory
+        new ToolTip().SetToolTip(picture, "Enhance: AMD FSR 1 upscaling + AMD CAS sharpening, any graphics card (light).\nHigh: FSRCNNX neural upscaling + Adaptive Sharpen (more GPU).\nUltra: NLMeans noise clean-up, bigger FSRCNNX, KrigBilateral colour, SSimDownscaler, motion smoothing,\nsharpened like High (most GPU).\nHigh and Ultra: menu > Playback > Sharpness. B: the original picture, to compare. I: stats with the GPU time.");
         rtx.Text = "RTX"; rtx.ForeColor = Dim; rtx.AutoSize = true; rtx.CheckedChanged += (s, e) => { ApplyEnhance(true); SaveSettings(); };
-        new ToolTip().SetToolTip(rtx, "NVIDIA RTX Video AI clean-up. With High/Ultra it cleans the stream first and FSRCNNX upscales after it;\nwith Off/Enhance RTX does the upscaling. Uses a lot more GPU (Ultra + RTX: about 25% of an RTX 5080).\nNeeds RTX Video Enhancement > Super Resolution on in the NVIDIA app.");
+        new ToolTip().SetToolTip(rtx, RtxTip);   // fork: src/app/LiteView.Picture.cs
         new ToolTip().SetToolTip(chatOn, "Show the chat. Right-click: native chat or Twitch web chat, log in or out.");
         new ToolTip().SetToolTip(fsBtn, "Fullscreen (or double-click the video). Esc to leave.");
         bar.Controls.AddRange(new Control[] { back, liveDot, title, search, status, quality, chatOn, picture, rtx, muteBtn, volBar, fsBtn });
@@ -142,7 +149,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         InitFork();
         hourly.Tick += (s, e) => CheckLogin(); hourly.Start();   // Twitch asks apps to re-check tokens hourly
         KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape && fullscreen) ToggleFullscreen(); else if (e.KeyCode == Keys.F11 && watching) ToggleFullscreen(); };
-        FormClosing += (s, e) => { SaveSettings(); CancelRetry(); StopStream(); nchat.Part(); Log.Info("closing"); };
+        FormClosing += (s, e) => { if (e.Cancel) return; SaveSettings(); CancelRetry(); StopStream(); nchat.Part(); Log.Info("closing"); };   // fork: e.Cancel: closing was called off (unfinished downloads)
         Resize += (s, e) => OnMinimizeChange();
 
         LoadSettings();
@@ -167,7 +174,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     void LayoutBar()
     {
         int x = bar.Width - 6;
-        foreach (Control c in new Control[] { menuBtn, fsBtn, volBar, muteBtn, pauseBtn, rtx, picture, chatOn, quality })
+        foreach (Control c in new Control[] { menuBtn, fsBtn, volBar, muteBtn, pauseBtn, clipBtn, rtx, picture, chatOn, quality })   // fork: clipBtn (src/app/LiteView.Clips.cs)
         {
             x -= c.Width + 6;
             c.Location = new Point(x, (BarH - c.Height) / 2);
@@ -179,7 +186,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
     {
         watching = watch;
         back.Visible = liveDot.Visible = title.Visible = fsBtn.Visible = muteBtn.Visible = volBar.Visible = picture.Visible = watch; rtx.Visible = watch && HasNvidia;
-        quality.Visible = chatOn.Visible = pauseBtn.Visible = watch;   // fork: the Following page has only the menu on the right
+        quality.Visible = chatOn.Visible = pauseBtn.Visible = clipBtn.Visible = watch;   // fork: the Following page has only the menu on the right
         search.Visible = !watch;
         status.Location = new Point(watch ? title.Right + 14 : search.Right + 14, 12);
         if (web != null) web.Visible = !watch;
@@ -201,7 +208,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         chatBox.Visible = cw > 0;
     }
 
-    int SideW { get { return watching && !fullscreen ? side.Width : 0; } }
+    int SideW { get { return watching && !fullscreen ? (side.Collapsed ? FollowBar.ClosedW : FollowBar.OpenW) : 0; } }   // fork: not side.Width, which fullscreen sets to 0 (the column was gone after leaving fullscreen)
 
     // Keep the video area 16:9 while the window is resized (no black bars).
     protected override void WndProc(ref Message m)
@@ -312,10 +319,11 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         string name = ChannelName.Normalize(raw);
         if (name == null)
         {
-            if (!string.IsNullOrWhiteSpace(raw)) { status.ForeColor = Color.FromArgb(255, 140, 140); status.Text = "That is not a Twitch channel name."; }
+            if (!string.IsNullOrWhiteSpace(raw)) { status.ForeColor = Theme.Error; status.Text = "That is not a Twitch channel name."; }
             return;
         }
         if (!isRetry) CancelRetry();
+        TakeVideo(name, isRetry);   // fork: a channel's video instead of its live stream (src/app/LiteView.Videos.cs)
         bool wasWatching = watching;
         channel = name; title.Text = name; search.Text = "";
         SetMode(true);
@@ -324,7 +332,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         if (!webChat) DropWeb();   // native chat: no browser at all while watching
         else if (webReady) { hiddenAt = DateTime.Now; web.CoreWebView2.Navigate("about:blank"); }   // nothing runs behind the video
 
-        StopStream();
+        HandOverOrStop();   // fork: the playing stream keeps playing until the next one shows (src/app/LiteView.Switch.cs); upstream: StopStream()
         string missing = MissingPlayerFiles();
         if (missing != null) { ShowProblem(missing, missing + "\n\nLiteView plays streams with the Streamlink and mpv copies in its twitch folder. An antivirus may have removed a file: unzip LiteView again into a new folder.", null); Log.Error(missing); }
         else StartStreamProcess(name, (string)quality.SelectedItem);
@@ -342,7 +350,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     {
         if (channel == null) return;
         nchat.Visible = !webChat; chatWeb.Visible = webChat;
-        if (!webChat) { nchat.Join(channel); return; }
+        if (!webChat) { if (!StartReplayChat()) nchat.Join(channel); return; }   // fork: a past broadcast's chat replay (src/app/LiteView.Replay.cs)
         var cw = chatWeb;   // SetWebChat replaces the control: work on this one only, and check after every await
         try
         {
@@ -405,6 +413,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         if (watching && !webChat && chatOn.Checked) nchat.Reconnect();
         side.Reload();
         browse.LoginChanged();
+        foreach (var x in extras) if (!x.IsDisposed) x.LoginChanged();   // fork: the extra windows' chats (src/app/ExtraPlayer.cs)
         status.ForeColor = Dim; status.Text = Tw.Login != null ? "Logged in as " + Tw.Login : "";
     }
 
@@ -447,6 +456,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     }
     void StopStream()
     {
+        KillOutgoing();     // fork: also a stream that was still playing while this one opened (src/app/LiteView.Switch.cs)
         streamOn.Reset();   // the mpv pipe thread goes idle
         if (job != IntPtr.Zero) { TerminateJobObject(job, 0); Native.CloseHandle(job); job = IntPtr.Zero; }
         slPid = 0;
@@ -458,6 +468,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
         if (!watching) { tick.Stop(); return; }
         ResyncMpv();
         CheckVariants();   // fork: the quality box lists this stream's real variants
+        CheckHandOver();   // fork: an old stream still playing ends when the next one takes too long
         if ((DateTime.Now - lastResize).TotalMilliseconds > 600) ApplyEnhance(false);
         if (slPid == 0 || slProc == null) return;
         bool alive = false;
@@ -488,8 +499,9 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     // Picture chain (shaders sent once per stream / setting; RTX re-sent after resizes):
     //   Enhance: AMD FSR 1 upscale + AMD CAS at 1:1 + debanding
     //   High:    FSRCNNX (8) upscale + Adaptive Sharpen on the final picture + debanding
-    //   Ultra:   KrigBilateral colour + NLMeans clean-up/sharpen + FSRCNNX (16) + SSimDownscaler
-    //            + strong Adaptive Sharpen + debanding + high-quality scaling + motion smoothing
+    //   Ultra:   KrigBilateral colour + NLMeans clean-up + FSRCNNX (16) + SSimDownscaler
+    //            + Adaptive Sharpen + debanding + high-quality scaling + motion smoothing
+    //   fork: the shader lists are in src/core/PicturePreset.cs (one sharpener at most, strength = menu > Sharpness)
     //   The FSRCNNX copies run for ANY upscale, so they work windowed/maximized too, not only fullscreen.
     //   RTX (NVIDIA): with High/Ultra it does its AI clean-up (a 1.05x step, the smallest that switches it
     //   on) and FSRCNNX upscales after it; with Off/Enhance RTX does the whole upscale.
@@ -498,15 +510,12 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     void ApplyEnhance(bool force)
     {
         if (!watching) return;
-        int pic = GamingPicture(Math.Max(0, picture.SelectedIndex));   // fork: Gaming Mode may lower it
-        if (force || appliedPic != pic.ToString())
+        int pic = comparing ? 0 : GamingPicture(Math.Max(0, picture.SelectedIndex));   // fork: Gaming Mode may lower it; B shows the original (src/app/LiteView.Picture.cs)
+        if (force || appliedPic != pic + "/" + sharpness)
         {
             bool ultra = pic == 3;
             SendMpv("{\"command\":[\"apply-profile\",\"" + (ultra ? "high-quality" : "fast") + "\"]}");
-            var list = new List<string>();
-            if (pic == 1) { list.Add("FSR.glsl"); list.Add("CAS.glsl"); }
-            else if (pic == 2) { list.Add("FSRCNNX_x2_8-0-4-1_any.glsl"); list.Add("adaptive-sharpen.glsl"); }
-            else if (ultra) { list.Add("KrigBilateral.glsl"); list.Add("nlmeans_sharpen_denoise.glsl"); list.Add("FSRCNNX_x2_16-0-4-1_any.glsl"); list.Add("SSimDownscaler.glsl"); list.Add("adaptive-sharpen_strong.glsl"); }
+            var list = PicturePreset.Shaders(pic, sharpness);   // fork: upstream's lists, Ultra sharpened once (src/core/PicturePreset.cs)
             SendMpv("{\"command\":[\"change-list\",\"glsl-shaders\",\"clr\",\"\"]}");
             foreach (var n in list) SendMpv("{\"command\":[\"change-list\",\"glsl-shaders\",\"append\",\"" + Shader(n) + "\"]}");
             SendMpv("{\"command\":[\"set_property\",\"deband\"," + (pic > 0 ? "true" : "false") + "]}");
@@ -514,11 +523,12 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
             SendMpv("{\"command\":[\"set_property\",\"video-sync\",\"" + (ultra ? "display-resample" : "audio") + "\"]}");
             SendMpv("{\"command\":[\"set_property\",\"interpolation\"," + (ultra ? "true" : "false") + "]}");
             if (ultra) SendMpv("{\"command\":[\"set_property\",\"tscale\",\"oversample\"]}");
-            appliedPic = pic.ToString();
+            appliedPic = pic + "/" + sharpness;
+            PictureApplied(pic);   // fork: the heaviest preset this player used (src/app/LiteView.Picture.cs)
         }
         double s = videoH > 0 ? Math.Max(1.0, Math.Round((double)video.Height / videoH, 2)) : 1.0;
-        bool useRtx = rtx.Checked && HasNvidia && !gamingActive;
-        string vf = !useRtx ? "off" : pic >= 2 ? "1.05" : s > 1.04 ? s.ToString("0.00", CultureInfo.InvariantCulture) : "off";
+        bool useRtx = rtx.Checked && HasNvidia && !gamingActive && !comparing;
+        string vf = RtxScale(useRtx, s, pic);   // fork: RTX enlarges only when the video is enlarged enough (src/app/LiteView.Picture.cs)
         double prev, now;
         bool near = vf != "off" && double.TryParse(appliedVf, NumberStyles.Float, CultureInfo.InvariantCulture, out prev)
             && double.TryParse(vf, NumberStyles.Float, CultureInfo.InvariantCulture, out now) && Math.Abs(prev - now) < 0.04;
@@ -532,7 +542,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     {
         cb.DropDownStyle = ComboBoxStyle.DropDownList; cb.FlatStyle = FlatStyle.Flat; cb.BackColor = Hover; cb.ForeColor = Fg;
         cb.Items.AddRange(items); cb.Width = width; cb.DrawMode = DrawMode.OwnerDrawFixed; cb.ItemHeight = 20;
-        cb.HandleCreated += (s, e) => SetWindowTheme(cb.Handle, "DarkMode_CFD", null);
+        cb.HandleCreated += (s, e) => SetWindowTheme(cb.Handle, Theme.Light ? "CFD" : "DarkMode_CFD", null);
         cb.DrawItem += (s, e) => { if (e.Index < 0) return; bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
             using (var b = new SolidBrush(sel ? Accent : Hover)) e.Graphics.FillRectangle(b, e.Bounds);
             TextRenderer.DrawText(e.Graphics, (string)cb.Items[e.Index], cb.Font, e.Bounds, Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left); };
@@ -560,11 +570,12 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                     if (g != gen) continue;
                     lock (pipeLock) { mpvPipe = pipe; mpvPipeGen = g; }
                     SendMpv("{\"command\":[\"set_property\",\"volume\"," + volume + "]}");
-                    SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}");
+                    SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted || muteNext ? "true" : "false") + "]}");   // fork: muted while the old stream still plays
                     SendMpv("{\"command\":[\"observe_property\",1,\"volume\"]}");
                     SendMpv("{\"command\":[\"observe_property\",2,\"mute\"]}");
                     SendMpv("{\"command\":[\"observe_property\",3,\"height\"]}");
                     SendMpv("{\"command\":[\"observe_property\",4,\"pause\"]}");   // fork: mpv paused (its Space key, its controls): pause properly
+                    SendMpv(FirstFrameQuery);   // fork: already playing? (src/app/LiteView.Switch.cs)
                     Ui(g, () => { appliedPic = appliedVf = null; videoH = 0; mpvGen = g; });
                     using (var rd = new StreamReader(pipe))
                     {
@@ -572,6 +583,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                         while ((line = rd.ReadLine()) != null)
                         {
                             if (line.Length > 65536) continue;
+                            if (ForkPipeLine(line, g)) continue;   // fork: first frame (src/app/LiteView.Switch.cs), stats (src/app/LiteView.Stats.cs)
                             if (line.Contains("client-message"))
                             {
                                 if (line.Contains("fs-toggle")) Ui(g, ToggleFullscreen);
@@ -601,7 +613,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
                                 else if (line.Contains("\"name\":\"mute\""))
                                 {
                                     bool m = d.Groups[1].Value == "true";
-                                    Ui(g, () => { if (mpvResync) return; muted = m; UpdateMute(); });
+                                    Ui(g, () => { if (mpvResync || muteNext) return; muted = m; UpdateMute(); });   // fork: muteNext, the new stream's own mute while it opens
                                 }
                             }
                         }
@@ -674,7 +686,7 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        int on = 1, col = Bar.R | (Bar.G << 8) | (Bar.B << 16);
+        int on = Theme.Light ? 0 : 1, col = Bar.R | (Bar.G << 8) | (Bar.B << 16);   // fork: themes
         DwmSetWindowAttribute(Handle, 20, ref on, 4);    // dark mode frame
         DwmSetWindowAttribute(Handle, 35, ref col, 4);   // caption = top bar colour
         DwmSetWindowAttribute(Handle, 34, ref col, 4);   // border
@@ -686,9 +698,13 @@ e.preventDefault();e.stopImmediatePropagation();P(K+n);},true);})();");
     static void Main(string[] args)
     {
         Application.EnableVisualStyles();
+        // fork: the window's own controls (labels, buttons, boxes) draw text with GDI, which uses ClearType like the rest;
+        // without this .NET Framework draws them with GDI+ in grey (the owner saw the top bar less smooth than the chat)
+        Application.SetCompatibleTextRenderingDefault(false);
         CatchCrashes();    // first: a failure while starting is shown, not a window that silently never opens
         ParseArgs(args);   // "LiteView.exe xqc", plus fork options (src/app/LiteView.Fork.cs)
         StartLogging();
+        Theme.Load();      // fork: before any window or colour exists (src/app/Theme.cs)
         ulong m = CpuAffinity();   // fork: the CPU use setting (src/app/LiteView.Performance.cs)
         using (var self = Process.GetCurrentProcess())   // WebView2, Streamlink, mpv, Chatterino inherit this
         {
@@ -704,7 +720,7 @@ class VolumeBar : Control
 {
     public int Value = 70;
     public event Action<int> Changed;
-    static readonly Color Track = Color.FromArgb(53, 53, 59), Fill = Color.FromArgb(145, 71, 255), Knob = Color.FromArgb(239, 239, 241);
+    static readonly Color Track = Theme.Line, Fill = Theme.Accent, Knob = Theme.Text;   // fork: themes
     public VolumeBar() { DoubleBuffered = true; Size = new Size(96, 30); Cursor = Cursors.Hand; }
     protected override void OnPaint(PaintEventArgs e)
     {

@@ -1,8 +1,10 @@
 // The mouse's side buttons (back and forward; src/core/SideButtons.cs). Owner's request 2026-11-22: show or hide the
 // chat with them, as C does. A press reaches LiteView three ways, and each press takes exactly one of them:
 // - on LiteView's own controls (top bar, chat, followed channels; also an extra window's): a message filter sees the
-//   button going down and takes it (and its button-up, so Windows makes no "browser back" command of it either);
-// - on the video, which is mpv's window (another process): mpv sends "liteview-mouse back|forward"
+//   button going down and takes it (and its button-up, so Windows makes no "browser back" command of it either).
+//   That includes the video: mpv (0.42) disables its window when embedded (--wid), so Windows gives the press to the
+//   video panel behind it (CI, scene "sidebuttons": the press on the video arrives as "window");
+// - should mpv's window take the mouse itself (another mpv build), mpv sends "liteview-mouse back|forward"
 //   (config/mpv/input.conf: MBTN_BACK / MBTN_FORWARD, and GO_BACK / GO_FORWARD for the browser keys below);
 // - as the keyboard keys Browser Back / Browser Forward, which some mouse software sends instead (src/app/LiteView.Extras.cs).
 // A button set to "Nothing", or a press while nothing plays (the Following page), is left alone.
@@ -163,7 +165,7 @@ partial class LiteView
             if (step == 2 && waited >= 1500)
             {
                 Log.Info("side buttons: after the forward button on the top bar, chat shown: " + chatOn.Checked);
-                FixtureXButton(video.PointToScreen(new System.Drawing.Point(video.Width / 2, video.Height / 2)), false);   // mpv: MBTN_BACK
+                FixtureXButton(video.PointToScreen(new System.Drawing.Point(video.Width / 2, video.Height / 2)), false);   // the video panel (mpv's window is disabled)
                 step = 3; waited = 0; return;
             }
             if (step == 3 && waited >= 2000)

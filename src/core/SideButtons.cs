@@ -1,9 +1,9 @@
 // The mouse's side buttons (back and forward, Windows' "X buttons"). Owner's request 2026-11-22: show or hide the chat
 // with them, as C does. Each button has its own action (menu > Playback > Mouse back button / Mouse forward button, also
 // Settings > Playback), kept in liteview.ini as "mouseback" and "mouseforward"; both show or hide the chat by default.
-// A press arrives three ways (src/app/LiteView.Mouse.cs): as a window message on LiteView's own controls, as a line from
-// mpv for a press on the video (config/mpv/input.conf: MBTN_BACK / MBTN_FORWARD), or as the keyboard keys Browser Back /
-// Browser Forward, which some mouse software sends instead.
+// A press arrives three ways (src/app/LiteView.Mouse.cs): as a window message on LiteView's own controls (the video's
+// too: mpv's embedded window is disabled), as a line from mpv should its window take the mouse (config/mpv/input.conf:
+// MBTN_BACK / MBTN_FORWARD), or as the keyboard keys Browser Back / Browser Forward, which some mouse software sends.
 using System;
 using System.Globalization;
 

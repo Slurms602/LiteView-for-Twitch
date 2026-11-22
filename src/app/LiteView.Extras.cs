@@ -30,7 +30,8 @@ partial class LiteView
         "Space  Pause / play (play continues at live)\n" +
         "M  Mute\n" +
         "Ctrl+Up / Ctrl+Down  Volume\n" +
-        "C  Show or hide the chat\n" +
+        "C  Show or hide the chat (in fullscreen: leave it, with the chat)\n" +
+        "Mouse back / forward buttons  Show or hide the chat (menu > Playback: choose what each one does)\n" +
         "I  Playback stats on the video (codec, decoding, dropped frames, buffer, GPU time, CPU, memory)\n" +
         "B  The original picture without enhancement, to compare (B again: back)\n" +
         "Alt+X  Save a clip of the last seconds (Videos\\LiteView Clips)\n" +
@@ -51,10 +52,11 @@ partial class LiteView
             else if (e.KeyCode == Keys.MediaPlayPause) TogglePause();
             else if (e.Alt && e.KeyCode == Keys.X) SaveClip();   // src/app/LiteView.Clips.cs
             else if (e.Alt && e.KeyCode == Keys.Left || e.KeyCode == Keys.Back && plain && !typing) Browse();
+            else if ((e.KeyCode == Keys.BrowserBack || e.KeyCode == Keys.BrowserForward) && SideActs(e.KeyCode == Keys.BrowserForward)) SideButton(e.KeyCode == Keys.BrowserForward, "key");   // mouse software's side buttons (src/app/LiteView.Mouse.cs)
             else if (typing) return;
             else if (e.KeyCode == Keys.Space && plain) TogglePause();
-            else if (e.KeyCode == Keys.M && plain) muteBtn.PerformClick();
-            else if (e.KeyCode == Keys.C && plain) chatOn.Checked = !chatOn.Checked;
+            else if (e.KeyCode == Keys.M && plain) ToggleMute();
+            else if (e.KeyCode == Keys.C && plain) ToggleChat();   // src/app/LiteView.Mouse.cs
             else if (e.KeyCode == Keys.I && plain) ToggleStats();
             else if (e.KeyCode == Keys.B && plain) ToggleCompare();
             else if (e.Control && e.KeyCode == Keys.Up) { volBar.Set(volBar.Value + 5); SaveSettings(); }

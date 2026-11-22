@@ -169,6 +169,7 @@ partial class LiteView
                 return;
             }
             if (Fixture.SceneName == "focus") { FocusScene(); return; }        // src/app/LiteView.Focus.cs
+            if (Fixture.SceneName == "sidebuttons") { SideButtonScene(); return; }   // src/app/LiteView.Mouse.cs
             if (Fixture.SceneName == "settings") { SettingsScene(); return; }  // src/app/LiteView.Settings.cs
             if (Fixture.SceneName == "clip") { ClipScene(); return; }          // src/app/LiteView.Clips.cs
             if (Fixture.SceneName == "download") { DownloadScene(); return; }  // src/app/LiteView.Downloads.cs
@@ -373,6 +374,7 @@ partial class LiteView
         yield return Kv("updatechecked", updateChecked);
         foreach (var kv in ChatSettings()) yield return kv;
         foreach (var kv in PerformanceSettings()) yield return kv;
+        foreach (var kv in SideButtonSettings()) yield return kv;   // src/app/LiteView.Mouse.cs
         foreach (var kv in popOptions.Save()) yield return kv;   // extra windows (src/app/ExtraPlayer.cs)
     }
 
@@ -404,6 +406,7 @@ partial class LiteView
         updateChecked = Native.Get(ini, "updatechecked", "");
         LoadChatSettings(ini);
         LoadPerformanceSettings(ini);
+        LoadSideButtonSettings(ini);
         popOptions = PopOptions.Load((k, d) => Native.Get(ini, k, d));
     }
 

@@ -64,12 +64,12 @@ jobs:
           if (-not (Test-Path fake/streamlinkw.exe)) { dotnet build tests/FakeStreamlink -c Release --no-restore -o fake }
           $fake = (Resolve-Path fake/streamlinkw.exe).Path
           ./tools/smoke.ps1 -Dir $dir -Out smoke/start; if ($LASTEXITCODE) { $failed++ }
-          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'vidsearch', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'download', 'paused', 'offline', 'fail', 'settings', 'live@light', 'chatlog@light', 'settings@light', 'watch@black') {
+          foreach ($scene in 'live', 'followed', 'recent', 'history', 'search:pix', 'browse', 'category', 'videos', 'vidsearch', 'clips', 'problem', 'chat', 'chatleft', 'chatlog', 'reply', 'picker', 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidebuttons', 'sidemenu', 'release', 'clip', 'download', 'paused', 'offline', 'fail', 'settings', 'live@light', 'chatlog@light', 'settings@light', 'watch@black') {
             $theme = ''; if ($scene -match '^(.+)@(light|black)$') { $scene = $Matches[1]; $theme = $Matches[2] }   # scene@theme: the same scene in another theme
             $vars = @{ LITEVIEW_UI_FIXTURE = '1'; LITEVIEW_UI_FIXTURE_SCENE = $scene }
             if ($theme) { $vars.LITEVIEW_UI_FIXTURE_THEME = $theme }
             $more = @{ A11y = $scene -in 'live', 'followed', 'browse', 'category', 'videos', 'clips', 'chat', 'chatlog', 'picker' }   # also check what screen readers see
-            if ($scene -in 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidemenu', 'release', 'clip', 'download', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
+            if ($scene -in 'watch', 'stats', 'vod', 'preview', 'window', 'focus', 'sidebuttons', 'sidemenu', 'release', 'clip', 'download', 'offline', 'fail', 'paused') { $vars.LITEVIEW_UI_FIXTURE_STREAMS = '1'; $more.FakeStreamlink = $fake; $more.Seconds = 20 } else { $more.Seconds = 12 }
             if ($scene -eq 'chatlog') { $more.Expect = @('chat: 8 recent messages', 'emoji: colour') }   # the history has emoji: drawn in colour
             if ($scene -eq 'reply') { $more.Expect = @('chat: 8 recent messages', 'chat: replying') }
             if ($scene -eq 'browse') { $more.A11yExpect = @("^LIST 'Browse categories' \([1-9][0-9]* items\)", '^  - Elden Ring, category') }
@@ -86,6 +86,7 @@ jobs:
             if ($scene -eq 'window') { $more.Seconds = 28 }   # the quality change comes 15 s in
             if ($scene -eq 'window') { $more.Expect = @('stream 1: first frame after', 'window: pixelforge playing', 'window: mpv volume 35', 'window: pixelforge opening 480p behind the picture', 'window: pixelforge now at 480p \(the last one played until then\)') }
             if ($scene -eq 'focus') { $more.Expect = @('focus: typing in the chat box: True', "focus: after a click on the chat's header, typing: False", 'focus: typing in the chat box again: True', 'focus: after a click on the video, typing: False') }
+            if ($scene -eq 'sidebuttons') { $more.Expect = @('side buttons: chat shown: True', 'mouse back button \(window\): chat', 'side buttons: after the back button on the chat, chat shown: False', 'mouse forward button \(window\): chat', 'side buttons: after the forward button on the top bar, chat shown: True', 'mouse back button \(video\): chat', 'side buttons: after the back button on the video, chat shown: False', 'side buttons: back button set to Nothing, chat shown: False') }
             if ($scene -eq 'sidemenu') { $more.Expect = @('side column after fullscreen: 240 px', 'side menu: [a-z_]+') }
             if ($scene -eq 'release') { $more.Expect = @('picture: Enhance after Ultra: the player restarts', 'stream 2: first frame after', 'stats: overlay on stream 1', 'stats: overlay on stream 2') }
             if ($scene -eq 'preview') { $more.Expect = @('preview: nightowl_plays|preview: [a-z_]+', 'preview: playing') }

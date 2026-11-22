@@ -110,7 +110,7 @@ partial class LiteView : Form   // fork additions: src/app/LiteView.Fork.cs
         chatOn.Text = "Chat"; chatOn.ForeColor = Dim; chatOn.AutoSize = true; chatOn.ContextMenuStrip = nchat.Menu; chatOn.CheckedChanged += (s, e) => { if (watching) { if (chatOn.Checked) StartChat(); else StopChat(); Relayout(); FitWindow(); } };
         Flat(fsBtn, "\uE740"); fsBtn.Font = new Font("Segoe MDL2 Assets", 11f); fsBtn.Width = 34; fsBtn.Click += (s, e) => ToggleFullscreen();   // fork: the icon font's glyph (with GDI text, "⛶" came from a tiny fallback font)
         Flat(muteBtn, "\uE767"); muteBtn.Font = new Font("Segoe MDL2 Assets", 11f); muteBtn.Width = 34;
-        muteBtn.Click += (s, e) => { EndHandOver(); muted = !muted; SendMpv("{\"command\":[\"set_property\",\"mute\"," + (muted ? "true" : "false") + "]}"); UpdateMute(); SaveSettings(); };
+        muteBtn.Click += (s, e) => ToggleMute();   // fork: also for M and the mouse buttons when the bar is hidden (fullscreen; src/app/LiteView.Mouse.cs)
         new ToolTip().SetToolTip(muteBtn, "Mute (M on the video)");
         volBar.Changed += v => { EndHandOver(); volume = v; if (muted) { muted = false; SendMpv("{\"command\":[\"set_property\",\"mute\",false]}"); }
             SendMpv("{\"command\":[\"set_property\",\"volume\"," + v + "]}"); UpdateMute(); };

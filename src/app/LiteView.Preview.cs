@@ -137,6 +137,7 @@ partial class LiteView
         var w = new ExtraPlayer(login, string.IsNullOrEmpty(name) ? login : name, log, popOptions, () => quality.SelectedItem as string, SaveSettings,
             r => LaunchPlayer(r, ChildPriorityFlag)) { Tag = slot, Icon = Icon };
         w.LoginRequested += Login;
+        w.SideActions = SideActionFor;   // src/app/LiteView.Mouse.cs
         w.WatchHere += () => { Activate(); Watch(login); };
         w.FormClosed += (s, e) => extras.Remove(w);
         extras.Add(w);

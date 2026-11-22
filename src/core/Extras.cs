@@ -55,6 +55,7 @@ namespace LiteViewCore
             "notify", "quiet", "updates", "chatwidth", "chatsize", "timestamps", "highlights", "ignored", "cpu", "cpumask", "gaming", "gamingpic",
             "chathistory", "pagesize", "browselang", "chatside", "font", "seamless", "startmin", "totray", "sharpness", "previews",
             "popontop", "popchat", "popfit", "popquality", "popvolume", "chatreplay", "clipsecs", "theme", "smoothing",
+            SideButtons.BackKey, SideButtons.ForwardKey,
         };
         public const int MaxValue = 20000;
         static readonly char[] LineBreaks = { '\r', '\n', '\0' };

@@ -50,6 +50,9 @@ partial class LiteView
             if (line.IndexOf("\"liteview-stats\"", StringComparison.Ordinal) >= 0) { Ui(g, ToggleStats); return true; }
             if (line.IndexOf("\"liteview-compare\"", StringComparison.Ordinal) >= 0) { Ui(g, ToggleCompare); return true; }
             if (line.IndexOf("\"liteview-click\"", StringComparison.Ordinal) >= 0) { Ui(g, () => DropTextFocus(null)); return true; }   // src/app/LiteView.Focus.cs
+            var side = SideButtons.FromMpvLine(line);   // a mouse side button on the video (src/app/LiteView.Mouse.cs)
+            if (side.HasValue) { Ui(g, () => SideButton(side.Value, "video")); return true; }
+            if (SideButtons.IsChatKey(line)) { Ui(g, ToggleChat); return true; }   // C with the video clicked
         }
         return false;
     }

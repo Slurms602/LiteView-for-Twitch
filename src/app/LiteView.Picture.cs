@@ -118,7 +118,8 @@ partial class LiteView
         cmp.Click += (o, e) => ToggleCompare();
         var prev = Toggle("Previews on hover (Following page)", browse.Previews, v => { browse.Previews = v; if (!v) StopPreview(); });
         prev.ToolTipText = "Rest the mouse on a live channel's card: it plays there, muted, at the lowest quality.";
-        m.DropDownItems.AddRange(new ToolStripItem[] { smooth, prev, sharp, new ToolStripSeparator(), stats, cmp, new ToolStripSeparator(), ClipsMenu() });
+        m.DropDownItems.AddRange(new ToolStripItem[] { smooth, prev, sharp, new ToolStripSeparator(), stats, cmp, new ToolStripSeparator(), ClipsMenu(), new ToolStripSeparator() });
+        foreach (var it in SideButtonMenus()) m.DropDownItems.Add(it);   // src/app/LiteView.Mouse.cs
         DarkMenuColors.Apply(m.DropDown);
         return m;
     }

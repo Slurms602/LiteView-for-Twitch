@@ -34,6 +34,7 @@ GameFirst.exe (optional, separate, started by the user)  ← adjusts listed proc
 | `src/app/LiteView.Browse.cs` | Wiring of the native Following page, the top-right app menu, the fork's settings keys | fork |
 | `src/app/BrowsePage.cs` | Native Following page control (cards, lists, search, images within a budget) | fork |
 | `src/app/LiteView.Extras.cs` | Keyboard shortcuts, favourite go-live notifications, settings export/import/reset, update check | fork |
+| `src/app/LiteView.Mouse.cs` | The mouse's back/forward buttons (show or hide the chat by default; each button's action in menu > Playback): a message filter for LiteView's controls, mpv's `liteview-mouse` for the video, the Browser Back/Forward keys | fork |
 | `src/app/LiteView.Chat.cs` | Chat preferences (`ChatPrefs`), chat width handle, the list dialog | fork |
 | `src/app/ChatHistory.cs` | `ChatPanel` (partial): the channel's recent messages when joining | fork |
 | `src/app/LiteView.Pause.cs` | Pause / play (ends and restarts the stream processes) | fork |

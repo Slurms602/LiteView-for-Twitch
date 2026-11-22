@@ -71,7 +71,7 @@ partial class LiteView
     void InitFork()
     {
         Shown += (s, e) => windowShown = true;
-        InitSwitch(); InitStats(); InitStartup(); InitFocus(); InitSideMenu(); InitWatched(); InitDownloads();
+        InitSwitch(); InitStats(); InitStartup(); InitFocus(); InitSideButtons(); InitSideMenu(); InitWatched(); InitDownloads();
         title.TextChanged += (s, e) => { if (watching) FitStatus(); };   // a new title: its width, and the status line moves along
         if (stressRate > 0) StartStress();
         new Thread(MpvWriter) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "mpv writer" }.Start();

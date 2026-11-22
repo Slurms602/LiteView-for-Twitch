@@ -50,6 +50,8 @@ sealed class ExtraPlayer : Form
     bool onTop, chatOn; string quality;   // this window's own choices; a change also becomes the default for new windows (opts)
 
     public event Action LoginRequested, WatchHere;
+    /// <summary>What each mouse side button does (the main window's setting; src/app/LiteView.Mouse.cs): true is forward.</summary>
+    public Func<bool, SideAction> SideActions;
 
     [DllImport("user32.dll")] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
     [DllImport("kernel32.dll")] static extern bool TerminateJobObject(IntPtr job, uint code);
@@ -70,7 +72,7 @@ sealed class ExtraPlayer : Form
         volBar.Value = opts.Volume; volBar.Width = 90; volBar.BackColor = BarC;
         volBar.Changed += v => { opts.Volume = v; if (muted) SetMute(false); Send("{\"command\":[\"set_property\",\"volume\"," + v + "]}"); UpdateMute(); saveLater.Stop(); saveLater.Start(); };
         tips.SetToolTip(volBar, "Volume of this window (or the mouse wheel on the video)");
-        Flat(chatBtn, "", "Chat beside the video"); chatBtn.Click += (s, e) => { chatOn = !chatOn; opts.Chat = chatOn; ShowChat(chatOn, true); save(); };
+        Flat(chatBtn, "", "Chat beside the video"); chatBtn.Click += (s, e) => ToggleChat();
         Flat(pinBtn, "", "Keep this window on top of other windows"); pinBtn.Click += (s, e) => { onTop = !onTop; opts.OnTop = onTop; TopMost = onTop; UpdateButtons(); save(); };
         Flat(moreBtn, "", "Quality, shape, watch in the main window"); moreBtn.Click += (s, e) => { BuildMenu(); more.Show(moreBtn, new Point(moreBtn.Width - more.Width, -more.Height)); };
         DarkMenuColors.Apply(more);
@@ -86,8 +88,10 @@ sealed class ExtraPlayer : Form
         Shown += (s, e) => { if (chatOn) ShowChat(true, true); else if (opts.Fit) FitToVideo(); Start(); };   // the chat widens the window, the video keeps its size
         KeyDown += (s, e) =>
         {
+            if ((e.KeyCode == Keys.BrowserBack || e.KeyCode == Keys.BrowserForward) && SideActs(e.KeyCode == Keys.BrowserForward)) { SideButton(e.KeyCode == Keys.BrowserForward, "key"); e.Handled = true; return; }   // also while typing: mouse software's side buttons
             if (e.Control || e.Alt || (chat != null && chat.ContainsFocus)) return;
             if (e.KeyCode == Keys.M) { SetMute(!muted); e.Handled = true; }
+            else if (e.KeyCode == Keys.C) { ToggleChat(); e.Handled = true; }
         };
         FormClosed += (s, e) =>
         {
@@ -98,6 +102,28 @@ sealed class ExtraPlayer : Form
     }
 
     public string Login { get { return login; } }
+
+    void ToggleChat() { chatOn = !chatOn; opts.Chat = chatOn; ShowChat(chatOn, true); save(); }
+
+    // the mouse's side buttons in this window: its chat or its sound; the main window's other choices do nothing here
+    SideAction SideActionFor(bool forward) { var f = SideActions; return f == null ? SideAction.Nothing : f(forward); }
+    public bool SideActs(bool forward) { var a = SideActionFor(forward); return a == SideAction.Chat || a == SideAction.Mute; }
+    public void SideButton(bool forward, string from)
+    {
+        var a = SideActionFor(forward);
+        Log.Info("window: mouse " + (forward ? "forward" : "back") + " button (" + from + "): " + SideButtons.Save(a));
+        if (a == SideAction.Chat) ToggleChat();
+        else if (a == SideAction.Mute) SetMute(!muted);
+    }
+
+    // a line from this window's mpv: a side button pressed on the video, or C
+    void OnMpvMessage(Session ses, string line)
+    {
+        if (IsDisposed || ses != cur) return;
+        var side = SideButtons.FromMpvLine(line);
+        if (side.HasValue) { if (SideActs(side.Value)) SideButton(side.Value, "video"); }
+        else if (SideButtons.IsChatKey(line)) ToggleChat();
+    }
 
     /// <summary>UI fixture (CI): moves the volume bar, as a click would.</summary>
     public void FixtureVolume(int v) { volBar.Set(v); }
@@ -275,6 +301,7 @@ sealed class ExtraPlayer : Form
         var p = new MpvPipe(req.PipeName);
         p.Changed += (what, value) => OnMpvChange(ses, what, value);
         p.Playing += () => { try { BeginInvoke((Action)(() => OnPlaying(ses))); } catch (InvalidOperationException) { } };
+        p.Message += line => { try { BeginInvoke((Action)(() => OnMpvMessage(ses, line))); } catch (InvalidOperationException) { } };
         ses.Pipe = p;
         p.Start();
         return ses;
@@ -381,6 +408,7 @@ sealed class MpvPipe : IDisposable
     volatile bool stop;
     public event Action<string, string> Changed;   // property name, value (JSON text)
     public event Action Playing;                    // the first frame (once)
+    public event Action<string> Message;            // a side button or C on the video (src/app/LiteView.Mouse.cs)
     bool played;
 
     public MpvPipe(string name) { this.name = name; }
@@ -416,6 +444,12 @@ sealed class MpvPipe : IDisposable
                         {
                             played = true;
                             var pl = Playing; if (pl != null) pl();
+                            continue;
+                        }
+                        if (line.IndexOf("\"client-message\"", StringComparison.Ordinal) >= 0)
+                        {
+                            var m = Message;
+                            if (m != null && (SideButtons.FromMpvLine(line).HasValue || SideButtons.IsChatKey(line))) m(line);
                             continue;
                         }
                         if (line.IndexOf("\"property-change\"", StringComparison.Ordinal) < 0) continue;
